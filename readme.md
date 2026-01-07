@@ -1,36 +1,35 @@
 # Railway Framework for Python
 
-Pythonで**型安全**で**エラーに強い**運用自動化ツールを、簡単に作成できるフレームワークです。
+**シンプルで強力な運用自動化フレームワーク**
 
-## 目次
+Pythonで**型安全**で**エラーに強い**運用自動化ツールを、**5分で**作成開始できます。
 
-- [これは何？](#これは何)
-- [コア概念](#コア概念)
-- [クイックスタート](#クイックスタート)
-- [主要な特徴](#主要な特徴)
-- [ユースケース](#ユースケース)
-- [プロジェクト構造](#プロジェクト構造)
-- [エントリーポイントの例](#エントリーポイントの例)
-- [ノードの例](#ノードの例)
-- [設定ファイルと設定管理](#設定ファイルと設定管理)
-- [CLIコマンド](#cliコマンド)
-- [グラフ定義（オプション）](#グラフ定義オプション機能)
-- [採用技術スタック](#採用技術スタック)
-- [開発ワークフロー](#開発ワークフロー)
-- [テストの書き方](#テストの書き方)
-- [Advanced機能](#advanced機能)
-- [FAQ](#faq)
+[![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+---
+
+## 特徴
+
+- ✨ **5分で開始**: `railway init` でプロジェクト作成、すぐに実装開始
+- 🛤️ **Railway Oriented Programming**: エラーハンドリングが自動的に処理される
+- 🔒 **型安全**: mypyによる完全な型チェック
+- 🎯 **シンプルなAPI**: デコレータベースで直感的
+- 📝 **自動生成**: テンプレートから即座にコード生成
+- 🧪 **テスト容易**: テストコードも自動生成
+- ⚙️ **環境別設定**: development/production を簡単に切り替え
+
+---
 
 ## これは何？
 
-Railway Oriented Programming（ROP）パラダイムで、運用自動化スクリプトを構築するためのフレームワークです。
+Railway Oriented Programming（ROP）パラダイムで、運用自動化スクリプトを構築するフレームワークです。
 「成功パス」と「エラーパス」を明確に分離し、エラーハンドリングを簡潔かつ安全に記述できます。
 
-### 解決する問題
+### 従来 vs Railway
 
-**従来の運用スクリプトの課題:**
+**❌ 従来のアプローチ: 複雑で漏れやすいエラーハンドリング**
 ```python
-# ❌ 従来のアプローチ: エラーハンドリングが複雑で漏れやすい
 def process():
     try:
         data = fetch_data()
@@ -49,464 +48,456 @@ def process():
         return None
 ```
 
-**Railwayフレームワークのアプローチ:**
+**✅ Railway Framework: シンプルで安全**
 ```python
-# ✅ Railwayフレームワーク: エラーは自動的に伝播、コードは簡潔
-@railway_node
-def process() -> Result[str, Exception]:
-    return (
-        fetch_data()
-        .bind(transform)
-        .bind(save)
+from railway import entry_point, node, pipeline
+
+@node
+def fetch_data() -> dict:
+    # エラーは自動的にキャッチされる
+    return api.get("/data")
+
+@node
+def transform(data: dict) -> dict:
+    return {"processed": data}
+
+@node
+def save(data: dict) -> str:
+    db.save(data)
+    return "Saved!"
+
+@entry_point
+def process():
+    # エラーは自動的に伝播、後続処理はスキップされる
+    return pipeline(
+        fetch_data(),
+        transform,
+        save
     )
 ```
 
-### Railway Oriented Programmingとは？
+---
 
-関数型プログラミングの概念で、処理を「線路」に例えます:
-- **成功パス（Success Track）**: すべてが正常に動作する線路
-- **エラーパス（Failure Track）**: エラーが発生した線路
+## クイックスタート（5分）
 
-一度エラーパスに入ると、後続の処理はスキップされ、エラーが最終的に返されます。
-これにより、if文やtry-exceptのネストが不要になり、コードが読みやすくなります。
+### 1. インストール
+
+```bash
+# uvをインストール（未インストールの場合）
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Railwayフレームワークをインストール
+pip install railway-framework
+```
+
+### 2. プロジェクト作成
+
+```bash
+railway init my_automation
+cd my_automation
+```
+
+これで以下が自動生成されます:
+```
+my_automation/
+├── src/              # コード
+├── tests/            # テスト
+├── config/           # 設定ファイル
+├── .env.example      # 環境変数テンプレート
+└── TUTORIAL.md       # ステップバイステップガイド
+```
+
+### 3. 最初のエントリーポイント作成
+
+```bash
+railway new entry hello --example
+```
+
+これで `src/hello.py` が生成されます:
+
+```python
+from railway import entry_point, node
+
+@node
+def greet(name: str) -> str:
+    return f"Hello, {name}!"
+
+@entry_point
+def main(name: str = "World"):
+    message = greet(name)
+    print(message)
+    return message
+```
+
+### 4. 実行！
+
+```bash
+uv run python -m src.hello
+# Output: Hello, World!
+
+uv run python -m src.hello --name Alice
+# Output: Hello, Alice!
+```
+
+**🎉 完成！ たった4ステップで動作する自動化ツールができました。**
+
+---
+
+## もっと詳しく: 段階的チュートリアル
+
+プロジェクトには `TUTORIAL.md` が含まれており、以下を段階的に学べます:
+
+1. **Hello World** (5分) - 基本的なノードとエントリーポイント
+2. **エラーハンドリング** (10分) - 自動的なエラー処理
+3. **パイプライン** (10分) - 複数ノードの連携
+4. **設定管理** (15分) - 環境別設定
+5. **テスト** (20分) - テストの書き方
+
+---
 
 ## コア概念
 
-### Result型
-処理の成功または失敗を表現する型です（`returns`ライブラリ提供）:
+### 1. ノード (@node)
+
+**ノード = 再利用可能な処理単位**
+
 ```python
-from returns.result import Result, Success, Failure
+from railway import node
 
-def divide(a: int, b: int) -> Result[float, str]:
-    if b == 0:
-        return Failure("Division by zero")
-    return Success(a / b)
+@node
+def fetch_data(url: str) -> dict:
+    """データ取得ノード"""
+    response = requests.get(url)  # エラーは自動的にキャッチされる
+    return response.json()
 
-# 使用例
-result = divide(10, 2)
-result.map(lambda x: print(f"Result: {x}"))      # Result: 5.0
-result.alt(lambda e: print(f"Error: {e}"))       # エラー時のみ実行
+@node(retry=True)  # リトライ有効化
+def send_email(data: dict) -> str:
+    """メール送信ノード（リトライあり）"""
+    mailer.send(data)
+    return "Email sent"
 ```
 
-### bind（メソッドチェーン）
-Result型の値に対して、次の処理を適用します。エラーの場合は自動的にスキップされます:
+**ノードの特徴:**
+- 例外は自動的にキャッチされ、Failure として伝播
+- `retry=True` でリトライ機能を有効化
+- 設定ファイルでリトライポリシーを制御可能
+
+### 2. エントリーポイント (@entry_point)
+
+**エントリーポイント = 実行の起点**
+
 ```python
-def add_one(x: int) -> Result[int, str]:
-    return Success(x + 1)
+from railway import entry_point, pipeline
 
-def multiply_two(x: int) -> Result[int, str]:
-    return Success(x * 2)
-
-# チェーン処理
-result = Success(5).bind(add_one).bind(multiply_two)  # Success(12)
-# 5 -> 6 -> 12
+@entry_point
+def main(date: str = None, dry_run: bool = False):
+    """日次レポート生成"""
+    result = pipeline(
+        fetch_data(date),
+        process_data,
+        generate_report,
+        send_report if not dry_run else skip
+    )
+    return result
 ```
 
-### flow（パイプライン）
-複数の関数を順次実行するパイプラインを構築します:
+**エントリーポイントの特徴:**
+- コマンドライン引数を自動的にパース
+- エラーハンドリングとログ出力が自動化
+- 成功時は exit code 0、失敗時は 1
+
+### 3. パイプライン (pipeline)
+
+**パイプライン = ノードの連鎖**
+
 ```python
-from returns.pipeline import flow
-
-def fetch() -> Result[dict, Exception]: ...
-def validate(data: dict) -> Result[dict, Exception]: ...
-def save(data: dict) -> Result[str, Exception]: ...
-
-# flowで処理パイプライン構築
-result = flow(
-    fetch(),
-    validate,
-    save,
+result = pipeline(
+    step1(),      # 最初のノード
+    step2,        # step1の出力がstep2の入力になる
+    step3,        # step2の出力がstep3の入力になる
 )
 ```
 
-**bindとflowの使い分け:**
-- **bind**: 既存のResult値にメソッドチェーンで処理を追加
-- **flow**: 最初から処理パイプライン全体を定義
+**パイプラインの動作:**
+```
+Success Track:  ════════════════════════════
+step1 ──> step2 ──> step3 ──> Complete!
+  ✓         ✓         ✓
 
-### @safeデコレータ
-通常の関数を自動的にResult型を返す関数に変換します:
-```python
-from returns.result import safe
-
-@safe
-def risky_operation(x: int) -> int:
-    if x < 0:
-        raise ValueError("Negative value")
-    return x * 2
-
-# 自動的にResult型に変換される
-result = risky_operation(5)   # Success(10)
-result = risky_operation(-1)  # Failure(ValueError(...))
+Failure Track:  ════════════════════════════
+step1 ──> step2 ──> step3
+  ✓         ✗
+            └──> Skip ──> Failure(error)
 ```
 
-## クイックスタート
-
-```bash
-# 1. uvをインストール（未インストールの場合）
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# 2. リポジトリをクローン
-git clone https://github.com/your-org/railway_py.git
-cd railway_py
-
-# 3. プロジェクトを初期化
-railway init my_automation
-cd my_automation
-
-# 4. エントリーポイントを作成
-railway add-entry daily_report
-
-# 5. 生成されたファイルを確認（src/daily_report.py）
-# テンプレートには必要なコードがすべて記述済み
-
-# 6. 実行
-uv run python -m src.daily_report
-
-# 出力例:
-# [INFO] Starting daily_report...
-# [INFO] ✓ fetch_data completed
-# [INFO] ✓ process_data completed
-# [INFO] ✓ send_report completed
-# [SUCCESS] Pipeline completed successfully!
-```
-
-## 主要な特徴
-
-- **簡潔なエラーハンドリング**: `Result`型で成功/失敗を型安全に表現
-- **ワンコマンドでスタート**: テンプレート自動生成で即座に開発開始
-- **グラフベースの処理フロー**: ノード間の依存関係を宣言的に定義
-- **環境別設定**: development/production等の環境を`.env`で切り替え
-- **型安全**: `mypy`による厳格な型チェック
-- **リトライ機能**: 設定ファイルでリトライポリシーを管理
-
-## ユースケース
-
-### 1. API統合の自動化
-```python
-# 外部APIからデータを取得→変換→別APIに送信
-def api_integration() -> Result[dict, Exception]:
-    return (
-        fetch_from_api_a()
-        .bind(validate_schema)
-        .bind(transform_data)
-        .bind(send_to_api_b)
-    )
-```
-
-### 2. データベースバッチ処理
-```python
-# DB抽出→集計→レポート生成→通知
-def daily_batch() -> Result[str, Exception]:
-    return (
-        extract_from_db()
-        .bind(aggregate_stats)
-        .bind(generate_report)
-        .bind(send_notification)
-    )
-```
-
-### 3. ファイル処理パイプライン
-```python
-# ファイル読込→検証→変換→保存
-def file_processing() -> Result[Path, Exception]:
-    return (
-        read_csv_file()
-        .bind(validate_records)
-        .bind(transform_format)
-        .bind(save_to_storage)
-    )
-```
+---
 
 ## プロジェクト構造
 
 ```
 my_automation/
 ├── src/
-│   ├── daily_report.py        # エントリーポイント
-│   ├── nodes/                 # 処理ノード（再利用可能）
+│   ├── settings.py          # 設定読み込み
+│   ├── daily_report.py      # エントリーポイント
+│   ├── nodes/               # 処理ノード
 │   │   ├── fetch_data.py
-│   │   ├── process_data.py
-│   │   └── send_report.py
-│   ├── common/                # 共通ユーティリティ
-│   │   └── api_client.py
-│   └── settings.py            # 設定読み込み
+│   │   └── process_data.py
+│   └── common/              # 共通ユーティリティ
+│       └── api_client.py
+├── tests/
+│   └── nodes/
+│       └── test_fetch_data.py
 ├── config/
-│   ├── development/
-│   │   ├── app.yaml           # アプリ設定
-│   │   ├── logging.yaml       # ログ設定
-│   │   └── retry.yaml         # リトライ設定
-│   └── production/
-│       └── ...
-├── tests/                     # テストコード
-├── .env                       # 環境変数
-└── pyproject.toml
+│   ├── development.yaml     # 開発環境設定
+│   └── production.yaml      # 本番環境設定
+├── logs/                    # ログ出力先
+├── .env                     # 環境変数（gitignore対象）
+├── .env.example             # 環境変数テンプレート
+└── TUTORIAL.md              # チュートリアル
 ```
 
-## エントリーポイントの例
-
-`railway add-entry daily_report`で生成されるファイル（`src/daily_report.py`）:
-
-```python
-"""Daily report generation entry point."""
-from returns.result import Result, Success, Failure
-from returns.pipeline import flow
-from loguru import logger
-import typer
-
-from src.nodes.fetch_data import fetch_data
-from src.nodes.process_data import process_data
-from src.nodes.send_report import send_report
-from src.settings import settings
-
-app = typer.Typer()
-
-
-def run_pipeline() -> Result[str, Exception]:
-    """Execute the daily report pipeline."""
-    return flow(
-        fetch_data(),
-        process_data,
-        send_report,
-    )
-
-
-@app.command()
-def main(
-    date: str = typer.Option(None, help="Report date (YYYY-MM-DD)"),
-    dry_run: bool = typer.Option(False, help="Dry run mode"),
-) -> None:
-    """Generate and send daily report."""
-    logger.info(f"Starting daily_report (dry_run={dry_run})...")
-
-    result = run_pipeline()
-
-    result.map(lambda x: logger.success(f"✓ Pipeline completed: {x}"))
-    result.alt(lambda e: logger.error(f"✗ Pipeline failed: {e}"))
-
-
-if __name__ == "__main__":
-    app()
-```
-
-## ノードの例
-
-`railway add-node fetch_data`で生成されるファイル（`src/nodes/fetch_data.py`）:
-
-```python
-"""Fetch data from external API."""
-from returns.result import Result, Success, Failure, safe
-from tenacity import retry, stop_after_attempt, wait_exponential
-from loguru import logger
-
-from src.common.api_client import APIClient
-from src.settings import settings
-
-
-@retry(
-    stop=stop_after_attempt(settings.retry.max_attempts),
-    wait=wait_exponential(multiplier=1, min=2, max=10)
-)
-@safe
-def fetch_data() -> dict:
-    """
-    Fetch data from external API with retry.
-
-    Returns:
-        Result[dict, Exception]: Success with data or Failure with error
-    """
-    logger.info("Fetching data from API...")
-
-    client = APIClient(base_url=settings.api.base_url)
-    response = client.get("/data")
-
-    logger.debug(f"Received {len(response)} records")
-    return response
-```
-
-## 設定ファイルと設定管理
-
-### 設定の仕組み
-
-`src/settings.py`が環境変数（`.env`）とYAML設定ファイルを読み込み、`pydantic`で型安全な設定オブジェクトを生成します:
-
-```python
-# src/settings.py（自動生成される）
-from pydantic import BaseModel
-from pydantic_settings import BaseSettings
-import yaml
-from pathlib import Path
-
-class APISettings(BaseModel):
-    base_url: str
-    timeout: int
-
-class RetrySettings(BaseModel):
-    max_attempts: int
-    multiplier: int
-    min_wait: int
-    max_wait: int
-
-class Settings(BaseSettings):
-    railway_env: str = "development"
-    app_name: str
-    log_level: str = "INFO"
-
-    # YAMLから読み込まれる設定
-    api: APISettings
-    retry: RetrySettings
-
-    class Config:
-        env_file = ".env"
-
-# グローバル設定オブジェクト
-settings = Settings()
-```
-
-これにより、コード内で`settings.api.base_url`や`settings.retry.max_attempts`のように型安全にアクセスできます。
-
-### `.env`
-```env
-# 環境指定（development/staging/production）
-RAILWAY_ENV=development
-
-# アプリ設定
-APP_NAME=my_automation
-LOG_LEVEL=INFO
-```
-
-### `config/development/app.yaml`
-```yaml
-# アプリケーション設定
-api:
-  base_url: "https://api.example.com"
-  timeout: 30
-
-database:
-  host: "localhost"
-  port: 5432
-  name: "dev_db"
-
-notification:
-  email_to: "dev@example.com"
-  slack_webhook: "https://hooks.slack.com/..."
-```
-
-### `config/development/retry.yaml`
-```yaml
-# リトライポリシー設定
-max_attempts: 3
-multiplier: 1
-min_wait: 2
-max_wait: 10
-
-# ノード別の設定
-nodes:
-  fetch_data:
-    max_attempts: 5
-    min_wait: 1
-  send_notification:
-    max_attempts: 2
-```
-
-### `config/development/logging.yaml`
-```yaml
-# ロギング設定
-level: "DEBUG"
-format: "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | {message}"
-
-handlers:
-  - sink: "logs/app.log"
-    rotation: "1 day"
-    retention: "7 days"
-    level: "INFO"
-
-  - sink: "stderr"
-    level: "DEBUG"
-```
+---
 
 ## CLIコマンド
 
 ### プロジェクト管理
+
 ```bash
-railway init <project_name>        # 新規プロジェクト作成
-railway info                       # プロジェクト情報表示
+# 新規プロジェクト作成
+railway init my_project
+
+# サンプルコード付きで作成
+railway init my_project --with-examples
 ```
 
-### エントリーポイント管理
+### コード生成
+
 ```bash
-railway add-entry <name>           # エントリーポイント追加
-railway add-entry <name> --async   # 非同期版テンプレート生成
-railway list-entries               # エントリーポイント一覧
+# エントリーポイント作成
+railway new entry daily_report
+
+# サンプルコード付きでノード作成
+railway new node fetch_data --example
+
+# 既存ファイルを上書き
+railway new node fetch_data --force
 ```
 
-### ノード管理
+### 情報表示
+
 ```bash
-railway add-node <name>            # 新規ノード追加
-railway list-nodes                 # ノード一覧
+# エントリーポイントとノードの一覧
+railway list
+
+# エントリーポイントのみ
+railway list entries
+
+# ノードのみ
+railway list nodes
 ```
 
-### グラフ管理
-```bash
-railway graph validate             # グラフ定義の検証
-railway graph visualize            # グラフ構造の可視化（Mermaid形式）
-railway graph check-cycles         # 循環依存チェック
-```
+---
 
-### 実行・テスト
-```bash
-uv run python -m src.<entry_name>  # エントリーポイント実行
-pytest                             # テスト実行
-ruff check .                       # リント
-mypy src/                          # 型チェック
-```
+## 設定管理
 
-## グラフ定義（オプション機能）
+### 統合設定ファイル: config/development.yaml
 
-**基本的な使い方では不要です。** 複雑なパイプラインで依存関係を明示的に管理したい場合に使用します。
-
-ノード間の依存関係を`graph.yaml`で定義すると、実行順序の自動解決と並列実行が可能になります:
+すべての設定が1つのファイルに統合されています:
 
 ```yaml
-# graph.yaml
-pipeline: daily_report
+# アプリケーション設定
+app:
+  name: my_automation
 
-nodes:
-  - name: fetch_data
-    type: source              # データ取得ノード
-    retry: true
+# API設定
+api:
+  base_url: "https://api.example.com"
+  timeout: 30
 
-  - name: validate_data
-    type: transform           # データ変換ノード
-    depends_on: [fetch_data]
+# ログ設定
+logging:
+  level: DEBUG
+  handlers:
+    - type: file
+      path: logs/app.log
+      level: INFO
+    - type: console
+      level: DEBUG
 
-  - name: process_data
-    type: transform
-    depends_on: [validate_data]
-
-  - name: save_to_db
-    type: sink               # データ保存ノード
-    depends_on: [process_data]
-    retry: true
-
-  - name: send_notification
-    type: sink
-    depends_on: [save_to_db]
-    retry: true
-    on_failure: log_only     # エラー時もパイプライン続行
+# リトライ設定
+retry:
+  default:
+    max_attempts: 3
+    min_wait: 2
+    max_wait: 10
+  nodes:
+    fetch_data:      # ノード別設定
+      max_attempts: 5
 ```
 
-実行順序は自動的に解決され、並列実行可能なノードは並行処理されます。
+### 環境別設定の切り替え
+
+```bash
+# .env ファイルで環境を指定
+RAILWAY_ENV=development   # config/development.yaml を使用
+RAILWAY_ENV=production    # config/production.yaml を使用
+```
+
+### コードから設定にアクセス
+
+```python
+from src.settings import settings
+
+# API設定
+url = settings.api.base_url
+timeout = settings.api.timeout
+
+# リトライ設定
+retry_config = settings.get_retry_settings("fetch_data")
+max_attempts = retry_config.max_attempts
+```
+
+---
+
+## 実例: 日次レポート生成
+
+### ステップ1: ノードを作成
+
+```bash
+railway new node fetch_sales_data --example
+railway new node calculate_metrics --example
+railway new node generate_report --example
+```
+
+### ステップ2: エントリーポイントを作成
+
+```python
+# src/daily_sales_report.py
+from railway import entry_point, pipeline
+from datetime import datetime
+from src.nodes.fetch_sales_data import fetch_sales_data
+from src.nodes.calculate_metrics import calculate_metrics
+from src.nodes.generate_report import generate_report
+
+@entry_point
+def main(date: str = None, dry_run: bool = False):
+    """
+    日次売上レポートを生成して送信する。
+
+    Args:
+        date: レポート日付 (YYYY-MM-DD)、デフォルトは今日
+        dry_run: Trueの場合、レポート送信をスキップ
+    """
+    date = date or datetime.now().strftime("%Y-%m-%d")
+
+    result = pipeline(
+        fetch_sales_data(date),
+        calculate_metrics,
+        generate_report,
+        send_report if not dry_run else lambda x: x
+    )
+
+    return result
+```
+
+### ステップ3: 実行
+
+```bash
+# 開発環境でdry-run
+uv run python -m src.daily_sales_report --dry-run
+
+# 本番環境で実行（.env で RAILWAY_ENV=production に設定）
+uv run python -m src.daily_sales_report
+```
+
+---
+
+## テストの書き方
+
+ノード作成時にテストテンプレートも自動生成されます:
+
+```python
+# tests/nodes/test_fetch_sales_data.py
+import pytest
+from unittest.mock import patch
+from src.nodes.fetch_sales_data import fetch_sales_data
+
+def test_fetch_sales_data_success():
+    """正常系: データ取得成功"""
+    with patch('requests.get') as mock_get:
+        mock_get.return_value.json.return_value = {"sales": [100, 200]}
+
+        result = fetch_sales_data("2024-01-01")
+
+        assert result == {"sales": [100, 200]}
+
+def test_fetch_sales_data_api_error():
+    """異常系: API エラー"""
+    with patch('requests.get') as mock_get:
+        mock_get.side_effect = Exception("API Error")
+
+        with pytest.raises(Exception):
+            fetch_sales_data("2024-01-01")
+```
+
+### テスト実行
+
+```bash
+# すべてのテスト実行
+pytest
+
+# カバレッジ付き
+pytest --cov=src --cov-report=html
+
+# 特定のテストのみ
+pytest tests/nodes/test_fetch_sales_data.py -v
+```
+
+---
+
+## 開発ワークフロー
+
+```bash
+# 1. ノード作成
+railway new node my_feature --example
+
+# 2. ノードを実装
+# src/nodes/my_feature.py を編集
+
+# 3. テスト作成
+# tests/nodes/test_my_feature.py を編集
+
+# 4. テスト実行
+pytest tests/nodes/test_my_feature.py -v
+
+# 5. 型チェック
+mypy src/nodes/my_feature.py
+
+# 6. リント
+ruff check src/nodes/my_feature.py
+
+# 7. エントリーポイントに組み込み
+# src/my_entry.py で使用
+
+# 8. 動作確認
+uv run python -m src.my_entry --dry-run
+
+# 9. 本番実行
+uv run python -m src.my_entry
+```
+
+---
 
 ## 採用技術スタック
 
 ### コア機能
-| ライブラリ | 用途 |
-|-----------|------|
-| `returns` | Railway Oriented Programming |
-| `tenacity` | リトライ処理 |
-| `pydantic` | 設定バリデーション |
-| `typer` | CLIインターフェース |
-| `loguru` | 構造化ロギング |
+| ライブラリ | 用途 | 備考 |
+|-----------|------|------|
+| `returns` | Railway Oriented Programming | Result型、bind、flow |
+| `tenacity` | リトライ処理 | 指数バックオフ、カスタマイズ可能 |
+| `pydantic` | データバリデーション | 型安全な設定管理 |
+| `typer` | CLIインターフェース | 自動的な引数パース |
+| `loguru` | 構造化ロギング | シンプルで強力 |
 
 ### 開発ツール
 | ライブラリ | 用途 |
@@ -516,327 +507,146 @@ nodes:
 | `pytest` | テスト実行 |
 | `uv` | 高速パッケージ管理 |
 
-## 開発ワークフロー
+---
 
-```bash
-# 1. ノード実装
-railway add-node my_feature
-# → src/nodes/my_feature.py を編集
+## ユースケース
 
-# 2. テスト作成
-# → tests/nodes/test_my_feature.py を編集
-
-# 3. テスト実行
-pytest tests/nodes/test_my_feature.py -v
-
-# 4. 型チェック
-mypy src/nodes/my_feature.py
-
-# 5. エントリーポイントに組み込み
-# → src/my_entry.py の flow に追加
-
-# 6. 動作確認
-uv run python -m src.my_entry --dry-run
-
-# 7. 本番実行
-uv run python -m src.my_entry
-```
-
-## テストの書き方
-
-`railway add-node my_feature`でノードと同時にテストテンプレートも生成されます。
-
-### テストテンプレート例
-
-`tests/nodes/test_fetch_data.py`:
+### 1. API統合の自動化
 ```python
-"""Tests for fetch_data node."""
-import pytest
-from returns.result import Success, Failure
-from unittest.mock import Mock, patch
-
-from src.nodes.fetch_data import fetch_data
-
-
-def test_fetch_data_success():
-    """正常系: データ取得に成功"""
-    with patch('src.common.api_client.APIClient') as mock_client:
-        # モックの設定
-        mock_client.return_value.get.return_value = {"records": [1, 2, 3]}
-
-        # 実行
-        result = fetch_data()
-
-        # 検証
-        assert result.is_success
-        data = result.unwrap()
-        assert "records" in data
-        assert len(data["records"]) == 3
-
-
-def test_fetch_data_api_error():
-    """異常系: API呼び出しエラー"""
-    with patch('src.common.api_client.APIClient') as mock_client:
-        # API呼び出しが例外を発生
-        mock_client.return_value.get.side_effect = ConnectionError("API unavailable")
-
-        # 実行
-        result = fetch_data()
-
-        # 検証
-        assert result.is_failure
-        error = result.failure()
-        assert isinstance(error, ConnectionError)
-
-
-def test_fetch_data_retry():
-    """リトライ動作の確認"""
-    with patch('src.common.api_client.APIClient') as mock_client:
-        # 1回目と2回目は失敗、3回目は成功
-        mock_client.return_value.get.side_effect = [
-            ConnectionError("Timeout"),
-            ConnectionError("Timeout"),
-            {"records": [1, 2]},
-        ]
-
-        # 実行
-        result = fetch_data()
-
-        # 検証
-        assert result.is_success
-        assert mock_client.return_value.get.call_count == 3
-```
-
-### 統合テスト例
-
-`tests/test_daily_report.py`:
-```python
-"""Integration tests for daily_report pipeline."""
-from returns.result import Success
-from src.daily_report import run_pipeline
-
-
-def test_full_pipeline(monkeypatch):
-    """パイプライン全体のテスト"""
-    # モックデータを設定
-    test_data = {"date": "2024-01-01", "records": [1, 2, 3]}
-
-    # 各ノードをモック化
-    monkeypatch.setattr(
-        'src.nodes.fetch_data.fetch_data',
-        lambda: Success(test_data)
+@entry_point
+def sync_users():
+    """外部APIからユーザーを同期"""
+    return pipeline(
+        fetch_from_api_a(),
+        transform_to_internal_format,
+        validate_data,
+        save_to_database,
+        send_notification
     )
-    monkeypatch.setattr(
-        'src.nodes.process_data.process_data',
-        lambda x: Success({"processed": x})
+```
+
+### 2. データバッチ処理
+```python
+@entry_point
+def daily_etl(date: str):
+    """日次ETL処理"""
+    return pipeline(
+        extract_from_database(date),
+        transform_data,
+        load_to_warehouse,
+        update_metrics
     )
-    monkeypatch.setattr(
-        'src.nodes.send_report.send_report',
-        lambda x: Success("Report sent")
+```
+
+### 3. レポート生成
+```python
+@entry_point
+def weekly_report():
+    """週次レポート生成"""
+    return pipeline(
+        fetch_weekly_data(),
+        calculate_kpis,
+        generate_charts,
+        create_pdf_report,
+        send_via_email
     )
-
-    # パイプライン実行
-    result = run_pipeline()
-
-    # 検証
-    assert result.is_success
-    assert result.unwrap() == "Report sent"
 ```
 
-## Advanced機能
+---
 
-<details>
-<summary>既存スクリプトの移行</summary>
+## Advanced: 明示的なResult型の使用
 
-既存の運用スクリプトを段階的にRailwayフレームワークに移行できます。
+初心者はデコレータに任せればOKですが、上級者は明示的にResult型を扱えます:
 
-**移行前の既存スクリプト:**
 ```python
-def daily_batch():
-    try:
-        # データ取得
-        response = requests.get("https://api.example.com/data")
-        if response.status_code != 200:
-            print(f"Error: {response.status_code}")
-            return
-
-        data = response.json()
-
-        # データ処理
-        processed = []
-        for item in data:
-            if item['value'] > 0:
-                processed.append(item['value'] * 2)
-
-        # 保存
-        with open('output.txt', 'w') as f:
-            f.write(str(processed))
-
-        print("Success!")
-    except Exception as e:
-        print(f"Error: {e}")
-```
-
-**ステップ1: 既存関数を@safeでラップ**
-```python
-from returns.result import safe
-
-@safe
-def fetch_data():
-    response = requests.get("https://api.example.com/data")
-    response.raise_for_status()
-    return response.json()
-
-@safe
-def process_data(data):
-    processed = []
-    for item in data:
-        if item['value'] > 0:
-            processed.append(item['value'] * 2)
-    return processed
-
-@safe
-def save_data(processed):
-    with open('output.txt', 'w') as f:
-        f.write(str(processed))
-    return "Success"
-```
-
-**ステップ2: パイプラインで結合**
-```python
+from railway import entry_point, node
+from returns.result import Result, Success, Failure
 from returns.pipeline import flow
 
-def daily_batch():
-    result = flow(
-        fetch_data(),
-        process_data,
-        save_data,
+@node
+def risky_operation() -> Result[dict, Exception]:
+    """明示的なResult型"""
+    try:
+        data = {"value": 100}
+        return Success(data)
+    except Exception as e:
+        return Failure(e)
+
+@entry_point(handle_result=False)  # 自動ハンドリングを無効化
+def advanced_main() -> Result[str, Exception]:
+    """明示的なResult型を返すエントリーポイント"""
+    return flow(
+        risky_operation(),
+        lambda x: Success(f"Result: {x['value']}")
     )
-
-    result.map(lambda x: logger.success(f"✓ {x}"))
-    result.alt(lambda e: logger.error(f"✗ Error: {e}"))
 ```
 
-**ステップ3: Railwayフレームワークに統合**
-```bash
-railway add-entry daily_batch
-# 生成されたテンプレートにステップ2のコードを移植
-```
-
-これで完全にRailwayパラダイムに移行完了です！
-</details>
-
-<details>
-<summary>非同期処理サポート</summary>
-
-```python
-from returns.future import FutureResult
-from returns.io import impure_safe
-
-async def async_fetch() -> FutureResult[dict, Exception]:
-    """非同期でデータ取得"""
-    data = await api_client.async_get("/data")
-    return FutureResult.from_value(data)
-
-# 非同期版エントリーポイント
-railway add-entry async_pipeline --async
-```
-</details>
-
-<details>
-<summary>依存性注入</summary>
-
-```python
-from punq import Container
-
-# DIコンテナ設定
-container = Container()
-container.register(APIClient, instance=APIClient(settings.api.base_url))
-container.register(DatabaseClient)
-
-# ノードでDI使用
-@railway_node
-def fetch_data(api_client: APIClient = Provide[Container, APIClient]):
-    return api_client.get("/data")
-```
-</details>
-
-<details>
-<summary>カスタムエラー型</summary>
-
-```python
-from src.common.errors import RailwayError, RetryableError, FatalError
-
-class ValidationError(FatalError):
-    """データ検証エラー（リトライ不可）"""
-    pass
-
-class APITimeoutError(RetryableError):
-    """APIタイムアウト（リトライ可能）"""
-    pass
-```
-</details>
-
-<details>
-<summary>メトリクス・監視</summary>
-
-```python
-from src.common.observability import measure_time, track_errors
-
-@measure_time
-@track_errors
-@railway_node
-def critical_operation():
-    """実行時間とエラー率を自動記録"""
-    pass
-```
-</details>
-
-<details>
-<summary>CI/CD統合</summary>
-
-`.github/workflows/ci.yml`が自動生成されます:
-```yaml
-name: CI
-on: [push, pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Run tests
-        run: |
-          uv sync
-          pytest
-          ruff check .
-          mypy src/
-```
-</details>
+---
 
 ## FAQ
 
 **Q: 既存のスクリプトを移行できますか？**
-A: はい。段階的に移行できます。既存関数を`@safe`デコレータでラップするだけで`Result`型に変換できます。
-
-**Q: エラーログはどこに出力されますか？**
-A: `config/{env}/logging.yaml`で設定可能です。デフォルトは`logs/app.log`とstderrです。
+A: はい。既存関数に `@node` デコレータを付けるだけで使えます。
 
 **Q: 非同期処理に対応していますか？**
-A: はい。`--async`オプションでasync/await対応テンプレートを生成できます。
+A: はい。ノードを `async def` で定義するだけで使えます。
 
-**Q: テストの書き方は？**
-A: `railway add-node`でノードと同時にテストテンプレートも生成されます。
+**Q: エラーログはどこに出力されますか？**
+A: `config/{env}.yaml` の logging セクションで設定できます。デフォルトは `logs/` ディレクトリです。
 
 **Q: 本番環境での推奨設定は？**
-A: `RAILWAY_ENV=production`を設定し、`config/production/`で以下を調整してください:
-- ログレベル: INFO以上
+A: `RAILWAY_ENV=production` を設定し、`config/production.yaml` で以下を調整:
+- ログレベル: INFO 以上
 - リトライ回数: 適切に設定
 - タイムアウト: 環境に応じて調整
+
+**Q: グラフ機能はありますか？**
+A: Phase 1 ではシンプルな `pipeline()` のみです。グラフベースの依存関係管理は Phase 2 で提供予定です。
+
+---
+
+## コントリビューション
+
+Issue・PRを歓迎します！
+
+1. このリポジトリをフォーク
+2. フィーチャーブランチを作成 (`git checkout -b feature/amazing-feature`)
+3. 変更をコミット (`git commit -m 'Add amazing feature'`)
+4. ブランチにプッシュ (`git push origin feature/amazing-feature`)
+5. Pull Request を作成
+
+---
 
 ## ライセンス
 
 MIT License
 
-## コントリビューション
+---
 
-Issue・PRを歓迎します！詳細は[CONTRIBUTING.md](CONTRIBUTING.md)を参照してください。
+## ロードマップ
+
+### Phase 1 (Current)
+- ✅ シンプルなノードベースのパイプライン
+- ✅ デコレータベースのAPI
+- ✅ 環境別設定管理
+- ✅ 自動的なエラーハンドリング
+- ✅ リトライ機能
+
+### Phase 2 (Next 3 months)
+- 🔜 graph.yaml によるグラフベース実行
+- 🔜 WebUI でのグラフ可視化
+- 🔜 詳細なメトリクス収集
+- 🔜 インタラクティブデバッガ
+
+### Phase 3 (Next 6 months)
+- 🔜 分散実行サポート (Celery/Dask)
+- 🔜 クラウドサービス統合 (AWS/GCP/Azure)
+- 🔜 スケジューラー統合
+
+---
+
+**さあ、Railway Framework で運用自動化を始めましょう！**
+
+```bash
+railway init my_first_automation
+```
