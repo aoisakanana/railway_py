@@ -3,9 +3,17 @@ Settings provider registry for framework-user code separation.
 
 This module allows the @node decorator to access user settings
 without directly importing user code.
+
+Features:
+- Lazy initialization via _SettingsProxy
+- Thread-safe settings access
+- Cached settings for performance
 """
 
+import threading
 from collections.abc import Callable
+from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Protocol, cast
 
 
@@ -18,8 +26,10 @@ class RetrySettingsProtocol(Protocol):
     multiplier: int
 
 
-# Global settings provider
+# Thread-safe settings state
 _settings_provider: Callable[[], Any] | None = None
+_settings_cache: Any | None = None
+_settings_lock = threading.Lock()
 
 
 def register_settings_provider(provider: Callable[[], Any]) -> None:
@@ -94,3 +104,95 @@ def reset_provider() -> None:
     """
     global _settings_provider
     _settings_provider = None
+
+
+def reset_settings() -> None:
+    """
+    Reset settings cache and provider.
+
+    Forces settings to be reloaded on next access.
+    Useful for testing or when environment changes.
+    """
+    global _settings_cache, _settings_provider
+    with _settings_lock:
+        _settings_cache = None
+        _settings_provider = None
+
+
+def _get_or_create_settings() -> Any:
+    """
+    Get or create the settings object.
+
+    Uses registered provider if available, otherwise returns default settings.
+    Thread-safe and cached for performance.
+
+    Returns:
+        The settings object.
+    """
+    global _settings_cache
+
+    with _settings_lock:
+        if _settings_cache is not None:
+            return _settings_cache
+
+        # Use registered provider if available
+        if _settings_provider is not None:
+            try:
+                _settings_cache = _settings_provider()
+                return _settings_cache
+            except Exception:
+                pass
+
+        # Return default settings
+        _settings_cache = _create_default_settings()
+        return _settings_cache
+
+
+def _create_default_settings() -> Any:
+    """Create default settings object."""
+    return SimpleNamespace(
+        api=SimpleNamespace(
+            base_url="",
+            timeout=30,
+        ),
+        retry=SimpleNamespace(
+            default=SimpleNamespace(
+                max_attempts=3,
+                min_wait=2.0,
+                max_wait=10.0,
+                multiplier=2,
+            ),
+            nodes={},
+        ),
+        logging=SimpleNamespace(
+            level="INFO",
+            format="console",
+        ),
+    )
+
+
+class _SettingsProxy:
+    """
+    Proxy object for lazy settings initialization.
+
+    Settings are not loaded until first attribute access.
+    This avoids import-time side effects and circular imports.
+
+    Usage:
+        from railway.core.config import settings
+
+        # Settings loaded here (first access)
+        api_url = settings.api.base_url
+    """
+
+    def __getattr__(self, name: str) -> Any:
+        """Delegate attribute access to actual settings object."""
+        actual_settings = _get_or_create_settings()
+        return getattr(actual_settings, name)
+
+    def __repr__(self) -> str:
+        return "<_SettingsProxy>"
+
+
+# Module-level settings proxy (not initialized until first access)
+settings = _SettingsProxy()
