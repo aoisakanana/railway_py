@@ -2,6 +2,7 @@
 Decorators for Railway nodes and entry points.
 """
 
+import asyncio
 from collections.abc import Callable
 from functools import wraps
 from typing import Any, ParamSpec, TypeVar
@@ -14,6 +15,7 @@ from tenacity import (
     wait_exponential,
     RetryError,
     before_sleep_log,
+    AsyncRetrying,
 )
 
 P = ParamSpec("P")
@@ -78,49 +80,144 @@ def node(
 
     def decorator(f: Callable[P, T]) -> Callable[P, T]:
         node_name = name or f.__name__
+        is_async = asyncio.iscoroutinefunction(f)
 
-        @wraps(f)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-            # Log input if enabled
-            if log_input:
-                logger.debug(f"[{node_name}] Input: args={args}, kwargs={kwargs}")
-
-            logger.info(f"[{node_name}] Starting...")
-
-            # Determine retry configuration
-            retry_config = _get_retry_configuration(retry, node_name)
-
-            try:
-                if retry_config is not None:
-                    # Execute with retry
-                    result = _execute_with_retry(f, retry_config, node_name, args, kwargs)
-                else:
-                    # Execute without retry
-                    result = f(*args, **kwargs)
-
-                # Log output if enabled
-                if log_output:
-                    logger.debug(f"[{node_name}] Output: {result}")
-
-                logger.info(f"[{node_name}] ✓ Completed")
-                return result
-
-            except Exception as e:
-                _log_error_with_hint(node_name, e)
-                raise
-
-        # Store metadata
-        wrapper._is_railway_node = True  # type: ignore[attr-defined]
-        wrapper._node_name = node_name  # type: ignore[attr-defined]
-        wrapper._original_func = f  # type: ignore[attr-defined]
-        wrapper._is_async = False  # type: ignore[attr-defined]
-
-        return wrapper
+        if is_async:
+            return _create_async_wrapper(f, node_name, retry, log_input, log_output)
+        else:
+            return _create_sync_wrapper(f, node_name, retry, log_input, log_output)
 
     # Handle decorator usage with and without parentheses
     if func is None:
         return decorator
     return decorator(func)
+
+
+def _create_sync_wrapper(
+    f: Callable[P, T],
+    node_name: str,
+    retry: bool | Retry,
+    log_input: bool,
+    log_output: bool,
+) -> Callable[P, T]:
+    """Create wrapper for synchronous function."""
+
+    @wraps(f)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+        # Log input if enabled
+        if log_input:
+            logger.debug(f"[{node_name}] Input: args={args}, kwargs={kwargs}")
+
+        logger.info(f"[{node_name}] Starting...")
+
+        # Determine retry configuration
+        retry_config = _get_retry_configuration(retry, node_name)
+
+        try:
+            if retry_config is not None:
+                # Execute with retry
+                result = _execute_with_retry(f, retry_config, node_name, args, kwargs)
+            else:
+                # Execute without retry
+                result = f(*args, **kwargs)
+
+            # Log output if enabled
+            if log_output:
+                logger.debug(f"[{node_name}] Output: {result}")
+
+            logger.info(f"[{node_name}] ✓ Completed")
+            return result
+
+        except Exception as e:
+            _log_error_with_hint(node_name, e)
+            raise
+
+    # Store metadata
+    wrapper._is_railway_node = True  # type: ignore[attr-defined]
+    wrapper._node_name = node_name  # type: ignore[attr-defined]
+    wrapper._original_func = f  # type: ignore[attr-defined]
+    wrapper._is_async = False  # type: ignore[attr-defined]
+
+    return wrapper
+
+
+def _create_async_wrapper(
+    f: Callable[P, T],
+    node_name: str,
+    retry: bool | Retry,
+    log_input: bool,
+    log_output: bool,
+) -> Callable[P, T]:
+    """Create wrapper for asynchronous function."""
+
+    @wraps(f)
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+        # Log input if enabled
+        if log_input:
+            logger.debug(f"[{node_name}] Input: args={args}, kwargs={kwargs}")
+
+        logger.info(f"[{node_name}] Starting...")
+
+        # Determine retry configuration
+        retry_config = _get_retry_configuration(retry, node_name)
+
+        try:
+            if retry_config is not None:
+                # Execute with retry
+                result = await _execute_async_with_retry(
+                    f, retry_config, node_name, args, kwargs
+                )
+            else:
+                # Execute without retry
+                result = await f(*args, **kwargs)
+
+            # Log output if enabled
+            if log_output:
+                logger.debug(f"[{node_name}] Output: {result}")
+
+            logger.info(f"[{node_name}] ✓ Completed")
+            return result
+
+        except Exception as e:
+            _log_error_with_hint(node_name, e)
+            raise
+
+    # Store metadata
+    wrapper._is_railway_node = True  # type: ignore[attr-defined]
+    wrapper._node_name = node_name  # type: ignore[attr-defined]
+    wrapper._original_func = f  # type: ignore[attr-defined]
+    wrapper._is_async = True  # type: ignore[attr-defined]
+
+    return wrapper
+
+
+async def _execute_async_with_retry(
+    func: Callable[P, T],
+    retry_config: Retry,
+    node_name: str,
+    args: tuple,
+    kwargs: dict,
+) -> T:
+    """Execute async function with retry logic."""
+    max_attempts = retry_config.max_attempts
+    attempt_count = 0
+
+    async for attempt in AsyncRetrying(
+        stop=stop_after_attempt(retry_config.max_attempts),
+        wait=wait_exponential(
+            multiplier=retry_config.multiplier,
+            min=retry_config.min_wait,
+            max=retry_config.max_wait,
+        ),
+        reraise=True,
+    ):
+        with attempt:
+            attempt_count = attempt.retry_state.attempt_number
+            if attempt_count > 1:
+                logger.warning(
+                    f"[{node_name}] リトライ中... (試行 {attempt_count}/{max_attempts})"
+                )
+            return await func(*args, **kwargs)
 
 
 def _get_retry_configuration(retry_param: bool | Retry, node_name: str) -> Retry | None:
