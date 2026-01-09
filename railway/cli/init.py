@@ -120,26 +120,212 @@ def _create_tutorial_md(project_path: Path, project_name: str) -> None:
     """Create TUTORIAL.md file."""
     content = f'''# {project_name} Tutorial
 
-Welcome to your Railway Framework project!
+Welcome to your Railway Framework project! This tutorial will guide you from zero to hero.
 
-## Quick Start
+## Prerequisites
 
-1. Install dependencies:
-   ```bash
-   uv sync
-   ```
+- Python 3.10+
+- uv installed (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
 
-2. Create your first entry point:
-   ```bash
-   railway new entry hello --example
-   ```
+---
 
-3. Run it:
-   ```bash
-   railway run hello
-   ```
+## Step 1: Hello World (5 minutes)
+
+### 1.1 Create a simple entry point
+
+```bash
+railway new entry hello --example
+```
+
+This creates `src/hello.py`:
+
+```python
+from railway import entry_point, node
+from loguru import logger
+
+@node
+def greet(name: str) -> str:
+    logger.info(f"Greeting {{name}}")
+    return f"Hello, {{name}}!"
+
+@entry_point
+def main(name: str = "World"):
+    message = greet(name)
+    print(message)
+    return message
+
+if __name__ == "__main__":
+    main()
+```
+
+### 1.2 Run it
+
+```bash
+railway run hello
+# Output: Hello, World!
+
+railway run hello -- --name Alice
+# Output: Hello, Alice!
+```
+
+---
+
+## Step 2: Error Handling (10 minutes)
+
+Railway handles errors automatically with the @node decorator.
+
+### 2.1 Create a node that can fail
+
+```bash
+railway new node divide
+```
+
+Edit `src/nodes/divide.py`:
+
+```python
+from railway import node
+
+@node
+def divide(a: float, b: float) -> float:
+    if b == 0:
+        raise ValueError("Cannot divide by zero")
+    return a / b
+```
+
+### 2.2 Errors are caught and logged
+
+When an error occurs:
+- The error is logged with type and message
+- A hint may be provided for common errors
+- The log file location is shown
+
+---
+
+## Step 3: Pipeline Processing (10 minutes)
+
+### 3.1 Create nodes
+
+```bash
+railway new node fetch_data --example
+railway new node process_data --example
+```
+
+### 3.2 Create a pipeline entry point
+
+```python
+from railway import entry_point, pipeline
+from src.nodes.fetch_data import fetch_data
+from src.nodes.process_data import process_data
+
+@entry_point
+def main(source: str):
+    result = pipeline(
+        fetch_data(source),  # Initial value
+        process_data,        # Step 1
+    )
+    return result
+```
+
+**Key concept:** The first argument to `pipeline()` is the initial value.
+Subsequent arguments are functions that receive the previous result.
+
+---
+
+## Step 4: Configuration (15 minutes)
+
+### 4.1 Edit config file
+
+Edit `config/development.yaml`:
+
+```yaml
+api:
+  base_url: "https://api.example.com"
+  timeout: 30
+
+retry:
+  default:
+    max_attempts: 3
+  nodes:
+    fetch_data:
+      max_attempts: 5
+```
+
+### 4.2 Use settings in your code
+
+```python
+from railway import node
+from src.settings import settings
+
+@node
+def fetch_data() -> dict:
+    url = settings.api.base_url + "/data"
+    timeout = settings.api.timeout
+    # Use url and timeout...
+```
+
+---
+
+## Step 5: Testing (20 minutes)
+
+### 5.1 Run existing tests
+
+```bash
+pytest tests/
+```
+
+### 5.2 Write your own test
+
+When you create nodes with `railway new node`, test files are created automatically.
+
+```python
+# tests/nodes/test_divide.py
+import pytest
+from src.nodes.divide import divide
+
+def test_divide_success():
+    result = divide(10, 2)
+    assert result == 5.0
+
+def test_divide_by_zero():
+    with pytest.raises(ValueError):
+        divide(10, 0)
+```
+
+---
+
+## Step 6: Troubleshooting
+
+### Common Errors
+
+#### Error: "Module not found"
+```
+ModuleNotFoundError: No module named 'src.nodes.fetch_data'
+```
+
+**Solution:**
+- Make sure you're running from the project root
+- Check that the file exists at the correct path
+- Use `railway run` instead of `python -m`
+
+#### Error: "Configuration error"
+```
+pydantic_core._pydantic_core.ValidationError: 1 validation error for APISettings
+base_url
+  Field required [type=missing, input_value={{}}, input_type=dict]
+```
+
+**Solution:**
+- Check `config/development.yaml` has the required field
+- Make sure `.env` has `RAILWAY_ENV=development`
+- Verify the config file is valid YAML
+
+---
 
 ## Next Steps
+
+1. **Add retry handling**: Use `@node(retry=True)`
+2. **Configure logging**: Edit `config/development.yaml`
+3. **Add type hints**: Use Pydantic models for type-safe data
 
 See the Railway Framework documentation for more details.
 '''
