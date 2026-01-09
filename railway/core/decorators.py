@@ -8,6 +8,13 @@ from typing import Any, ParamSpec, TypeVar
 
 import typer
 from loguru import logger
+from tenacity import (
+    retry as tenacity_retry,
+    stop_after_attempt,
+    wait_exponential,
+    RetryError,
+    before_sleep_log,
+)
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -27,12 +34,13 @@ class Retry:
         self.min_wait = min_wait
         self.max_wait = max_wait
         self.exponential_base = exponential_base
+        self.multiplier = exponential_base  # Alias for compatibility
 
 
 def node(
     func: Callable[P, T] | None = None,
     *,
-    retry: bool | Retry = False,  # Disabled by default in basic version
+    retry: bool | Retry = False,
     log_input: bool = False,
     log_output: bool = False,
     name: str | None = None,
@@ -40,13 +48,13 @@ def node(
     """
     Node decorator that provides:
     1. Automatic exception handling with logging
-    2. Optional retry with exponential backoff (Phase 1b)
+    2. Optional retry with exponential backoff
     3. Structured logging
     4. Metadata storage
 
     Args:
         func: Function to decorate
-        retry: Enable retry (bool) or provide Retry config (Phase 1b)
+        retry: Enable retry (bool) or provide Retry config
         log_input: Log input parameters (caution: may log sensitive data)
         log_output: Log output data (caution: may log sensitive data)
         name: Override node name (default: function name)
@@ -59,9 +67,13 @@ def node(
         def fetch_data() -> dict:
             return api.get("/data")
 
-        @node(name="critical_fetch", log_input=True)
-        def fetch_critical_data(id: int) -> dict:
-            return api.get(f"/critical/{id}")
+        @node(retry=True)
+        def fetch_with_retry() -> dict:
+            return api.get("/data")
+
+        @node(retry=Retry(max_attempts=5, min_wait=1))
+        def custom_retry() -> dict:
+            return api.get("/data")
     """
 
     def decorator(f: Callable[P, T]) -> Callable[P, T]:
@@ -75,8 +87,16 @@ def node(
 
             logger.info(f"[{node_name}] Starting...")
 
+            # Determine retry configuration
+            retry_config = _get_retry_configuration(retry, node_name)
+
             try:
-                result = f(*args, **kwargs)
+                if retry_config is not None:
+                    # Execute with retry
+                    result = _execute_with_retry(f, retry_config, node_name, args, kwargs)
+                else:
+                    # Execute without retry
+                    result = f(*args, **kwargs)
 
                 # Log output if enabled
                 if log_output:
@@ -86,7 +106,7 @@ def node(
                 return result
 
             except Exception as e:
-                logger.error(f"[{node_name}] ✗ Failed: {type(e).__name__}: {e}")
+                _log_error_with_hint(node_name, e)
                 raise
 
         # Store metadata
@@ -101,6 +121,95 @@ def node(
     if func is None:
         return decorator
     return decorator(func)
+
+
+def _get_retry_configuration(retry_param: bool | Retry, node_name: str) -> Retry | None:
+    """Get retry configuration from parameter or settings."""
+    if retry_param is True:
+        # Load from config
+        from railway.core.config import get_retry_config
+        config = get_retry_config(node_name)
+        return Retry(
+            max_attempts=config.max_attempts,
+            min_wait=config.min_wait,
+            max_wait=config.max_wait,
+            exponential_base=config.multiplier,
+        )
+    elif isinstance(retry_param, Retry):
+        return retry_param
+    else:
+        return None
+
+
+def _get_error_hint(exception: Exception) -> str | None:
+    """Get hint message for common errors."""
+    if isinstance(exception, ConnectionError):
+        return "ヒント: ネットワーク接続を確認してください。APIエンドポイントが正しいか確認してください。"
+    elif isinstance(exception, TimeoutError):
+        return "ヒント: タイムアウト値を増やすか、APIサーバーの状態を確認してください。"
+    elif isinstance(exception, ValueError):
+        return "ヒント: 入力データの形式や値を確認してください。"
+    elif isinstance(exception, FileNotFoundError):
+        return "ヒント: ファイルパスが正しいか確認してください。"
+    elif isinstance(exception, PermissionError):
+        return "ヒント: ファイルやディレクトリの権限を確認してください。"
+    elif isinstance(exception, KeyError):
+        return "ヒント: 必要なキーが存在するか確認してください。設定ファイルを確認してください。"
+
+    # Check for API key related errors
+    error_str = str(exception).upper()
+    if "API_KEY" in error_str or "API_SECRET" in error_str or "UNAUTHORIZED" in error_str:
+        return "ヒント: .envファイルでAPI認証情報が正しく設定されているか確認してください。"
+
+    return None
+
+
+def _log_error_with_hint(node_name: str, exception: Exception) -> None:
+    """Log error with hint and log file reference."""
+    logger.error(f"[{node_name}] ✗ Failed: {type(exception).__name__}: {exception}")
+    logger.error("詳細は logs/app.log を確認してください")
+
+    hint = _get_error_hint(exception)
+    if hint:
+        logger.error(hint)
+
+
+def _execute_with_retry(
+    func: Callable[P, T],
+    retry_config: Retry,
+    node_name: str,
+    args: tuple,
+    kwargs: dict,
+) -> T:
+    """Execute function with retry logic."""
+    attempt_count = 0
+    max_attempts = retry_config.max_attempts
+
+    def before_retry(retry_state):
+        nonlocal attempt_count
+        attempt_count = retry_state.attempt_number
+        logger.warning(f"[{node_name}] リトライ中... (試行 {attempt_count}/{max_attempts})")
+
+    retry_decorator = tenacity_retry(
+        stop=stop_after_attempt(retry_config.max_attempts),
+        wait=wait_exponential(
+            multiplier=retry_config.multiplier,
+            min=retry_config.min_wait,
+            max=retry_config.max_wait,
+        ),
+        reraise=True,
+        before_sleep=before_retry,
+    )
+
+    retryable_func = retry_decorator(func)
+
+    try:
+        return retryable_func(*args, **kwargs)
+    except RetryError as e:
+        # Extract original exception
+        if e.last_attempt.exception() is not None:
+            raise e.last_attempt.exception() from None
+        raise
 
 
 def entry_point(
