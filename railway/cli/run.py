@@ -1,6 +1,6 @@
 """railway run command implementation."""
 
-import importlib.util
+import runpy
 import sys
 from pathlib import Path
 from typing import List, Optional
@@ -47,32 +47,19 @@ def _list_entries(project_root: Path) -> List[str]:
 
 def _execute_entry(project_root: Path, entry_name: str, extra_args: List[str]) -> None:
     """Execute the entry point."""
-    # Add project root to sys.path
+    # Add project root to sys.path for imports
     src_path = str(project_root)
     if src_path not in sys.path:
         sys.path.insert(0, src_path)
 
-    # Load the module
     entry_path = project_root / "src" / f"{entry_name}.py"
-    spec = importlib.util.spec_from_file_location(f"src.{entry_name}", entry_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not load module: {entry_path}")
-
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[f"src.{entry_name}"] = module
 
     # Set sys.argv for the entry point
     original_argv = sys.argv
     sys.argv = [str(entry_path)] + list(extra_args or [])
 
     try:
-        spec.loader.exec_module(module)
-
-        # If module has main function, it may have been called via __name__ == "__main__"
-        # If not, try to call it explicitly
-        if hasattr(module, "main") and callable(module.main):
-            # Check if main was already called
-            pass  # Usually __main__ block handles this
+        runpy.run_path(str(entry_path), run_name="__main__")
     finally:
         sys.argv = original_argv
 
