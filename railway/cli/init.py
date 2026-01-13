@@ -55,6 +55,9 @@ dev = [
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
 '''
     _write_file(project_path / "pyproject.toml", content)
 
