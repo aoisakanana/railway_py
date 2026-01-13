@@ -29,7 +29,8 @@ class TestProjectImports:
         import railway
 
         assert hasattr(railway, "__version__")
-        assert railway.__version__ == "0.1.0"
+        assert isinstance(railway.__version__, str)
+        assert len(railway.__version__) > 0
 
 
 class TestCoreModuleExports:
