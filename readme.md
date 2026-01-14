@@ -109,8 +109,8 @@ def process():
 # uvをインストール（未インストールの場合）
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Railwayフレームワークをインストール
-uv add railway-framework
+# railway コマンドをインストール
+uv tool install railway-framework
 ```
 
 ### 2. プロジェクト作成
@@ -118,6 +118,7 @@ uv add railway-framework
 ```bash
 railway init my_automation
 cd my_automation
+uv sync
 cp .env.example .env
 ```
 
@@ -171,10 +172,10 @@ def main(name: str = "World"):
 
 ```bash
 # 方法1: railway run コマンド（推奨）
-railway run hello
+uv run railway run hello
 # Output: Hello, World!
 
-railway run hello -- --name Alice
+uv run railway run hello -- --name Alice
 # Output: Hello, Alice!
 
 # 方法2: Python モジュールとして直接実行
@@ -403,14 +404,14 @@ Statistics:
 ### railway run - エントリーポイント実行
 
 ```bash
-# エントリーポイントを実行
-railway run daily_report
+# エントリーポイントを実行（プロジェクト内で実行）
+uv run railway run daily_report
 
 # 引数を渡す（-- 以降がエントリーポイントに渡される）
-railway run daily_report -- --date 2024-01-15 --dry-run
+uv run railway run daily_report -- --date 2024-01-15 --dry-run
 
 # プロジェクトディレクトリを指定
-railway run --project /path/to/project daily_report
+uv run railway run --project /path/to/project daily_report
 ```
 
 **特徴:**
@@ -814,13 +815,13 @@ pytest               # テスト実行
 ### コア機能
 | ライブラリ | 用途 | 備考 |
 |-----------|------|------|
-| `returns` | Railway Oriented Programming | Result型、bind、flow |
 | `tenacity` | リトライ処理 | 同期・非同期対応、指数バックオフ |
 | `pydantic` | データバリデーション | 型安全な設定管理 |
 | `pydantic-settings` | 設定管理 | 環境変数 + YAML |
 | `typer` | CLIインターフェース | 自動的な引数パース |
 | `loguru` | 構造化ロギング | シンプルで強力 |
 | `PyYAML` | YAML設定読み込み | |
+| `Jinja2` | テンプレートエンジン | コード生成 |
 | `asyncio` (標準ライブラリ) | 非同期処理 | async/await サポート |
 
 ### 開発ツール
@@ -1089,35 +1090,6 @@ URL: https://api.example.com/data
 - ✅ 日本語ヒントメッセージ
 - ✅ `full_message()` で詳細メッセージ取得
 - ✅ `to_dict()` でJSON化可能
-
----
-
-## Advanced: 明示的なResult型の使用
-
-初心者はデコレータに任せればOKですが、上級者は明示的にResult型を扱えます:
-
-```python
-from railway import entry_point, node
-from returns.result import Result, Success, Failure
-from returns.pipeline import flow
-
-@node
-def risky_operation() -> Result[dict, Exception]:
-    """明示的なResult型"""
-    try:
-        data = {"value": 100}
-        return Success(data)
-    except Exception as e:
-        return Failure(e)
-
-@entry_point(handle_result=False)  # 自動ハンドリングを無効化
-def advanced_main() -> Result[str, Exception]:
-    """明示的なResult型を返すエントリーポイント"""
-    return flow(
-        risky_operation(),
-        lambda x: Success(f"Result: {x['value']}")
-    )
-```
 
 ---
 

@@ -214,7 +214,7 @@ def _create_entry(name: str, example: bool, force: bool) -> None:
     typer.echo(f"Created entry point: src/{name}.py")
     typer.echo("Entry point is ready to use\n")
     typer.echo("To run:")
-    typer.echo(f"  railway run {name}")
+    typer.echo(f"  uv run railway run {name}")
     typer.echo(f"  # or: uv run python -m src.{name}")
 
 

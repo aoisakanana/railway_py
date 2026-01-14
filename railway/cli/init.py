@@ -137,25 +137,32 @@ Welcome to your Railway Framework project! This tutorial will guide you from zer
 ### 1.1 Create a simple entry point
 
 ```bash
-railway new entry hello --example
+railway new entry hello
 ```
 
-This creates `src/hello.py`:
+This creates `src/hello.py`. Edit it to create a simple Hello World:
 
 ```python
+"""hello entry point."""
+
 from railway import entry_point, node
 from loguru import logger
 
+
 @node
 def greet(name: str) -> str:
+    """Greet someone."""
     logger.info(f"Greeting {{name}}")
     return f"Hello, {{name}}!"
 
+
 @entry_point
 def main(name: str = "World"):
+    """Simple hello world entry point."""
     message = greet(name)
     print(message)
     return message
+
 
 if __name__ == "__main__":
     main()
@@ -164,10 +171,10 @@ if __name__ == "__main__":
 ### 1.2 Run it
 
 ```bash
-railway run hello
+uv run railway run hello
 # Output: Hello, World!
 
-railway run hello -- --name Alice
+uv run railway run hello -- --name Alice
 # Output: Hello, Alice!
 ```
 
@@ -273,7 +280,7 @@ def fetch_data() -> dict:
 ### 5.1 Run existing tests
 
 ```bash
-pytest tests/
+uv run pytest tests/
 ```
 
 ### 5.2 Write your own test
@@ -308,7 +315,7 @@ ModuleNotFoundError: No module named 'src.nodes.fetch_data'
 **Solution:**
 - Make sure you're running from the project root
 - Check that the file exists at the correct path
-- Use `railway run` instead of `python -m`
+- Use `uv run railway run` instead of `python -m`
 
 #### Error: "Configuration error"
 ```
