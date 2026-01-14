@@ -121,26 +121,30 @@ settings = get_settings()
 
 def _create_tutorial_md(project_path: Path, project_name: str) -> None:
     """Create TUTORIAL.md file."""
-    content = f'''# {project_name} Tutorial
+    content = f'''# {project_name} チュートリアル
 
-Welcome to your Railway Framework project! This tutorial will guide you from zero to hero.
+Railway Framework プロジェクトへようこそ！このチュートリアルでは、手順通りに実行すれば動作するサンプルを作成します。
 
-## Prerequisites
+## 前提条件
 
-- Python 3.10+
-- uv installed (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
+- Python 3.10以上
+- uv インストール済み（`curl -LsSf https://astral.sh/uv/install.sh | sh`）
+- 依存関係インストール済み（`uv sync`）
+- 環境設定済み（`cp .env.example .env`）
 
 ---
 
-## Step 1: Hello World (5 minutes)
+## Step 1: Hello World（5分）
 
-### 1.1 Create a simple entry point
+### 1.1 エントリポイントを作成
 
 ```bash
 railway new entry hello
 ```
 
-This creates `src/hello.py`. Edit it to create a simple Hello World:
+### 1.2 ファイルを編集
+
+`src/hello.py` を以下の内容で**上書き**してください:
 
 ```python
 """hello entry point."""
@@ -151,14 +155,14 @@ from loguru import logger
 
 @node
 def greet(name: str) -> str:
-    """Greet someone."""
+    """挨拶する"""
     logger.info(f"Greeting {{name}}")
     return f"Hello, {{name}}!"
 
 
 @entry_point
 def main(name: str = "World"):
-    """Simple hello world entry point."""
+    """シンプルな Hello World エントリポイント"""
     message = greet(name)
     print(message)
     return message
@@ -168,176 +172,314 @@ if __name__ == "__main__":
     main()
 ```
 
-### 1.2 Run it
+### 1.3 実行
 
 ```bash
 uv run railway run hello
-# Output: Hello, World!
+```
 
+**期待される出力:**
+```
+Running entry point: hello
+... | INFO | [greet] Starting...
+... | INFO | Greeting World
+... | INFO | [greet] ✓ Completed
+Hello, World!
+... | INFO | [main] ✓ Completed successfully
+```
+
+### 1.4 引数を渡して実行
+
+```bash
 uv run railway run hello -- --name Alice
-# Output: Hello, Alice!
+```
+
+**期待される出力:**
+```
+Hello, Alice!
 ```
 
 ---
 
-## Step 2: Error Handling (10 minutes)
+## Step 2: パイプライン処理（10分）
 
-Railway handles errors automatically with the @node decorator.
+複数のノードを連結して処理を行います。
 
-### 2.1 Create a node that can fail
+### 2.1 ノードを作成
+
+```bash
+railway new node fetch_data
+railway new node process_data
+```
+
+### 2.2 fetch_data ノードを編集
+
+`src/nodes/fetch_data.py` を以下の内容で**上書き**してください:
+
+```python
+"""fetch_data node."""
+
+from railway import node
+from loguru import logger
+
+
+@node
+def fetch_data(user_id: int) -> dict:
+    """ユーザーデータを取得する（サンプル）"""
+    logger.info(f"Fetching data for user {{user_id}}")
+    # 実際のAPIコールの代わりにサンプルデータを返す
+    return {{
+        "user_id": user_id,
+        "name": "Taro Yamada",
+        "email": "taro@example.com",
+    }}
+```
+
+### 2.3 process_data ノードを編集
+
+`src/nodes/process_data.py` を以下の内容で**上書き**してください:
+
+```python
+"""process_data node."""
+
+from railway import node
+from loguru import logger
+
+
+@node
+def process_data(data: dict) -> dict:
+    """データを加工する"""
+    logger.info(f"Processing data for user {{data['user_id']}}")
+    return {{
+        **data,
+        "processed": True,
+        "display_name": data["name"].upper(),
+    }}
+```
+
+### 2.4 パイプライン用エントリポイントを作成
+
+```bash
+railway new entry user_report
+```
+
+`src/user_report.py` を以下の内容で**上書き**してください:
+
+```python
+"""user_report entry point."""
+
+from railway import entry_point, pipeline
+from loguru import logger
+
+from src.nodes.fetch_data import fetch_data
+from src.nodes.process_data import process_data
+
+
+@entry_point
+def main(user_id: int = 1):
+    """ユーザーレポートを生成する
+
+    Args:
+        user_id: ユーザーID（デフォルト: 1）
+    """
+    result = pipeline(
+        fetch_data(user_id),  # 最初の値
+        process_data,          # 次の処理
+    )
+    logger.info(f"Result: {{result}}")
+    print(f"Display Name: {{result['display_name']}}")
+    return result
+
+
+if __name__ == "__main__":
+    main()
+```
+
+### 2.5 実行
+
+```bash
+uv run railway run user_report
+```
+
+**期待される出力:**
+```
+Running entry point: user_report
+... | INFO | [fetch_data] Starting...
+... | INFO | Fetching data for user 1
+... | INFO | [fetch_data] ✓ Completed
+... | INFO | [process_data] Starting...
+... | INFO | Processing data for user 1
+... | INFO | [process_data] ✓ Completed
+... | INFO | Result: {{'user_id': 1, 'name': 'Taro Yamada', ...}}
+Display Name: TARO YAMADA
+... | INFO | [main] ✓ Completed successfully
+```
+
+別のユーザーIDで実行:
+```bash
+uv run railway run user_report -- --user-id 42
+```
+
+---
+
+## Step 3: エラーハンドリング（5分）
+
+@node デコレータはエラーを自動的にキャッチしてログに出力します。
+
+### 3.1 エラーが発生するノードを作成
 
 ```bash
 railway new node divide
 ```
 
-Edit `src/nodes/divide.py`:
+`src/nodes/divide.py` を以下の内容で**上書き**してください:
 
 ```python
+"""divide node."""
+
 from railway import node
+
 
 @node
 def divide(a: float, b: float) -> float:
+    """割り算を行う"""
     if b == 0:
         raise ValueError("Cannot divide by zero")
     return a / b
 ```
 
-### 2.2 Errors are caught and logged
-
-When an error occurs:
-- The error is logged with type and message
-- A hint may be provided for common errors
-- The log file location is shown
-
----
-
-## Step 3: Pipeline Processing (10 minutes)
-
-### 3.1 Create nodes
+### 3.2 テスト用エントリポイントを作成
 
 ```bash
-railway new node fetch_data --example
-railway new node process_data --example
+railway new entry calc
 ```
 
-### 3.2 Create a pipeline entry point
+`src/calc.py` を以下の内容で**上書き**してください:
 
 ```python
-from railway import entry_point, pipeline
-from src.nodes.fetch_data import fetch_data
-from src.nodes.process_data import process_data
+"""calc entry point."""
+
+from railway import entry_point
+from src.nodes.divide import divide
+
 
 @entry_point
-def main(source: str):
-    result = pipeline(
-        fetch_data(source),  # Initial value
-        process_data,        # Step 1
-    )
+def main(a: float = 10, b: float = 2):
+    """割り算を実行する
+
+    Args:
+        a: 被除数
+        b: 除数
+    """
+    result = divide(a, b)
+    print(f"{{a}} / {{b}} = {{result}}")
     return result
+
+
+if __name__ == "__main__":
+    main()
 ```
 
-**Key concept:** The first argument to `pipeline()` is the initial value.
-Subsequent arguments are functions that receive the previous result.
-
----
-
-## Step 4: Configuration (15 minutes)
-
-### 4.1 Edit config file
-
-Edit `config/development.yaml`:
-
-```yaml
-api:
-  base_url: "https://api.example.com"
-  timeout: 30
-
-retry:
-  default:
-    max_attempts: 3
-  nodes:
-    fetch_data:
-      max_attempts: 5
-```
-
-### 4.2 Use settings in your code
-
-```python
-from railway import node
-from src.settings import settings
-
-@node
-def fetch_data() -> dict:
-    url = settings.api.base_url + "/data"
-    timeout = settings.api.timeout
-    # Use url and timeout...
-```
-
----
-
-## Step 5: Testing (20 minutes)
-
-### 5.1 Run existing tests
+### 3.3 正常実行
 
 ```bash
-uv run pytest tests/
+uv run railway run calc
 ```
 
-### 5.2 Write your own test
+**期待される出力:**
+```
+10.0 / 2.0 = 5.0
+```
 
-When you create nodes with `railway new node`, test files are created automatically.
+### 3.4 エラー発生時
+
+```bash
+uv run railway run calc -- --b 0
+```
+
+**期待される出力:**
+```
+... | ERROR | [divide] ✗ Failed: ValueError: Cannot divide by zero
+... | ERROR | 詳細は logs/app.log を確認してください
+... | ERROR | ヒント: 入力データの形式や値を確認してください。
+```
+
+---
+
+## Step 4: テストの実行（5分）
+
+### 4.1 テストファイルを編集
+
+`railway new node` で作成したノードには、テストファイルが自動生成されています。
+
+`tests/nodes/test_divide.py` を以下の内容で**上書き**してください:
 
 ```python
-# tests/nodes/test_divide.py
+"""Tests for divide node."""
+
 import pytest
 from src.nodes.divide import divide
 
-def test_divide_success():
-    result = divide(10, 2)
-    assert result == 5.0
 
-def test_divide_by_zero():
-    with pytest.raises(ValueError):
-        divide(10, 0)
+class TestDivide:
+    """divide ノードのテスト"""
+
+    def test_divide_success(self):
+        """正常系: 割り算が成功する"""
+        result = divide(10, 2)
+        assert result == 5.0
+
+    def test_divide_by_zero(self):
+        """異常系: ゼロ除算でエラー"""
+        with pytest.raises(ValueError) as exc_info:
+            divide(10, 0)
+        assert "Cannot divide by zero" in str(exc_info.value)
+```
+
+### 4.2 テスト実行
+
+```bash
+uv run pytest tests/nodes/test_divide.py -v
+```
+
+**期待される出力:**
+```
+tests/nodes/test_divide.py::TestDivide::test_divide_success PASSED
+tests/nodes/test_divide.py::TestDivide::test_divide_by_zero PASSED
 ```
 
 ---
 
-## Step 6: Troubleshooting
+## トラブルシューティング
 
-### Common Errors
-
-#### Error: "Module not found"
+### エラー: "Module not found"
 ```
 ModuleNotFoundError: No module named 'src.nodes.fetch_data'
 ```
 
-**Solution:**
-- Make sure you're running from the project root
-- Check that the file exists at the correct path
-- Use `uv run railway run` instead of `python -m`
+**解決方法:**
+- プロジェクトルートから実行しているか確認
+- ファイルが正しいパスに存在するか確認
+- `uv run railway run` を使用する
 
-#### Error: "Configuration error"
+### エラー: "Missing argument"
 ```
-pydantic_core._pydantic_core.ValidationError: 1 validation error for APISettings
-base_url
-  Field required [type=missing, input_value={{}}, input_type=dict]
+Missing argument 'SOURCE'.
 ```
 
-**Solution:**
-- Check `config/development.yaml` has the required field
-- Make sure `.env` has `RAILWAY_ENV=development`
-- Verify the config file is valid YAML
+**解決方法:**
+- `--` の後に引数を渡す: `uv run railway run entry_name -- --arg value`
+- または、関数の引数にデフォルト値を設定する
 
 ---
 
-## Next Steps
+## 次のステップ
 
-1. **Add retry handling**: Use `@node(retry=True)`
-2. **Configure logging**: Edit `config/development.yaml`
-3. **Add type hints**: Use Pydantic models for type-safe data
+1. **リトライ機能**: `@node(retry=True)` でネットワークエラーなどに対応
+2. **設定管理**: `config/development.yaml` で環境別設定
+3. **型チェック**: `uv run mypy src/` で型安全性を確認
 
-See the Railway Framework documentation for more details.
+詳細は Railway Framework のドキュメントを参照してください。
 '''
     _write_file(project_path / "TUTORIAL.md", content)
 
