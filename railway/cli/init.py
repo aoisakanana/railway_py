@@ -159,21 +159,31 @@ railway new entry hello
 ```python
 """hello entry point."""
 
-from railway import entry_point, node
-from loguru import logger
+from railway import entry_point, node, pipeline
 
 
 @node
-def greet(name: str) -> str:
-    """挨拶する"""
-    logger.info(f"Greeting {{name}}")
+def validate_name(name: str) -> str:
+    """名前を検証して正規化する（純粋関数）"""
+    if not name or not name.strip():
+        raise ValueError("Name cannot be empty")
+    return name.strip()
+
+
+@node
+def create_greeting(name: str) -> str:
+    """挨拶メッセージを作成する（純粋関数）"""
     return f"Hello, {{name}}!"
 
 
 @entry_point
 def main(name: str = "World"):
     """シンプルな Hello World エントリポイント"""
-    message = greet(name)
+    message = pipeline(
+        name,
+        validate_name,
+        create_greeting,
+    )
     print(message)
     return message
 
@@ -191,9 +201,10 @@ uv run railway run hello
 **期待される出力:**
 ```
 Running entry point: hello
-... | INFO | [greet] Starting...
-... | INFO | Greeting World
-... | INFO | [greet] ✓ Completed
+... | INFO | [validate_name] Starting...
+... | INFO | [validate_name] ✓ Completed
+... | INFO | [create_greeting] Starting...
+... | INFO | [create_greeting] ✓ Completed
 Hello, World!
 ... | INFO | [main] ✓ Completed successfully
 ```
@@ -339,23 +350,39 @@ uv run railway run user_report -- --user-id 42
 ### 3.1 エラーが発生するノードを作成
 
 ```bash
-railway new node divide
+railway new node validate_divisor
+railway new node calculate_division
 ```
 
-`src/nodes/divide.py` を以下の内容で**上書き**してください:
+`src/nodes/validate_divisor.py` を以下の内容で**上書き**してください:
 
 ```python
-"""divide node."""
+"""validate_divisor node."""
 
 from railway import node
 
 
 @node
-def divide(a: float, b: float) -> float:
-    """割り算を行う"""
-    if b == 0:
+def validate_divisor(params: dict) -> dict:
+    """除数を検証する（純粋関数）"""
+    if params["b"] == 0:
         raise ValueError("Cannot divide by zero")
-    return a / b
+    return params
+```
+
+`src/nodes/calculate_division.py` を以下の内容で**上書き**してください:
+
+```python
+"""calculate_division node."""
+
+from railway import node
+
+
+@node
+def calculate_division(params: dict) -> dict:
+    """割り算を実行する（純粋関数）"""
+    result = params["a"] / params["b"]
+    return {{**params, "result": result}}
 ```
 
 ### 3.2 テスト用エントリポイントを作成
@@ -369,8 +396,10 @@ railway new entry calc
 ```python
 """calc entry point."""
 
-from railway import entry_point
-from src.nodes.divide import divide
+from railway import entry_point, pipeline
+
+from src.nodes.validate_divisor import validate_divisor
+from src.nodes.calculate_division import calculate_division
 
 
 @entry_point
@@ -381,8 +410,12 @@ def main(a: float = 10, b: float = 2):
         a: 被除数
         b: 除数
     """
-    result = divide(a, b)
-    print(f"{{a}} / {{b}} = {{result}}")
+    result = pipeline(
+        {{"a": a, "b": b}},
+        validate_divisor,
+        calculate_division,
+    )
+    print(f"{{a}} / {{b}} = {{result['result']}}")
     return result
 
 
@@ -409,7 +442,7 @@ uv run railway run calc -- --b 0
 
 **期待される出力:**
 ```
-... | ERROR | [divide] ✗ Failed: ValueError: Cannot divide by zero
+... | ERROR | [validate_divisor] ✗ Failed: ValueError: Cannot divide by zero
 ... | ERROR | 詳細は logs/app.log を確認してください
 ... | ERROR | ヒント: 入力データの形式や値を確認してください。
 ```
@@ -422,40 +455,77 @@ uv run railway run calc -- --b 0
 
 `railway new node` で作成したノードには、テストファイルが自動生成されています。
 
-`tests/nodes/test_divide.py` を以下の内容で**上書き**してください:
+`tests/nodes/test_validate_divisor.py` を以下の内容で**上書き**してください:
 
 ```python
-"""Tests for divide node."""
+"""Tests for validate_divisor node."""
 
 import pytest
-from src.nodes.divide import divide
+
+from src.nodes.validate_divisor import validate_divisor
 
 
-class TestDivide:
-    """divide ノードのテスト"""
+class TestValidateDivisor:
+    """validate_divisor ノードのテスト"""
 
-    def test_divide_success(self):
-        """正常系: 割り算が成功する"""
-        result = divide(10, 2)
-        assert result == 5.0
+    def test_valid_divisor(self):
+        """正常系: 有効な除数で検証が通る"""
+        # Arrange
+        params = {{"a": 10, "b": 2}}
 
-    def test_divide_by_zero(self):
+        # Act
+        result = validate_divisor(params)
+
+        # Assert
+        assert result == params
+
+    def test_zero_divisor_raises_error(self):
         """異常系: ゼロ除算でエラー"""
+        # Arrange
+        params = {{"a": 10, "b": 0}}
+
+        # Act & Assert
         with pytest.raises(ValueError) as exc_info:
-            divide(10, 0)
+            validate_divisor(params)
         assert "Cannot divide by zero" in str(exc_info.value)
+```
+
+`tests/nodes/test_calculate_division.py` を以下の内容で**上書き**してください:
+
+```python
+"""Tests for calculate_division node."""
+
+from src.nodes.calculate_division import calculate_division
+
+
+class TestCalculateDivision:
+    """calculate_division ノードのテスト"""
+
+    def test_division_success(self):
+        """正常系: 割り算が成功する"""
+        # Arrange
+        params = {{"a": 10, "b": 2}}
+
+        # Act
+        result = calculate_division(params)
+
+        # Assert
+        assert result["result"] == 5.0
+        assert result["a"] == 10
+        assert result["b"] == 2
 ```
 
 ### 4.2 テスト実行
 
 ```bash
-uv run pytest tests/nodes/test_divide.py -v
+uv run pytest tests/nodes/ -v
 ```
 
 **期待される出力:**
 ```
-tests/nodes/test_divide.py::TestDivide::test_divide_success PASSED
-tests/nodes/test_divide.py::TestDivide::test_divide_by_zero PASSED
+tests/nodes/test_validate_divisor.py::TestValidateDivisor::test_valid_divisor PASSED
+tests/nodes/test_validate_divisor.py::TestValidateDivisor::test_zero_divisor_raises_error PASSED
+tests/nodes/test_calculate_division.py::TestCalculateDivision::test_division_success PASSED
 ```
 
 ---
