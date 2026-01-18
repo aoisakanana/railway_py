@@ -44,7 +44,7 @@ dependencies = [
     "pyyaml>=6.0.0",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
     "ruff>=0.1.0",
     "mypy>=1.7.0",
