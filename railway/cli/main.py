@@ -5,6 +5,7 @@ from typing import Optional
 import typer
 
 from railway import __version__
+from railway.cli.docs import docs
 from railway.cli.init import init
 from railway.cli.list import list_components
 from railway.cli.new import new
@@ -45,6 +46,7 @@ app.command(name="init")(init)
 app.command(name="new")(new)
 app.command(name="list")(list_components)
 app.command(name="run")(run)
+app.command(name="docs")(docs)
 
 
 if __name__ == "__main__":

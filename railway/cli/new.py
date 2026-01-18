@@ -217,7 +217,7 @@ class Test{class_name}:
 
 
 def _get_node_test_template(name: str) -> str:
-    """Get test template for a node."""
+    """Get test template for a node (TDD-style skeleton)."""
     class_name = "".join(word.title() for word in name.split("_"))
     return f'''"""Tests for {name} node."""
 
@@ -227,41 +227,33 @@ from nodes.{name} import {name}
 
 
 class Test{class_name}:
-    """Test suite for {name} node."""
+    """Test suite for {name} node.
 
-    def test_{name}_with_valid_input(self):
-        """正常系: 有効な入力データで正しく処理される"""
-        # Arrange
-        input_data = {{"key": "value", "count": 1}}
+    TDD Workflow:
+    1. Edit this file to define expected behavior
+    2. Run: uv run pytest tests/nodes/test_{name}.py -v (expect failure)
+    3. Implement src/nodes/{name}.py
+    4. Run tests again (expect success)
+    """
 
-        # Act
-        result = {name}(input_data)
+    def test_{name}_basic(self):
+        """TODO: Define expected behavior and implement test.
 
-        # Assert
-        assert isinstance(result, dict)
-        assert "key" in result
+        Example:
+            # Arrange
+            input_data = your_input_here
 
-    def test_{name}_preserves_input_data(self):
-        """正常系: 入力データが保持される"""
-        # Arrange
-        input_data = {{"original": "data"}}
+            # Act
+            result = {name}(input_data)
 
-        # Act
-        result = {name}(input_data)
+            # Assert
+            assert result == expected_output
+        """
+        pytest.skip("Implement this test based on your node's specification")
 
-        # Assert
-        assert result.get("original") == "data"
-
-    def test_{name}_with_empty_dict(self):
-        """境界値: 空の辞書でもエラーにならない"""
-        # Arrange
-        input_data = {{}}
-
-        # Act
-        result = {name}(input_data)
-
-        # Assert
-        assert isinstance(result, dict)
+    def test_{name}_edge_case(self):
+        """TODO: Test edge cases and error handling."""
+        pytest.skip("Implement edge case tests")
 '''
 
 
@@ -333,8 +325,13 @@ def _create_node(name: str, example: bool, force: bool) -> None:
     # Create test file
     _create_node_test(name)
 
-    typer.echo(f"Created node: src/nodes/{name}.py")
-    typer.echo(f"Created test: tests/nodes/test_{name}.py\n")
+    typer.echo(f"✓ Created src/nodes/{name}.py")
+    typer.echo(f"✓ Created tests/nodes/test_{name}.py (skeleton)\n")
+    typer.echo("💡 TDD style workflow:")
+    typer.echo(f"   1. Write tests in tests/nodes/test_{name}.py")
+    typer.echo(f"   2. Run: uv run pytest tests/nodes/test_{name}.py -v (expect skip)")
+    typer.echo(f"   3. Implement src/nodes/{name}.py")
+    typer.echo("   4. Run tests again (expect success)\n")
     typer.echo("To use in an entry point:")
     typer.echo(f"  from nodes.{name} import {name}")
 
@@ -348,9 +345,18 @@ def new(
     """
     Create a new entry point or node.
 
+    Entry points are CLI-accessible functions decorated with @entry_point.
+    Nodes are pure functions decorated with @node for use in pipelines.
+
+    Both entry points and nodes are created with a corresponding test file
+    (TDD-style skeleton with pytest.skip).
+
     Examples:
         railway new entry daily_report
-        railway new node fetch_data --example
+        railway new node fetch_data
+        railway new node process_data --example
+
+    Documentation: https://pypi.org/project/railway-framework/
     """
     # Validate we're in a project
     if not _is_railway_project():

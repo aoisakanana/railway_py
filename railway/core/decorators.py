@@ -2,7 +2,9 @@
 Decorators for Railway nodes and entry points.
 """
 
-import asyncio
+import inspect
+import os
+import traceback
 from collections.abc import Callable
 from functools import wraps
 from typing import Any, ParamSpec, TypeVar
@@ -80,7 +82,7 @@ def node(
 
     def decorator(f: Callable[P, T]) -> Callable[P, T]:
         node_name = name or f.__name__
-        is_async = asyncio.iscoroutinefunction(f)
+        is_async = inspect.iscoroutinefunction(f)
 
         if is_async:
             return _create_async_wrapper(f, node_name, retry, log_input, log_output)
@@ -271,6 +273,58 @@ def _log_error_with_hint(node_name: str, exception: Exception) -> None:
         logger.error(hint)
 
 
+def _is_verbose_mode() -> bool:
+    """Check if verbose mode is enabled."""
+    return os.environ.get("RAILWAY_VERBOSE", "").lower() in ("1", "true", "yes")
+
+
+def _get_user_frame(exception: Exception) -> str | None:
+    """Extract user code location from exception traceback."""
+    tb = traceback.extract_tb(exception.__traceback__)
+    # Filter out framework internal frames
+    internal_patterns = [
+        "site-packages/typer/",
+        "site-packages/click/",
+        "site-packages/railway/",
+        "<frozen",
+        "runpy.py",
+    ]
+
+    for frame in reversed(tb):
+        is_internal = any(pattern in frame.filename for pattern in internal_patterns)
+        if not is_internal:
+            return f"{frame.filename}:{frame.lineno} in {frame.name}"
+
+    return None
+
+
+def _log_exception_compact(entry_name: str, exception: Exception) -> None:
+    """Log exception in compact format for better readability."""
+    verbose = _is_verbose_mode()
+
+    # Always log full traceback to file (DEBUG level)
+    logger.opt(exception=True).debug(f"[{entry_name}] Full traceback")
+
+    if verbose:
+        # Verbose mode: show full traceback
+        logger.exception(f"[{entry_name}] ✗ Unhandled exception: {exception}")
+    else:
+        # Compact mode: show only essential info
+        error_type = type(exception).__name__
+        error_msg = str(exception)
+        location = _get_user_frame(exception)
+
+        logger.error(f"[{entry_name}] ✗ {error_type}: {error_msg}")
+        if location:
+            logger.error(f"Location: {location}")
+
+        hint = _get_error_hint(exception)
+        if hint:
+            logger.error(hint)
+
+        logger.info("詳細なスタックトレースは RAILWAY_VERBOSE=1 で表示できます")
+
+
 def _execute_with_retry(
     func: Callable[P, T],
     retry_config: Retry,
@@ -368,7 +422,7 @@ def entry_point(
                 raise
 
             except Exception as e:
-                logger.exception(f"[{entry_name}] ✗ Unhandled exception: {e}")
+                _log_exception_compact(entry_name, e)
                 raise
 
         # Create a wrapper that can be called directly or via Typer
