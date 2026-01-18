@@ -1,6 +1,6 @@
 """Pipeline execution for Railway Framework."""
 
-import asyncio
+import inspect
 from collections.abc import Callable
 from typing import Any
 
@@ -57,7 +57,7 @@ def pipeline(
     # Check for async functions
     for step in steps:
         # Check the original function if it's a decorated node
-        is_async = getattr(step, "_is_async", False) or asyncio.iscoroutinefunction(
+        is_async = getattr(step, "_is_async", False) or inspect.iscoroutinefunction(
             getattr(step, "_original_func", step)
         )
         if is_async:
@@ -162,7 +162,7 @@ async def async_pipeline(
         for i, step in enumerate(steps, 1):
             current_step = i
             step_name = getattr(step, "_node_name", step.__name__)
-            is_async = getattr(step, "_is_async", False) or asyncio.iscoroutinefunction(
+            is_async = getattr(step, "_is_async", False) or inspect.iscoroutinefunction(
                 getattr(step, "_original_func", step)
             )
 

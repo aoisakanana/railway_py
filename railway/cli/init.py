@@ -224,20 +224,63 @@ uv run railway run hello -- --name Alice
 Hello, Alice!
 ```
 
+> 💡 `railway new entry` でテストファイルも生成されていますが、まずは動くことを確認しましょう。
+> テストの書き方は Step 2 で学びます。
+
 ---
 
-## Step 2: パイプライン処理（10分）
+## Step 2: パイプライン処理 - TDDスタイル（15分）
 
-複数のノードを連結して処理を行います。
+ここからは**テスト駆動開発（TDD）**のスタイルで進めます。
 
-### 2.1 ノードを作成
+### TDDとは？
+
+1. **Red**: まずテストを書く（失敗する）
+2. **Green**: テストが通る最小限の実装をする
+3. **Refactor**: コードを整理する
+
+### 2.1 ノードのスケルトンを生成
 
 ```bash
 railway new node fetch_data
 railway new node process_data
 ```
 
-### 2.2 fetch_data ノードを編集
+生成されたテストファイルは `pytest.skip()` 状態です。これから実装していきます。
+
+### 2.2 fetch_data のテストを先に書く（Red Phase）
+
+`tests/nodes/test_fetch_data.py` を以下の内容で**上書き**してください:
+
+```python
+"""Tests for fetch_data node."""
+
+from nodes.fetch_data import fetch_data
+
+
+class TestFetchData:
+    """fetch_data ノードのテスト"""
+
+    def test_fetch_data_returns_user_info(self):
+        """正常系: ユーザーIDを渡すとユーザー情報を返す"""
+        # Act
+        result = fetch_data(123)
+
+        # Assert
+        assert "user_id" in result
+        assert result["user_id"] == 123
+        assert "name" in result
+        assert "email" in result
+```
+
+テストを実行（まだ失敗します - これが正常です！）:
+
+```bash
+uv run pytest tests/nodes/test_fetch_data.py -v
+# FAILED ✗
+```
+
+### 2.3 fetch_data を実装する（Green Phase）
 
 `src/nodes/fetch_data.py` を以下の内容で**上書き**してください:
 
@@ -252,7 +295,6 @@ from loguru import logger
 def fetch_data(user_id: int) -> dict:
     """ユーザーデータを取得する（サンプル）"""
     logger.info(f"Fetching data for user {{user_id}}")
-    # 実際のAPIコールの代わりにサンプルデータを返す
     return {{
         "user_id": user_id,
         "name": "Taro Yamada",
@@ -260,7 +302,38 @@ def fetch_data(user_id: int) -> dict:
     }}
 ```
 
-### 2.3 process_data ノードを編集
+テストが通ることを確認:
+
+```bash
+uv run pytest tests/nodes/test_fetch_data.py -v
+# PASSED ✓
+```
+
+### 2.4 process_data も同様にTDDで実装
+
+`tests/nodes/test_process_data.py` を以下の内容で**上書き**してください:
+
+```python
+"""Tests for process_data node."""
+
+from nodes.process_data import process_data
+
+
+class TestProcessData:
+    """process_data ノードのテスト"""
+
+    def test_process_data_adds_display_name(self):
+        """正常系: display_name が追加される"""
+        # Arrange
+        input_data = {{"user_id": 1, "name": "Taro Yamada", "email": "taro@example.com"}}
+
+        # Act
+        result = process_data(input_data)
+
+        # Assert
+        assert result["display_name"] == "TARO YAMADA"
+        assert result["processed"] is True
+```
 
 `src/nodes/process_data.py` を以下の内容で**上書き**してください:
 
@@ -282,7 +355,14 @@ def process_data(data: dict) -> dict:
     }}
 ```
 
-### 2.4 パイプライン用エントリポイントを作成
+両方のテストが通ることを確認:
+
+```bash
+uv run pytest tests/nodes/ -v
+# 2 passed ✓
+```
+
+### 2.5 パイプライン用エントリポイントを作成
 
 ```bash
 railway new entry user_report
@@ -320,7 +400,7 @@ if __name__ == "__main__":
     main()
 ```
 
-### 2.5 実行
+### 2.6 実行
 
 ```bash
 uv run railway run user_report
@@ -335,7 +415,6 @@ Running entry point: user_report
 ... | INFO | [process_data] Starting...
 ... | INFO | Processing data for user 1
 ... | INFO | [process_data] ✓ Completed
-... | INFO | Result: {{'user_id': 1, 'name': 'Taro Yamada', ...}}
 Display Name: TARO YAMADA
 ... | INFO | [main] ✓ Completed successfully
 ```
@@ -559,11 +638,19 @@ Missing argument 'SOURCE'.
 
 ## 次のステップ
 
+チュートリアルを完了しました！さらに詳しく学ぶには：
+
+### 機能を深掘り
+
 1. **リトライ機能**: `@node(retry=True)` でネットワークエラーなどに対応
 2. **設定管理**: `config/development.yaml` で環境別設定
 3. **型チェック**: `uv run mypy src/` で型安全性を確認
+4. **ドキュメント表示**: `railway docs` でドキュメントを開く
 
-詳細は Railway Framework のドキュメントを参照してください。
+### ドキュメント・リソース
+
+- [Railway Framework ドキュメント](https://pypi.org/project/railway-framework/)
+- [ソースコード・Issue](https://github.com/aoisakanana/railway_py)
 '''
     _write_file(project_path / "TUTORIAL.md", content)
 
