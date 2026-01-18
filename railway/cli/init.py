@@ -129,8 +129,18 @@ Railway Framework プロジェクトへようこそ！このチュートリア�
 
 - Python 3.10以上
 - uv インストール済み（`curl -LsSf https://astral.sh/uv/install.sh | sh`）
-- 依存関係インストール済み（`uv sync`）
-- 環境設定済み（`cp .env.example .env`）
+
+## セットアップ
+
+```bash
+# 依存関係をインストール（開発用ツール含む）
+uv sync --group dev
+
+# 環境ファイルをコピー
+cp .env.example .env
+```
+
+> **Note:** `--group dev` オプションで pytest, ruff, mypy などの開発ツールがインストールされます。
 
 ---
 
@@ -533,9 +543,25 @@ def _create_init_files(project_path: Path) -> None:
 
 def _create_conftest_py(project_path: Path) -> None:
     """Create tests/conftest.py file."""
-    content = '''"""Pytest configuration."""
+    content = '''"""Pytest configuration and shared fixtures."""
 
 import pytest
+
+
+@pytest.fixture
+def sample_user_data() -> dict:
+    """サンプルユーザーデータを提供するフィクスチャ"""
+    return {
+        "user_id": 1,
+        "name": "Test User",
+        "email": "test@example.com",
+    }
+
+
+@pytest.fixture
+def empty_data() -> dict:
+    """空のデータを提供するフィクスチャ"""
+    return {}
 '''
     _write_file(project_path / "tests" / "conftest.py", content)
 
@@ -544,21 +570,35 @@ def _create_example_entry(project_path: Path) -> None:
     """Create example entry point."""
     content = '''"""Hello World entry point."""
 
-from railway import entry_point, node
-from loguru import logger
+from railway import entry_point, node, pipeline
 
 
 @node
-def greet(name: str) -> str:
-    """Greet someone."""
-    logger.info(f"Greeting {name}")
+def validate_name(name: str) -> str:
+    """名前を検証して正規化する（純粋関数）"""
+    if not name or not name.strip():
+        raise ValueError("Name cannot be empty")
+    return name.strip()
+
+
+@node
+def create_greeting(name: str) -> str:
+    """挨拶メッセージを作成する（純粋関数）"""
     return f"Hello, {name}!"
 
 
 @entry_point
 def main(name: str = "World"):
-    """Simple hello world entry point."""
-    message = greet(name)
+    """シンプルな Hello World エントリポイント
+
+    Args:
+        name: 挨拶する相手の名前
+    """
+    message = pipeline(
+        name,
+        validate_name,
+        create_greeting,
+    )
     print(message)
     return message
 
