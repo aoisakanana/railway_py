@@ -195,7 +195,7 @@ def _get_entry_test_template(name: str) -> str:
 
 import pytest
 
-from src.{name} import main
+from {name} import main
 
 
 class Test{class_name}:
@@ -223,7 +223,7 @@ def _get_node_test_template(name: str) -> str:
 
 import pytest
 
-from src.nodes.{name} import {name}
+from nodes.{name} import {name}
 
 
 class Test{class_name}:
@@ -297,7 +297,7 @@ def _create_entry(name: str, example: bool, force: bool) -> None:
     typer.echo(f"Created test: tests/test_{name}.py\n")
     typer.echo("To run:")
     typer.echo(f"  uv run railway run {name}")
-    typer.echo(f"  # or: uv run python -m src.{name}")
+    typer.echo(f"  # or: uv run python -m {name}")
 
 
 def _create_node_test(name: str) -> None:
@@ -336,7 +336,7 @@ def _create_node(name: str, example: bool, force: bool) -> None:
     typer.echo(f"Created node: src/nodes/{name}.py")
     typer.echo(f"Created test: tests/nodes/test_{name}.py\n")
     typer.echo("To use in an entry point:")
-    typer.echo(f"  from src.nodes.{name} import {name}")
+    typer.echo(f"  from nodes.{name} import {name}")
 
 
 def new(

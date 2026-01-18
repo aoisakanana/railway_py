@@ -58,6 +58,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+
+# src/ プレフィックスを取り除く設定
+[tool.hatch.build.targets.wheel.sources]
+"src" = ""
 '''
     _write_file(project_path / "pyproject.toml", content)
 
@@ -292,8 +296,8 @@ railway new entry user_report
 from railway import entry_point, pipeline
 from loguru import logger
 
-from src.nodes.fetch_data import fetch_data
-from src.nodes.process_data import process_data
+from nodes.fetch_data import fetch_data
+from nodes.process_data import process_data
 
 
 @entry_point
@@ -398,8 +402,8 @@ railway new entry calc
 
 from railway import entry_point, pipeline
 
-from src.nodes.validate_divisor import validate_divisor
-from src.nodes.calculate_division import calculate_division
+from nodes.validate_divisor import validate_divisor
+from nodes.calculate_division import calculate_division
 
 
 @entry_point
@@ -462,7 +466,7 @@ uv run railway run calc -- --b 0
 
 import pytest
 
-from src.nodes.validate_divisor import validate_divisor
+from nodes.validate_divisor import validate_divisor
 
 
 class TestValidateDivisor:
@@ -495,7 +499,7 @@ class TestValidateDivisor:
 ```python
 """Tests for calculate_division node."""
 
-from src.nodes.calculate_division import calculate_division
+from nodes.calculate_division import calculate_division
 
 
 class TestCalculateDivision:
@@ -534,13 +538,13 @@ tests/nodes/test_calculate_division.py::TestCalculateDivision::test_division_suc
 
 ### エラー: "Module not found"
 ```
-ModuleNotFoundError: No module named 'src.nodes.fetch_data'
+ModuleNotFoundError: No module named 'nodes.fetch_data'
 ```
 
 **解決方法:**
 - プロジェクトルートから実行しているか確認
 - ファイルが正しいパスに存在するか確認
-- `uv run railway run` を使用する
+- `uv run railway run` を使用する（editable installが必要）
 
 ### エラー: "Missing argument"
 ```
