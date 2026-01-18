@@ -20,7 +20,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 ### 1. railway-framework をグローバルにインストール
 
 ```bash
-uv tool install railway-framework
+uv tool install railway-framework@latest
 ```
 
 これにより `railway` コマンドが使えるようになります。
