@@ -48,7 +48,7 @@ class TestInitCreatesHelloEntry:
                 os.chdir(original_cwd)
 
     def test_hello_py_contains_hello_message(self):
-        """Generated hello.py should print a hello message."""
+        """Generated hello.py should print 'Hello, World!' (standard greeting)."""
         from railway.cli.main import app
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -60,8 +60,8 @@ class TestInitCreatesHelloEntry:
                 hello_py = Path(tmpdir) / "test_project" / "src" / "hello.py"
                 content = hello_py.read_text()
 
-                assert "Hello" in content
-                assert "Railway" in content
+                # Should use standard "Hello, World!" greeting
+                assert "Hello, World!" in content
             finally:
                 os.chdir(original_cwd)
 
