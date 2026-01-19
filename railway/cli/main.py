@@ -10,6 +10,7 @@ from railway.cli.init import init
 from railway.cli.list import list_components
 from railway.cli.new import new
 from railway.cli.run import run
+from railway.cli.show import show
 
 
 def version_callback(value: bool) -> None:
@@ -47,6 +48,7 @@ app.command(name="new")(new)
 app.command(name="list")(list_components)
 app.command(name="run")(run)
 app.command(name="docs")(docs)
+app.command(name="show")(show)
 
 
 if __name__ == "__main__":
