@@ -534,6 +534,35 @@ data["total"]  # どこで使われてる？ 変更漏れがあっても実行�
 2. **設定管理**: `config/development.yaml` で環境別設定
 3. **非同期処理**: `typed_async_pipeline` で非同期対応
 4. **ドキュメント**: `railway docs` で詳細を確認
+
+---
+
+## トラブルシューティング
+
+### mypy で型チェックが効かない場合
+
+mypyで「Skipping analyzing "railway"」と表示される場合:
+
+```bash
+# 1. パッケージを再インストール
+uv sync --reinstall-package railway-framework
+
+# 2. mypy キャッシュをクリア
+rm -rf .mypy_cache/
+
+# 3. 確認
+uv run mypy src/
+```
+
+### テストが失敗する場合
+
+```bash
+# pytest キャッシュをクリア
+rm -rf .pytest_cache/ __pycache__/
+
+# 依存関係を再同期
+uv sync
+```
 '''
     _write_file(project_path / "TUTORIAL.md", content)
 
@@ -628,8 +657,8 @@ def hello():
     railway init 後すぐに動作確認できます:
         uv run railway run hello
     """
-    print("Hello from Railway!")
-    return {"message": "Hello from Railway!"}
+    print("Hello, World!")
+    return {"message": "Hello, World!"}
 
 
 if __name__ == "__main__":

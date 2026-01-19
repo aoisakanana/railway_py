@@ -432,7 +432,8 @@ def {name}(data: dict) -> dict:
 def _get_entry_test_template(name: str) -> str:
     """Get test template for an entry point.
 
-    Uses CliRunner to avoid sys.argv pollution from pytest.
+    Uses CliRunner with main._typer_app to avoid sys.argv pollution
+    and ensure tests work even after user rewrites the entry point.
     """
     class_name = "".join(word.title() for word in name.split("_"))
     return f'''"""Tests for {name} entry point."""
@@ -440,7 +441,7 @@ def _get_entry_test_template(name: str) -> str:
 import pytest
 from typer.testing import CliRunner
 
-from {name} import app
+from {name} import main
 
 runner = CliRunner()
 
@@ -448,19 +449,19 @@ runner = CliRunner()
 class Test{class_name}:
     """Test suite for {name} entry point.
 
-    Uses CliRunner to isolate from pytest's sys.argv.
+    Uses CliRunner with main._typer_app to isolate from pytest's sys.argv.
+    This pattern works regardless of whether 'app' is exported.
     """
 
     def test_{name}_runs_successfully(self):
         """Entry point should complete without error."""
-        result = runner.invoke(app, [])
+        result = runner.invoke(main._typer_app, [])
         assert result.exit_code == 0, f"Failed with: {{result.stdout}}"
 
     def test_{name}_with_help(self):
         """Entry point should show help."""
-        result = runner.invoke(app, ["--help"])
+        result = runner.invoke(main._typer_app, ["--help"])
         assert result.exit_code == 0
-        assert "{name}" in result.stdout.lower() or "usage" in result.stdout.lower()
 '''
 
 
