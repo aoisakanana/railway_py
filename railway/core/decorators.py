@@ -2,12 +2,14 @@
 Decorators for Railway nodes and entry points.
 """
 
+from __future__ import annotations
+
 import inspect
 import os
 import traceback
 from collections.abc import Callable
 from functools import wraps
-from typing import Any, ParamSpec, TypeVar
+from typing import TYPE_CHECKING, Any, ParamSpec, Type, TypeVar
 
 import typer
 from loguru import logger
@@ -19,6 +21,9 @@ from tenacity import (
     before_sleep_log,
     AsyncRetrying,
 )
+
+if TYPE_CHECKING:
+    from railway.core.contract import Contract
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -44,6 +49,8 @@ class Retry:
 def node(
     func: Callable[P, T] | None = None,
     *,
+    inputs: dict[str, Type[Contract]] | None = None,
+    output: Type[Contract] | None = None,
     retry: bool | Retry = False,
     log_input: bool = False,
     log_output: bool = False,
@@ -55,9 +62,12 @@ def node(
     2. Optional retry with exponential backoff
     3. Structured logging
     4. Metadata storage
+    5. Type-safe input/output contracts (Output Model pattern)
 
     Args:
         func: Function to decorate
+        inputs: Dictionary mapping parameter names to expected Contract types
+        output: Expected output Contract type
         retry: Enable retry (bool) or provide Retry config
         log_input: Log input parameters (caution: may log sensitive data)
         log_output: Log output data (caution: may log sensitive data)
@@ -75,19 +85,29 @@ def node(
         def fetch_with_retry() -> dict:
             return api.get("/data")
 
-        @node(retry=Retry(max_attempts=5, min_wait=1))
-        def custom_retry() -> dict:
-            return api.get("/data")
+        @node(output=UsersFetchResult)
+        def fetch_users() -> UsersFetchResult:
+            return UsersFetchResult(users=[...], total=10)
+
+        @node(inputs={"users": UsersFetchResult}, output=ReportResult)
+        def generate_report(users: UsersFetchResult) -> ReportResult:
+            return ReportResult(content=f"{users.total} users")
     """
+    # Normalize inputs to empty dict if None
+    inputs_dict = inputs or {}
 
     def decorator(f: Callable[P, T]) -> Callable[P, T]:
         node_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
 
         if is_async:
-            return _create_async_wrapper(f, node_name, retry, log_input, log_output)
+            return _create_async_wrapper(
+                f, node_name, inputs_dict, output, retry, log_input, log_output
+            )
         else:
-            return _create_sync_wrapper(f, node_name, retry, log_input, log_output)
+            return _create_sync_wrapper(
+                f, node_name, inputs_dict, output, retry, log_input, log_output
+            )
 
     # Handle decorator usage with and without parentheses
     if func is None:
@@ -98,6 +118,8 @@ def node(
 def _create_sync_wrapper(
     f: Callable[P, T],
     node_name: str,
+    inputs_dict: dict[str, Type[Contract]],
+    output_type: Type[Contract] | None,
     retry: bool | Retry,
     log_input: bool,
     log_output: bool,
@@ -123,6 +145,13 @@ def _create_sync_wrapper(
                 # Execute without retry
                 result = f(*args, **kwargs)
 
+            # Validate output type if specified
+            if output_type is not None and not isinstance(result, output_type):
+                raise TypeError(
+                    f"Node '{node_name}' expected to return {output_type.__name__}, "
+                    f"got {type(result).__name__}"
+                )
+
             # Log output if enabled
             if log_output:
                 logger.debug(f"[{node_name}] Output: {result}")
@@ -139,6 +168,8 @@ def _create_sync_wrapper(
     wrapper._node_name = node_name  # type: ignore[attr-defined]
     wrapper._original_func = f  # type: ignore[attr-defined]
     wrapper._is_async = False  # type: ignore[attr-defined]
+    wrapper._node_inputs = inputs_dict  # type: ignore[attr-defined]
+    wrapper._node_output = output_type  # type: ignore[attr-defined]
 
     return wrapper
 
@@ -146,6 +177,8 @@ def _create_sync_wrapper(
 def _create_async_wrapper(
     f: Callable[P, T],
     node_name: str,
+    inputs_dict: dict[str, Type[Contract]],
+    output_type: Type[Contract] | None,
     retry: bool | Retry,
     log_input: bool,
     log_output: bool,
@@ -173,6 +206,13 @@ def _create_async_wrapper(
                 # Execute without retry
                 result = await f(*args, **kwargs)
 
+            # Validate output type if specified
+            if output_type is not None and not isinstance(result, output_type):
+                raise TypeError(
+                    f"Node '{node_name}' expected to return {output_type.__name__}, "
+                    f"got {type(result).__name__}"
+                )
+
             # Log output if enabled
             if log_output:
                 logger.debug(f"[{node_name}] Output: {result}")
@@ -189,6 +229,8 @@ def _create_async_wrapper(
     wrapper._node_name = node_name  # type: ignore[attr-defined]
     wrapper._original_func = f  # type: ignore[attr-defined]
     wrapper._is_async = True  # type: ignore[attr-defined]
+    wrapper._node_inputs = inputs_dict  # type: ignore[attr-defined]
+    wrapper._node_output = output_type  # type: ignore[attr-defined]
 
     return wrapper
 
