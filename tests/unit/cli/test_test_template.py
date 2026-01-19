@@ -47,7 +47,7 @@ class TestNodeTestGeneration:
                 runner.invoke(app, ["new", "node", "process_data"])
 
                 test_content = (Path(tmpdir) / "tests" / "nodes" / "test_process_data.py").read_text()
-                assert "from src.nodes.process_data import" in test_content
+                assert "from nodes.process_data import" in test_content
             finally:
                 os.chdir(original_cwd)
 
