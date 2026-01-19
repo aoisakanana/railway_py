@@ -174,7 +174,13 @@ def _get_typed_node_test_template(
     output_type: str,
     inputs: list[tuple[str, str]],
 ) -> str:
-    """Get typed node test template."""
+    """Get typed node test template.
+
+    Generates tests that use pytest.skip() by default to follow TDD workflow:
+    1. Run tests (skip)
+    2. Implement the test data
+    3. Run tests (pass)
+    """
     class_name = "".join(word.title() for word in name.split("_"))
 
     # Build imports
@@ -191,17 +197,17 @@ def _get_typed_node_test_template(
     import_lines.append(f"from nodes.{name} import {name}")
     imports = "\n".join(import_lines)
 
-    # Build test
+    # Build input hints for documentation
     if inputs:
-        input_setup = "\n".join(
-            f"        {pn} = {tn}(\n            # TODO: Fill in test data\n        )"
+        input_hints = "\n".join(
+            f"    #     {pn} = {tn}(...)"
             for pn, tn in inputs
         )
-        call_args = ", ".join(pn for pn, _ in inputs)
-        test_call = f"{name}({call_args})"
+        call_hint = ", ".join(pn for pn, _ in inputs)
+        call_example = f"    #     result = {name}({call_hint})"
     else:
-        input_setup = ""
-        test_call = f"{name}()"
+        input_hints = ""
+        call_example = f"    #     result = {name}()"
 
     return f'''"""Tests for {name} node."""
 
@@ -211,18 +217,23 @@ import pytest
 
 
 class Test{class_name}:
-    """Test suite for {name} node."""
+    """Test suite for {name} node.
+
+    TDD Workflow:
+    1. Run tests (expect skip)
+    2. Fill in test data and assertions
+    3. Run tests (expect pass)
+    """
 
     def test_{name}_returns_correct_type(self):
-        """Node returns the expected output type."""
-        # Arrange
-{input_setup}
+        """Node should return {output_type}.
 
-        # Act
-        result = {test_call}
-
-        # Assert
-        assert isinstance(result, {output_type})
+        Example:
+{input_hints}
+{call_example}
+            assert isinstance(result, {output_type})
+        """
+        pytest.skip("TODO: Fill in test data for {name}")
 
     def test_{name}_basic(self):
         """Basic functionality test."""
@@ -273,6 +284,10 @@ def main(input_data: str = "default"):
     )
     logger.info(f"Result: {{result}}")
     return result
+
+
+# Export Typer app for testing with CliRunner
+app = main._typer_app
 
 
 if __name__ == "__main__":
@@ -329,6 +344,10 @@ def main(date: str | None = None):
 
     logger.info(f"Result: {{result}}")
     return result
+
+
+# Export Typer app for testing with CliRunner
+app = main._typer_app
 
 
 if __name__ == "__main__":
@@ -411,30 +430,37 @@ def {name}(data: dict) -> dict:
 
 
 def _get_entry_test_template(name: str) -> str:
-    """Get test template for an entry point."""
+    """Get test template for an entry point.
+
+    Uses CliRunner to avoid sys.argv pollution from pytest.
+    """
     class_name = "".join(word.title() for word in name.split("_"))
     return f'''"""Tests for {name} entry point."""
 
 import pytest
+from typer.testing import CliRunner
 
-from {name} import main
+from {name} import app
+
+runner = CliRunner()
 
 
 class Test{class_name}:
-    """Test suite for {name} entry point."""
+    """Test suite for {name} entry point.
 
-    def test_main_returns_result(self):
-        """Main returns a result."""
-        # Act
-        result = main()
+    Uses CliRunner to isolate from pytest's sys.argv.
+    """
 
-        # Assert
-        assert result is not None
+    def test_{name}_runs_successfully(self):
+        """Entry point should complete without error."""
+        result = runner.invoke(app, [])
+        assert result.exit_code == 0, f"Failed with: {{result.stdout}}"
 
-    def test_main_with_custom_args(self):
-        """Main works with custom arguments."""
-        # TODO: Modify based on entry point arguments
-        pass
+    def test_{name}_with_help(self):
+        """Entry point should show help."""
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "{name}" in result.stdout.lower() or "usage" in result.stdout.lower()
 '''
 
 

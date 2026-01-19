@@ -484,6 +484,7 @@ def entry_point(
         # Store Typer app and metadata for programmatic access
         entry_wrapper._typer_app = app  # type: ignore[attr-defined]
         entry_wrapper._original_func = f  # type: ignore[attr-defined]
+        entry_wrapper._impl = f  # type: ignore[attr-defined]  # Alias for direct testing
         entry_wrapper._is_railway_entry_point = True  # type: ignore[attr-defined]
         entry_wrapper._handle_result = handle_result  # type: ignore[attr-defined]
         entry_wrapper.__doc__ = f.__doc__

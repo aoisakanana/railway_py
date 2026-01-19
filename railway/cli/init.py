@@ -453,6 +453,33 @@ fetch_users ──────────────> generate_report
 
 フレームワークが**型を見て自動的に依存関係を解決**します。
 
+### 6.3 Nodeはパイプライン構成に依存しない
+
+これがOutput Modelパターンの核心的な利点です:
+
+```python
+# 構成1: シンプル
+typed_pipeline(fetch_users, generate_report)
+
+# 構成2: 間にフィルター処理を追加
+typed_pipeline(fetch_users, filter_active_users, generate_report)
+
+# 構成3: データ加工を追加
+typed_pipeline(fetch_users, enrich_users, generate_report)
+
+# ↑ どの構成でも generate_report の実装は同じ！
+```
+
+**なぜこれが重要か:**
+
+| 従来 | Railway |
+|------|---------|
+| パイプライン変更時にNode修正が必要 | Node修正不要 |
+| 前後のNode実装を意識 | 入出力Contractだけを意識 |
+| 結合テストが必須 | 単体テストで十分 |
+
+`generate_report` は**「UsersFetchResultを受け取りReportResultを返す」**という契約だけを守ればよく、パイプラインの全体構成には一切依存しません。
+
 ---
 
 ## Step 7: 安全なリファクタリング（2分）
@@ -583,9 +610,37 @@ def empty_data() -> dict:
     _write_file(project_path / "tests" / "conftest.py", content)
 
 
+def _create_simple_hello_entry(project_path: Path) -> None:
+    """Create minimal hello.py for immediate verification.
+
+    This simple entry point allows users to verify their setup works
+    immediately after `railway init` without any additional steps.
+    """
+    content = '''"""Hello World entry point - セットアップ確認用."""
+
+from railway import entry_point
+
+
+@entry_point
+def hello():
+    """最小限のHello World
+
+    railway init 後すぐに動作確認できます:
+        uv run railway run hello
+    """
+    print("Hello from Railway!")
+    return {"message": "Hello from Railway!"}
+
+
+if __name__ == "__main__":
+    hello()
+'''
+    _write_file(project_path / "src" / "hello.py", content)
+
+
 def _create_example_entry(project_path: Path) -> None:
-    """Create example entry point."""
-    content = '''"""Hello World entry point."""
+    """Create complex example entry point with pipeline demonstration."""
+    content = '''"""Hello World entry point with pipeline example."""
 
 from railway import entry_point, node, pipeline
 
@@ -605,11 +660,15 @@ def create_greeting(name: str) -> str:
 
 
 @entry_point
-def main(name: str = "World"):
-    """シンプルな Hello World エントリポイント
+def hello(name: str = "World"):
+    """パイプラインを使った Hello World
 
     Args:
         name: 挨拶する相手の名前
+
+    Usage:
+        uv run railway run hello
+        uv run railway run hello --name Alice
     """
     message = pipeline(
         name,
@@ -621,7 +680,7 @@ def main(name: str = "World"):
 
 
 if __name__ == "__main__":
-    main()
+    hello()
 '''
     _write_file(project_path / "src" / "hello.py", content)
 
@@ -653,9 +712,13 @@ def _create_project_structure(
     _create_init_files(project_path)
     _create_conftest_py(project_path)
 
-    # Create example if requested
+    # Create hello entry point
+    # Default: simple hello.py for immediate verification
+    # --with-examples: complex pipeline example
     if with_examples:
         _create_example_entry(project_path)
+    else:
+        _create_simple_hello_entry(project_path)
 
 
 def _show_success_output(project_name: str) -> None:
@@ -670,9 +733,10 @@ def _show_success_output(project_name: str) -> None:
     typer.echo("  └── TUTORIAL.md\n")
     typer.echo("Next steps:")
     typer.echo(f"  1. cd {project_name}")
-    typer.echo("  2. cp .env.example .env")
-    typer.echo("  3. Open TUTORIAL.md and follow the guide")
-    typer.echo("  4. railway new entry hello --example")
+    typer.echo("  2. uv sync --group dev")
+    typer.echo("  3. cp .env.example .env")
+    typer.echo("  4. uv run railway run hello  # 動作確認")
+    typer.echo("  5. Open TUTORIAL.md and follow the guide")
 
 
 def init(
