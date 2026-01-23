@@ -163,9 +163,9 @@ class TestPipelineErrorDisplay:
                     pipeline(1, step1, step2, step3)
 
                 info_calls = [str(c) for c in mock_logger.info.call_args_list]
-                # Should mention skipping remaining steps
+                # Should mention skipping remaining steps (日本語)
                 assert any(
-                    "skip" in str(c).lower() or "remaining" in str(c).lower()
+                    "スキップ" in str(c) or "残り" in str(c)
                     for c in info_calls
                 )
 

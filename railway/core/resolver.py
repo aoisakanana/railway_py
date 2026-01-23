@@ -143,31 +143,74 @@ class DependencyResolver:
 def typed_pipeline(
     *nodes: Callable,
     params: Contract | dict | None = None,
+    on_error: Callable[[Exception, str], Any] | None = None,
+    on_step: Callable[[str, Any], None] | None = None,
 ) -> Contract:
-    """Execute a pipeline of typed nodes with automatic dependency resolution.
+    """型安全なパイプライン実行（推奨）
 
-    This is the typed version of pipeline that uses Contract types for
-    dependency injection. Nodes declare their inputs and outputs, and
-    the pipeline automatically resolves dependencies.
+    Contract 型による依存性注入を使用した型安全なパイプラインです。
+    各ノードは入出力を宣言し、パイプラインが自動的に依存関係を解決します。
+
+    通常の開発ではこちらを推奨:
+        - IDE補完がフルに動作
+        - Contract による型保証
+        - 依存関係の自動解決
+        - on_error による高度なエラーハンドリング
+
+    pipeline との違い:
+        | 特徴 | typed_pipeline | pipeline |
+        |------|----------------|----------|
+        | 最初の引数 | 関数（@node） | 評価済みの値 |
+        | 型安全性 | Contract ベース | 限定的 |
+        | IDE補完 | フル対応 | 限定的 |
+        | 依存解決 | 自動 | なし |
+        | エラーハンドリング | on_error | 例外伝播のみ |
 
     Args:
-        *nodes: Node functions to execute in order.
-        params: Initial parameters (Params Contract or dict).
+        *nodes: 順次実行するノード関数（@node デコレータ付き）
+        params: 初期パラメータ（Params Contract または dict）
+        on_error: エラーハンドラ (exception, step_name) -> fallback_value or raise
+            - 値を返すとその値で次のステップを継続
+            - raise すると例外伝播（スタックトレース保持）
+        on_step: ステップ完了コールバック (step_name, output) -> None
+            - 各ステップ完了後に呼ばれる
+            - デバッグ、監査ログ、メトリクス収集に使用
 
     Returns:
-        The output of the last node.
+        最後のノードの出力（Contract）
 
     Raises:
-        ValueError: If no nodes are provided.
-        DependencyError: If a node's dependencies cannot be resolved.
+        ValueError: ノードが指定されていない場合
+        DependencyError: ノードの依存関係を解決できない場合
 
     Example:
+        # 基本的な使用法
         result = typed_pipeline(
-            fetch_users,      # outputs UsersFetchResult
-            process_users,    # inputs UsersFetchResult, outputs ProcessResult
-            generate_report,  # inputs ProcessResult, outputs ReportResult
-            params=FetchParams(user_id=1),
+            fetch_users,      # UsersFetchResult を出力
+            process_users,    # UsersFetchResult を入力 → ProcessResult を出力
+            generate_report,  # ProcessResult を入力 → ReportResult を出力
         )
+
+        # エラーハンドリング付き
+        def handle_error(error: Exception, step: str) -> Any:
+            match error:
+                case ConnectionError():
+                    return load_from_cache()  # フォールバック
+                case _:
+                    raise  # 再送出
+
+        result = typed_pipeline(fetch, process, on_error=handle_error)
+
+        # 中間結果の取得（デバッグ/監査）
+        steps = []
+        def capture_step(name: str, output: Any) -> None:
+            steps.append({"step": name, "output": output})
+
+        result = typed_pipeline(fetch, process, on_step=capture_step)
+
+    See Also:
+        pipeline: 動的構成や既存値からの開始に使用
+        on_error: 3層エラーハンドリングのレベル3
     """
     from railway.core.contract import Params
 
@@ -187,7 +230,7 @@ def typed_pipeline(
             params = DynamicParams(**params)
         resolver.register_result(params, source_name="_params")
 
-    logger.debug(f"Typed pipeline starting with {len(nodes)} nodes")
+    logger.debug(f"型付きパイプライン開始: {len(nodes)} ノード")
 
     last_result: Contract | None = None
 
@@ -206,14 +249,34 @@ def typed_pipeline(
                 resolver.register_result(result, source_name=node_name)
                 last_result = result
 
+            # Call on_step callback after successful execution
+            if on_step is not None:
+                on_step(node_name, result)
+
         except DependencyError as e:
-            logger.error(f"Dependency error at node '{node_name}': {e}")
+            logger.error(f"依存関係エラー ノード '{node_name}': {e}")
             raise
         except Exception as e:
-            logger.error(f"Pipeline failed at node '{node_name}': {e}")
-            raise
+            if on_error is None:
+                logger.error(f"パイプライン失敗 ノード '{node_name}': {e}")
+                raise
 
-    logger.debug("Typed pipeline completed successfully")
+            # Call error handler
+            try:
+                result = on_error(e, node_name)
+                # Handler returned a value - use it as fallback
+                if result is not None:
+                    resolver.register_result(result, source_name=node_name)
+                    last_result = result
+
+                # Call on_step callback after fallback
+                if on_step is not None:
+                    on_step(node_name, result)
+            except BaseException:
+                # Handler re-raised - propagate with original traceback
+                raise e from None
+
+    logger.debug("型付きパイプライン正常完了")
     return last_result  # type: ignore[return-value]
 
 
@@ -261,7 +324,7 @@ async def typed_async_pipeline(
             params = DynamicParams(**params)
         resolver.register_result(params, source_name="_params")
 
-    logger.debug(f"Typed async pipeline starting with {len(nodes)} nodes")
+    logger.debug(f"非同期型付きパイプライン開始: {len(nodes)} ノード")
 
     last_result: Contract | None = None
 
@@ -288,11 +351,11 @@ async def typed_async_pipeline(
                 last_result = result
 
         except DependencyError as e:
-            logger.error(f"Dependency error at node '{node_name}': {e}")
+            logger.error(f"依存関係エラー ノード '{node_name}': {e}")
             raise
         except Exception as e:
-            logger.error(f"Async pipeline failed at node '{node_name}': {e}")
+            logger.error(f"非同期パイプライン失敗 ノード '{node_name}': {e}")
             raise
 
-    logger.debug("Typed async pipeline completed successfully")
+    logger.debug("非同期型付きパイプライン正常完了")
     return last_result  # type: ignore[return-value]

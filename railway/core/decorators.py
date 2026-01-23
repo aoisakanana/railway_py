@@ -9,7 +9,7 @@ import os
 import traceback
 from collections.abc import Callable
 from functools import wraps
-from typing import TYPE_CHECKING, Any, ParamSpec, Type, TypeVar
+from typing import TYPE_CHECKING, Any, ParamSpec, Type, TypeVar, overload, get_type_hints, Union, get_origin, get_args
 
 import typer
 from loguru import logger
@@ -24,6 +24,7 @@ from tenacity import (
 
 if TYPE_CHECKING:
     from railway.core.contract import Contract
+    from railway.core.retry import RetryPolicy
 
 P = ParamSpec("P")
 T = TypeVar("T")
@@ -46,12 +47,37 @@ class Retry:
         self.multiplier = exponential_base  # Alias for compatibility
 
 
+@overload
+def node(func: Callable[P, T]) -> Callable[P, T]: ...
+
+
+@overload
+def node(
+    func: None = None,
+    *,
+    inputs: dict[str, Type[Contract]] | None = None,
+    output: Type[Contract] | None = None,
+    retry: bool | Retry = False,
+    retry_policy: "RetryPolicy | None" = None,
+    retries: int | None = None,
+    retry_on: tuple[Type[Exception], ...] | None = None,
+    retry_delay: float | None = None,
+    log_input: bool = False,
+    log_output: bool = False,
+    name: str | None = None,
+) -> Callable[[Callable[P, T]], Callable[P, T]]: ...
+
+
 def node(
     func: Callable[P, T] | None = None,
     *,
     inputs: dict[str, Type[Contract]] | None = None,
     output: Type[Contract] | None = None,
     retry: bool | Retry = False,
+    retry_policy: "RetryPolicy | None" = None,
+    retries: int | None = None,
+    retry_on: tuple[Type[Exception], ...] | None = None,
+    retry_delay: float | None = None,
     log_input: bool = False,
     log_output: bool = False,
     name: str | None = None,
@@ -92,27 +118,168 @@ def node(
         @node(inputs={"users": UsersFetchResult}, output=ReportResult)
         def generate_report(users: UsersFetchResult) -> ReportResult:
             return ReportResult(content=f"{users.total} users")
+
+
+        # RetryPolicy ショートハンド
+        @node(retries=3, retry_on=(ConnectionError, TimeoutError))
+        def fetch_with_retry_on() -> dict:
+            return api.get("/data")
+
+        # RetryPolicy 明示的指定
+        from railway.core.retry import RetryPolicy
+        @node(retry_policy=RetryPolicy(max_retries=5, backoff="exponential"))
+        def fetch_with_policy() -> dict:
+            return api.get("/data")
     """
     # Normalize inputs to empty dict if None
     inputs_dict = inputs or {}
+
+    # Resolve retry configuration
+    # Priority: retry_policy > shorthand (retries/retry_on/retry_delay) > retry (legacy)
+    resolved_retry_policy = _resolve_retry_config(
+        retry=retry,
+        retry_policy=retry_policy,
+        retries=retries,
+        retry_on=retry_on,
+        retry_delay=retry_delay,
+    )
 
     def decorator(f: Callable[P, T]) -> Callable[P, T]:
         node_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
 
+        # Resolve inputs: explicit inputs take precedence, otherwise infer from hints
+        resolved_inputs = inputs_dict if inputs_dict else _infer_inputs_from_hints(f)
+
         if is_async:
             return _create_async_wrapper(
-                f, node_name, inputs_dict, output, retry, log_input, log_output
+                f, node_name, resolved_inputs, output, retry, log_input, log_output,
+                resolved_retry_policy
             )
         else:
             return _create_sync_wrapper(
-                f, node_name, inputs_dict, output, retry, log_input, log_output
+                f, node_name, resolved_inputs, output, retry, log_input, log_output,
+                resolved_retry_policy
             )
 
     # Handle decorator usage with and without parentheses
     if func is None:
         return decorator
     return decorator(func)
+
+
+def _resolve_retry_config(
+    retry: bool | Retry,
+    retry_policy: "RetryPolicy | None",
+    retries: int | None,
+    retry_on: tuple[Type[Exception], ...] | None,
+    retry_delay: float | None,
+) -> "RetryPolicy | None":
+    """Resolve retry configuration from various parameter combinations.
+
+    Priority: retry_policy > shorthand (retries/retry_on/retry_delay) > None
+
+    Returns:
+        RetryPolicy instance or None if no retry configured.
+    """
+    from railway.core.retry import RetryPolicy
+
+    # Explicit retry_policy takes highest priority
+    if retry_policy is not None:
+        return retry_policy
+
+    # Shorthand: retries + optional retry_on/retry_delay
+    if retries is not None:
+        return RetryPolicy(
+            max_retries=retries,
+            retry_on=retry_on or (Exception,),
+            base_delay=retry_delay or 1.0,
+        )
+
+    # Legacy retry parameter is handled separately in _get_retry_configuration
+    return None
+
+
+def _infer_inputs_from_hints(func: Callable) -> dict[str, type]:
+    """型ヒントから inputs を推論する純粋関数
+
+    Contract のサブクラスである型ヒントのみを inputs として抽出します。
+    Union 型（Optional を含む）からは Contract 型を抽出します。
+
+    Args:
+        func: 型ヒントを持つ関数
+
+    Returns:
+        パラメータ名から Contract 型へのマッピング
+    """
+    from railway.core.contract import Contract
+
+    try:
+        hints = get_type_hints(func)
+    except Exception:
+        # get_type_hints が失敗した場合（前方参照の解決失敗など）
+        return {}
+
+    sig = inspect.signature(func)
+    result: dict[str, type] = {}
+
+    for param_name in sig.parameters:
+        if param_name not in hints:
+            continue
+
+        hint = hints[param_name]
+        contract_type = _extract_contract_type(hint)
+
+        if contract_type is not None:
+            result[param_name] = contract_type
+
+    return result
+
+
+def _extract_contract_type(hint: type) -> type | None:
+    """型ヒントから Contract 型を抽出する
+
+    Union 型（Optional を含む）の場合は、Contract サブクラスを抽出します。
+    Python 3.10+ の `X | None` 構文もサポートします。
+
+    Args:
+        hint: 型ヒント
+
+    Returns:
+        Contract サブクラス、または None
+    """
+    import types
+    from railway.core.contract import Contract
+
+    # Union 型の場合（Optional[X] は Union[X, None]）
+    # Python 3.10+ の X | None は types.UnionType を使用
+    origin = get_origin(hint)
+    is_union = origin is Union or isinstance(hint, types.UnionType)
+
+    if is_union:
+        args = get_args(hint)
+        for arg in args:
+            if arg is type(None):
+                continue
+            if _is_contract_type(arg):
+                return arg
+        return None
+
+    # 直接の Contract 型
+    if _is_contract_type(hint):
+        return hint
+
+    return None
+
+
+def _is_contract_type(hint: type) -> bool:
+    """Contract のサブクラスか判定する"""
+    from railway.core.contract import Contract
+
+    try:
+        return isinstance(hint, type) and issubclass(hint, Contract)
+    except TypeError:
+        return False
 
 
 def _create_sync_wrapper(
@@ -123,6 +290,7 @@ def _create_sync_wrapper(
     retry: bool | Retry,
     log_input: bool,
     log_output: bool,
+    retry_policy: "RetryPolicy | None" = None,
 ) -> Callable[P, T]:
     """Create wrapper for synchronous function."""
 
@@ -130,20 +298,23 @@ def _create_sync_wrapper(
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
         # Log input if enabled
         if log_input:
-            logger.debug(f"[{node_name}] Input: args={args}, kwargs={kwargs}")
+            logger.debug(f"[{node_name}] 入力: args={args}, kwargs={kwargs}")
 
-        logger.info(f"[{node_name}] Starting...")
-
-        # Determine retry configuration
-        retry_config = _get_retry_configuration(retry, node_name)
+        logger.info(f"[{node_name}] 開始...")
 
         try:
-            if retry_config is not None:
-                # Execute with retry
-                result = _execute_with_retry(f, retry_config, node_name, args, kwargs)
+            # Use RetryPolicy if provided, otherwise fall back to legacy retry
+            if retry_policy is not None:
+                result = _execute_with_retry_policy(f, retry_policy, node_name, args, kwargs)
             else:
-                # Execute without retry
-                result = f(*args, **kwargs)
+                # Determine legacy retry configuration
+                retry_config = _get_retry_configuration(retry, node_name)
+                if retry_config is not None:
+                    # Execute with legacy retry
+                    result = _execute_with_retry(f, retry_config, node_name, args, kwargs)
+                else:
+                    # Execute without retry
+                    result = f(*args, **kwargs)
 
             # Validate output type if specified
             if output_type is not None and not isinstance(result, output_type):
@@ -154,9 +325,9 @@ def _create_sync_wrapper(
 
             # Log output if enabled
             if log_output:
-                logger.debug(f"[{node_name}] Output: {result}")
+                logger.debug(f"[{node_name}] 出力: {result}")
 
-            logger.info(f"[{node_name}] ✓ Completed")
+            logger.info(f"[{node_name}] ✓ 完了")
             return result
 
         except Exception as e:
@@ -182,6 +353,7 @@ def _create_async_wrapper(
     retry: bool | Retry,
     log_input: bool,
     log_output: bool,
+    retry_policy: "RetryPolicy | None" = None,
 ) -> Callable[P, T]:
     """Create wrapper for asynchronous function."""
 
@@ -189,22 +361,27 @@ def _create_async_wrapper(
     async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
         # Log input if enabled
         if log_input:
-            logger.debug(f"[{node_name}] Input: args={args}, kwargs={kwargs}")
+            logger.debug(f"[{node_name}] 入力: args={args}, kwargs={kwargs}")
 
-        logger.info(f"[{node_name}] Starting...")
-
-        # Determine retry configuration
-        retry_config = _get_retry_configuration(retry, node_name)
+        logger.info(f"[{node_name}] 開始...")
 
         try:
-            if retry_config is not None:
-                # Execute with retry
-                result = await _execute_async_with_retry(
-                    f, retry_config, node_name, args, kwargs
+            # Use RetryPolicy if provided, otherwise fall back to legacy retry
+            if retry_policy is not None:
+                result = await _execute_async_with_retry_policy(
+                    f, retry_policy, node_name, args, kwargs
                 )
             else:
-                # Execute without retry
-                result = await f(*args, **kwargs)
+                # Determine legacy retry configuration
+                retry_config = _get_retry_configuration(retry, node_name)
+                if retry_config is not None:
+                    # Execute with legacy retry
+                    result = await _execute_async_with_retry(
+                        f, retry_config, node_name, args, kwargs
+                    )
+                else:
+                    # Execute without retry
+                    result = await f(*args, **kwargs)
 
             # Validate output type if specified
             if output_type is not None and not isinstance(result, output_type):
@@ -215,9 +392,9 @@ def _create_async_wrapper(
 
             # Log output if enabled
             if log_output:
-                logger.debug(f"[{node_name}] Output: {result}")
+                logger.debug(f"[{node_name}] 出力: {result}")
 
-            logger.info(f"[{node_name}] ✓ Completed")
+            logger.info(f"[{node_name}] ✓ 完了")
             return result
 
         except Exception as e:
@@ -405,6 +582,69 @@ def _execute_with_retry(
         raise
 
 
+def _execute_with_retry_policy(
+    func: Callable[P, T],
+    policy: "RetryPolicy",
+    node_name: str,
+    args: tuple,
+    kwargs: dict,
+) -> T:
+    """Execute function with RetryPolicy-based retry logic."""
+    import time
+
+    last_exception: Exception | None = None
+
+    for attempt in range(1, policy.max_retries + 2):  # +2 for initial attempt + retries
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            if not policy.should_retry(e, attempt):
+                raise
+            last_exception = e
+            if attempt <= policy.max_retries:
+                delay = policy.get_delay(attempt)
+                logger.warning(
+                    f"[{node_name}] リトライ中... (試行 {attempt}/{policy.max_retries})"
+                )
+                time.sleep(delay)
+
+    # Should not reach here, but raise last exception if it does
+    if last_exception is not None:
+        raise last_exception
+    raise RuntimeError("Unexpected retry loop termination")
+
+
+async def _execute_async_with_retry_policy(
+    func: Callable[P, T],
+    policy: "RetryPolicy",
+    node_name: str,
+    args: tuple,
+    kwargs: dict,
+) -> T:
+    """Execute async function with RetryPolicy-based retry logic."""
+    import asyncio
+
+    last_exception: Exception | None = None
+
+    for attempt in range(1, policy.max_retries + 2):
+        try:
+            return await func(*args, **kwargs)
+        except Exception as e:
+            if not policy.should_retry(e, attempt):
+                raise
+            last_exception = e
+            if attempt <= policy.max_retries:
+                delay = policy.get_delay(attempt)
+                logger.warning(
+                    f"[{node_name}] リトライ中... (試行 {attempt}/{policy.max_retries})"
+                )
+                await asyncio.sleep(delay)
+
+    if last_exception is not None:
+        raise last_exception
+    raise RuntimeError("Unexpected retry loop termination")
+
+
 def entry_point(
     func: Callable[P, T] | None = None,
     *,
@@ -449,18 +689,18 @@ def entry_point(
         @wraps(f)
         def cli_wrapper(**kwargs: Any) -> None:
             """CLI wrapper for the entry point."""
-            logger.info(f"[{entry_name}] Entry point started")
-            logger.debug(f"[{entry_name}] Arguments: {kwargs}")
+            logger.info(f"[{entry_name}] エントリポイント開始")
+            logger.debug(f"[{entry_name}] 引数: {kwargs}")
 
             try:
                 # Execute the main function
                 _ = f(**kwargs)  # type: ignore[call-arg]
 
                 # Log success
-                logger.info(f"[{entry_name}] ✓ Completed successfully")
+                logger.info(f"[{entry_name}] ✓ 正常完了")
 
             except KeyboardInterrupt:
-                logger.warning(f"[{entry_name}] Interrupted by user")
+                logger.warning(f"[{entry_name}] ユーザーにより中断されました")
                 raise
 
             except Exception as e:

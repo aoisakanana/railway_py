@@ -515,9 +515,180 @@ data["total"]  # どこで使われてる？ 変更漏れがあっても実行�
 
 ---
 
+## Step 8: エラーハンドリング（実践）（5分）
+
+Railway Framework のエラーハンドリングを実際に体験します。
+多くのケースでは「何もしない」で十分ですが、高度な制御が必要な場合の選択肢を学びます。
+
+### 8.1 シナリオ: 不安定な外部APIとの連携
+
+外部APIが不安定で、時々接続エラーが発生する状況を想定します。
+
+まず、不安定なAPIをシミュレートするノードを作成:
+
+```bash
+railway new contract ExternalDataResult
+railway new node fetch_external_data --output ExternalDataResult
+```
+
+`src/contracts/external_data_result.py`:
+```python
+from railway import Contract
+
+class ExternalDataResult(Contract):
+    data: str
+    value: int
+```
+
+`src/nodes/fetch_external_data.py`:
+```python
+import random
+from railway import node
+from contracts.external_data_result import ExternalDataResult
+
+@node(output=ExternalDataResult)
+def fetch_external_data() -> ExternalDataResult:
+    \"\"\"不安定な外部APIをシミュレート\"\"\"
+    if random.random() < 0.5:
+        raise ConnectionError("Network timeout")
+    return ExternalDataResult(data="success", value=42)
+```
+
+### 8.2 レベル1: retry_on で自動リトライ
+
+一時的なエラーには自動リトライが有効です:
+
+```python
+@node(
+    output=ExternalDataResult,
+    retries=3,
+    retry_on=(ConnectionError,)
+)
+def fetch_with_retry() -> ExternalDataResult:
+    \"\"\"ConnectionError は3回までリトライ\"\"\"
+    if random.random() < 0.5:
+        raise ConnectionError("Network timeout")
+    return ExternalDataResult(data="success", value=42)
+```
+
+**体験**: 何度か実行して、ConnectionErrorが自動リトライされることを確認:
+```bash
+uv run python -c "from nodes.fetch_external_data import fetch_with_retry; print(fetch_with_retry())"
+```
+
+### 8.3 レベル2: デフォルト動作（例外伝播）
+
+何も指定しなければ、例外はそのまま伝播します:
+
+```python
+result = typed_pipeline(fetch_external_data, process_data)
+# 例外発生時: スタックトレース付きで伝播
+```
+
+**これで十分なケースが多いです。** スタックトレースが保持されるため、デバッグが容易です。
+
+### 8.4 レベル3: on_error でPipeline単位の制御
+
+複数のNodeを跨いだ高度な制御が必要な場合:
+
+`src/user_report.py` を編集して試してみましょう:
+
+```python
+from railway import entry_point, typed_pipeline
+
+def smart_error_handler(error: Exception, step_name: str):
+    \"\"\"例外タイプに応じて適切に処理\"\"\"
+    match error:
+        case ConnectionError():
+            print(f"⚠️ {{step_name}}: 接続エラー、フォールバック値を使用")
+            return ExternalDataResult(data="cached", value=0)
+        case _:
+            raise  # 他の例外は再送出
+
+@entry_point
+def main():
+    result = typed_pipeline(
+        fetch_external_data,
+        on_error=smart_error_handler
+    )
+    print(f"Result: {{result.data}}, Value: {{result.value}}")
+```
+
+### 8.5 on_step でデバッグ/監査
+
+各ステップの中間結果を取得できます:
+
+```python
+steps = []
+
+def capture_step(step_name: str, output):
+    steps.append({{"step": step_name, "output": output}})
+    print(f"[{{step_name}}] -> {{output}}")
+
+result = typed_pipeline(
+    fetch_users,
+    generate_report,
+    on_step=capture_step  # 各ステップの結果をキャプチャ
+)
+```
+
+### 8.6 恩恵のまとめ
+
+| レベル | いつ使う | 恩恵 |
+|--------|----------|------|
+| retry_on | 一時的エラー | 自動回復、コード簡潔 |
+| デフォルト伝播 | **多くのケース** | スタックトレース保持 |
+| on_error | 高度な制御 | Pipeline単位の柔軟な対応 |
+| on_step | デバッグ/監査 | 中間結果へのアクセス |
+
+**重要**: 多くのケースでは「何もしない」（デフォルト伝播）で十分です。
+高度な機能は必要な時だけ使いましょう。
+
+---
+
+## よくある質問 (FAQ)
+
+### Q: Result型（Ok/Err）は提供しないの？
+
+Railway Framework は意図的にResult型を採用していません。
+
+**理由:**
+- Pythonエコシステム（requests, sqlalchemy等）は例外ベース
+- Result型だとすべてをラップする必要があり冗長
+- スタックトレースが失われデバッグが困難に
+
+代わりに、Python標準の例外機構 + on_error で十分な制御を提供します。
+
+### Q: on_error と try/except の使い分けは？
+
+| 状況 | 推奨 |
+|------|------|
+| 1つのNodeで完結 | Node内で try/except |
+| 複数Nodeを跨ぐ | on_error |
+| リトライで回復可能 | retry_on |
+| 特に制御不要 | **何もしない（例外伝播）** |
+
+### Q: inputs の明示的指定は必要？
+
+Contract型の引数は**自動推論**されるため、通常は不要です:
+
+```python
+# 自動推論される（推奨）
+@node(output=ReportResult)
+def generate_report(users: UsersFetchResult) -> ReportResult:
+    ...
+
+# 明示的に指定も可能（レガシー互換）
+@node(inputs={{"users": UsersFetchResult}}, output=ReportResult)
+def generate_report(users: UsersFetchResult) -> ReportResult:
+    ...
+```
+
+---
+
 ## 次のステップ
 
-おめでとうございます！🎉 Railwayの基本を習得しました。
+おめでとうございます！🎉 Railwayの基本と応用を習得しました。
 
 ### 学んだこと
 
@@ -527,13 +698,14 @@ data["total"]  # どこで使われてる？ 変更漏れがあっても実行�
 - IDE補完の活用
 - typed_pipeline で依存関係を自動解決
 - 安全なリファクタリング
+- **3層エラーハンドリング** (retry_on, デフォルト伝播, on_error)
+- **on_step でデバッグ/監査**
 
 ### さらに学ぶ
 
-1. **リトライ機能**: `@node(retry=True)` でネットワークエラーに対応
-2. **設定管理**: `config/development.yaml` で環境別設定
-3. **非同期処理**: `typed_async_pipeline` で非同期対応
-4. **ドキュメント**: `railway docs` で詳細を確認
+1. **設定管理**: `config/development.yaml` で環境別設定
+2. **非同期処理**: `typed_async_pipeline` で非同期対応
+3. **ドキュメント**: `railway docs` で詳細を確認
 
 ---
 
@@ -600,6 +772,16 @@ htmlcov/
 .mypy_cache/
 '''
     _write_file(project_path / ".gitignore", content)
+
+
+def _create_py_typed(project_path: Path) -> None:
+    """Create py.typed marker for PEP 561 compliance.
+
+    This enables type checking tools (mypy, pyright) to recognize
+    the user's project as a typed package.
+    """
+    content = "# PEP 561 marker - this package supports type checking\n"
+    _write_file(project_path / "src" / "py.typed", content)
 
 
 def _create_init_files(project_path: Path) -> None:
@@ -740,6 +922,7 @@ def _create_project_structure(
     _create_gitignore(project_path)
     _create_init_files(project_path)
     _create_conftest_py(project_path)
+    _create_py_typed(project_path)
 
     # Create hello entry point
     # Default: simple hello.py for immediate verification

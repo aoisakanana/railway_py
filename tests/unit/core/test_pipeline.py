@@ -151,14 +151,14 @@ class TestPipelineLogging:
     """Test pipeline logging."""
 
     def test_pipeline_logs_start(self):
-        """Should log pipeline start."""
+        """Should log pipeline start (日本語)."""
         from railway.core.pipeline import pipeline
 
         with patch("railway.core.pipeline.logger") as mock_logger:
             pipeline(1, lambda x: x)
 
             debug_calls = str(mock_logger.debug.call_args_list)
-            assert "starting" in debug_calls.lower()
+            assert "開始" in debug_calls
 
     def test_pipeline_logs_step_execution(self):
         """Should log each step execution."""
@@ -178,14 +178,14 @@ class TestPipelineLogging:
             assert "1" in debug_calls and "2" in debug_calls
 
     def test_pipeline_logs_completion(self):
-        """Should log pipeline completion."""
+        """Should log pipeline completion (日本語)."""
         from railway.core.pipeline import pipeline
 
         with patch("railway.core.pipeline.logger") as mock_logger:
             pipeline(1, lambda x: x)
 
             debug_calls = str(mock_logger.debug.call_args_list)
-            assert "completed" in debug_calls.lower()
+            assert "完了" in debug_calls
 
     def test_pipeline_logs_error(self):
         """Should log error when step fails."""

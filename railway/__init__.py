@@ -19,6 +19,7 @@ from railway.core.resolver import (
     typed_async_pipeline,
     typed_pipeline,
 )
+from railway.core.retry import RetryPolicy
 
 __version__ = version("railway-framework")
 __all__ = [
@@ -26,6 +27,7 @@ __all__ = [
     "entry_point",
     "node",
     "Retry",
+    "RetryPolicy",
     # Pipeline (legacy linear)
     "pipeline",
     "async_pipeline",
