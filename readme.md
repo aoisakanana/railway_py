@@ -253,6 +253,16 @@ railway run <entry>              # 実行
 railway list                     # エントリポイント/ノード一覧
 ```
 
+### バージョン管理
+```bash
+railway update                   # プロジェクトを最新バージョンに更新
+railway update --dry-run         # 変更をプレビュー（実行しない）
+railway update --init            # バージョン情報のないプロジェクトを初期化
+railway backup list              # バックアップ一覧
+railway backup restore           # バックアップから復元
+railway backup clean --keep 3    # 古いバックアップを削除
+```
+
 ---
 
 ## 特徴
@@ -268,6 +278,7 @@ railway list                     # エントリポイント/ノード一覧
 - ⚙️ **環境別設定**: development/production を簡単に切り替え
 - 🔄 **自動リトライ**: 一時的なエラーに自動で対処
 - 📊 **構造化ロギング**: loguru による美しいログ出力
+- 🆙 **バージョン管理**: プロジェクトバージョン追跡、自動マイグレーション
 
 ---
 
@@ -525,6 +536,181 @@ retry_config = settings.get_retry_settings("fetch_data")
 
 ---
 
+## バージョン管理
+
+Railway Framework はプロジェクトのバージョン情報を追跡し、安全なアップグレードを支援します。
+
+### なぜバージョン管理が必要か？
+
+| 問題 | 影響 | Railway の解決策 |
+|------|------|------------------|
+| バージョン不明 | チームで不整合発生 | `.railway/project.yaml` で明示 |
+| テンプレート変更 | `railway new` で不整合 | 互換性チェック + 警告 |
+| 手動マイグレーション | 面倒、ミスしやすい | `railway update` で自動化 |
+
+### プロジェクトメタデータ
+
+`railway init` 実行時に自動生成:
+
+```yaml
+# .railway/project.yaml
+railway:
+  version: "0.10.0"              # 生成時のrailway-frameworkバージョン
+  created_at: "2026-01-23T10:30:00+09:00"
+  updated_at: "2026-01-23T10:30:00+09:00"
+
+project:
+  name: "my_automation"
+
+compatibility:
+  min_version: "0.10.0"          # 必要な最小バージョン
+```
+
+**設計判断:**
+
+| 判断 | 理由 |
+|------|------|
+| YAML形式 | 人間が読みやすく、手動編集も可能 |
+| `.railway/` ディレクトリ | フレームワーク関連ファイルを集約 |
+| Git管理対象 | チーム全員でバージョン情報を共有 |
+
+### バージョン互換性チェック
+
+`railway new` 系コマンド実行時に自動チェック:
+
+```bash
+$ railway new node fetch_data
+
+⚠️  バージョン不一致を検出
+    プロジェクト: 0.9.0
+    現在:         0.10.0
+
+    マイナーバージョンが異なります。
+    テンプレートが更新されている可能性があります。
+
+    [c] 続行 / [u] 'railway update' を実行 / [a] 中止
+```
+
+**互換性ルール:**
+
+| 条件 | 動作 |
+|------|------|
+| 同一バージョン | そのまま実行 |
+| マイナー差異 | 警告 + 確認 |
+| メジャー差異 | エラー + 拒否 |
+| バージョン不明 | 警告 + 確認 |
+
+### railway update コマンド
+
+プロジェクトを最新バージョンにマイグレーション:
+
+```bash
+$ railway update
+
+🔍 プロジェクトを分析中...
+
+   プロジェクト名:      my_automation
+   現在のバージョン:    0.9.0
+   ターゲットバージョン: 0.10.0
+
+📋 適用される変更:
+
+   [ファイル追加]
+   + .railway/project.yaml
+
+   [設定更新]
+   ~ config/development.yaml
+     - 新規キー: railway.version_check
+
+続行しますか? [y/N]: y
+
+✅ 更新完了
+   バックアップ: .railway/backups/0.9.0_20260123_103000/
+   新バージョン: 0.10.0
+```
+
+**オプション:**
+
+```bash
+railway update --dry-run     # 変更をプレビュー（実行しない）
+railway update --init        # バージョン情報のないプロジェクトを初期化
+railway update --force       # 確認なしで実行
+railway update --no-backup   # バックアップをスキップ
+```
+
+**設計判断:**
+
+| 判断 | 理由 |
+|------|------|
+| 自動バックアップ | 失敗時にロールバック可能、安全第一 |
+| 確認プロンプト | 意図しない変更を防止 |
+| 段階的マイグレーション | 0.9→0.10→0.11 と順番に適用、大きなジャンプも安全 |
+| ユーザーコード不変更 | `src/nodes/*`, `tests/*` は変更しない |
+
+### バックアップ・ロールバック
+
+```bash
+# バックアップ一覧
+$ railway backup list
+  0.9.0_20260123_103000  2時間前   15KB
+  0.8.0_20260120_090000  3日前     12KB
+
+# 復元
+$ railway backup restore
+どのバックアップに戻しますか? [1]: 1
+✅ ロールバック完了
+
+# 古いバックアップを削除
+$ railway backup clean --keep 3
+🗑️  2件のバックアップを削除しました
+```
+
+**バックアップ対象:**
+
+| 対象 | 理由 |
+|------|------|
+| `.railway/project.yaml` | バージョン情報の復元 |
+| `TUTORIAL.md` | 自動生成ファイル |
+| `pyproject.toml` | 依存関係 |
+| `config/*.yaml` | 設定ファイル |
+
+**除外対象（ユーザーコード）:**
+
+- `src/nodes/*` - 更新対象外
+- `tests/*` - 更新対象外
+- `.venv/` - 仮想環境
+
+### Dry-run モード
+
+変更を実行せずにプレビュー:
+
+```bash
+$ railway update --dry-run
+
+📋 適用される変更:
+
+   [ファイル追加]
+   + src/py.typed (0 bytes)
+
+   [ファイル更新]
+   ~ TUTORIAL.md (+150/-0 lines)
+     - セクション「Step 8」を追加
+
+   [設定更新]
+   ~ config/development.yaml
+     - 新規キー: railway.version_check
+     - キー名変更: log_level → logging.level
+
+   [コード変更ガイダンス（手動対応推奨）]
+   ! src/nodes/fetch_data.py:15
+     @node(log_input=True)  →  @node(log_inputs=True)
+
+[dry-run] 実際の変更は行われませんでした。
+実行するには: railway update
+```
+
+---
+
 ## テストの書き方
 
 **型付きノードはテストが簡単:**
@@ -657,7 +843,14 @@ async def main():
 - ✅ inputs 自動推論（型ヒントからの依存関係解決）
 - ✅ ログメッセージ日本語統一
 
-### Phase 2 📋 計画中
+### Phase 2 ✅ 完了（バージョン管理）
+- ✅ プロジェクトバージョン記録（`.railway/project.yaml`）
+- ✅ バージョン互換性チェック（`railway new` 実行時）
+- ✅ `railway update` コマンド（プロジェクトマイグレーション）
+- ✅ `railway backup` コマンド（バックアップ・ロールバック）
+- ✅ Dry-run モード（`--dry-run` で変更プレビュー）
+
+### Phase 3 📋 計画中
 - 🔜 並列パイプライン実行
 - 🔜 グラフベースワークフロー
 - 🔜 WebUI

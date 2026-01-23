@@ -5,6 +5,9 @@ from typing import Callable
 
 import typer
 
+from railway import __version__
+from railway.core.project_metadata import create_metadata, save_metadata
+
 
 def _validate_project_name(name: str) -> str:
     """
@@ -136,6 +139,7 @@ Railway Framework の**型安全なパイプライン**を体験しましょう�
 - IDE補完の活用
 - TDDワークフロー
 - typed_pipeline による依存関係の自動解決
+- バージョン管理と安全なアップグレード
 
 ## 所要時間
 
@@ -646,6 +650,104 @@ result = typed_pipeline(
 
 ---
 
+## Step 9: バージョン管理 - 安全なアップグレード体験（5分）
+
+Railway Framework は**プロジェクトのバージョンを追跡**し、安全なアップグレードを支援します。
+
+### 9.1 現状を確認
+
+プロジェクトのバージョン情報を確認します:
+
+```bash
+cat .railway/project.yaml
+```
+
+**出力例:**
+```yaml
+railway:
+  version: "{__version__}"
+  created_at: "2026-01-23T10:30:00+09:00"
+  updated_at: "2026-01-23T10:30:00+09:00"
+
+project:
+  name: "{project_name}"
+
+compatibility:
+  min_version: "{__version__}"
+```
+
+**ポイント:**
+- `railway init` 時に自動生成される
+- チーム全員で同じバージョン情報を共有（Git管理対象）
+
+---
+
+### 9.2 バージョン不一致の警告
+
+フレームワークがアップグレードされた後に `railway new` を実行すると:
+
+```
+$ railway new node my_new_node
+
+⚠️  バージョン不一致を検出
+    プロジェクト: 0.10.0
+    現在:         0.11.0
+
+    [c] 続行 / [u] 'railway update' を実行 / [a] 中止
+```
+
+**なぜ重要か:**
+- 古いテンプレートと新しいテンプレートの混在を防ぐ
+- チーム内の不整合を防止
+
+---
+
+### 9.3 railway update でマイグレーション
+
+プロジェクトを最新バージョンに更新:
+
+```bash
+# まず変更内容をプレビュー
+railway update --dry-run
+
+# 実際に更新
+railway update
+```
+
+**ポイント:**
+- `--dry-run` で事前確認
+- 更新前に自動バックアップ
+- ユーザーコード（`src/nodes/*`）は変更されない
+
+---
+
+### 9.4 バックアップから復元
+
+問題が発生した場合は簡単に復元:
+
+```bash
+# 一覧表示
+railway backup list
+
+# 復元
+railway backup restore
+```
+
+---
+
+### 9.5 恩恵のまとめ
+
+| 問題 | Railway の解決策 |
+|------|------------------|
+| バージョン不明 | `.railway/project.yaml` で明示 |
+| 手動マイグレーション | `railway update` で自動化 |
+| 失敗時のリカバリ | 自動バックアップ + 復元 |
+| 変更内容不明 | `--dry-run` で事前確認 |
+
+🎉 **これでバージョンアップも安心！**
+
+---
+
 ## よくある質問 (FAQ)
 
 ### Q: Result型（Ok/Err）は提供しないの？
@@ -684,6 +786,24 @@ def generate_report(users: UsersFetchResult) -> ReportResult:
     ...
 ```
 
+### Q: 既存プロジェクトにバージョン情報を追加するには？
+
+```bash
+railway update --init
+```
+
+これにより `.railway/project.yaml` が作成され、バージョン追跡が開始されます。
+
+### Q: バージョン不一致の警告を無視できる？
+
+`--force` オプションで警告をスキップできます:
+
+```bash
+railway new node my_node --force
+```
+
+ただし、チーム開発では推奨しません。`railway update` で先にプロジェクトを更新してください。
+
 ---
 
 ## 次のステップ
@@ -700,6 +820,7 @@ def generate_report(users: UsersFetchResult) -> ReportResult:
 - 安全なリファクタリング
 - **3層エラーハンドリング** (retry_on, デフォルト伝播, on_error)
 - **on_step でデバッグ/監査**
+- **バージョン管理** (`railway update`, `railway backup`)
 
 ### さらに学ぶ
 
@@ -932,12 +1053,18 @@ def _create_project_structure(
     else:
         _create_simple_hello_entry(project_path)
 
+    # Create .railway/project.yaml with version metadata
+    metadata = create_metadata(project_name, __version__)
+    save_metadata(project_path, metadata)
+
 
 def _show_success_output(project_name: str) -> None:
     """Display success message and next steps."""
     typer.echo(f"\nCreated project: {project_name}\n")
     typer.echo("Project structure:")
     typer.echo(f"  {project_name}/")
+    typer.echo("  ├── .railway/")
+    typer.echo("  │   └── project.yaml")
     typer.echo("  ├── src/")
     typer.echo("  ├── tests/")
     typer.echo("  ├── config/")
