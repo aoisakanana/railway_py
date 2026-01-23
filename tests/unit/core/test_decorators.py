@@ -99,10 +99,10 @@ class TestNodeDecorator:
             result = logged_node()
 
             assert result == "done"
-            # Check that info was called for start and completion
+            # Check that info was called for start and completion (日本語)
             calls = [str(call) for call in mock_logger.info.call_args_list]
-            assert any("Starting" in str(call) for call in calls)
-            assert any("Completed" in str(call) for call in calls)
+            assert any("開始" in str(call) for call in calls)
+            assert any("完了" in str(call) for call in calls)
 
     def test_node_logs_error(self):
         """Should log errors when node fails."""
@@ -180,9 +180,9 @@ class TestNodeWithLogInput:
 
             input_node({"key": "value"})
 
-            # Check debug was called with input
+            # Check debug was called with input (日本語)
             debug_calls = [str(call) for call in mock_logger.debug.call_args_list]
-            assert any("Input" in str(call) for call in debug_calls)
+            assert any("入力" in str(call) for call in debug_calls)
 
 
 class TestNodeWithLogOutput:
@@ -200,6 +200,6 @@ class TestNodeWithLogOutput:
 
             output_node()
 
-            # Check debug was called with output
+            # Check debug was called with output (日本語)
             debug_calls = [str(call) for call in mock_logger.debug.call_args_list]
-            assert any("Output" in str(call) for call in debug_calls)
+            assert any("出力" in str(call) for call in debug_calls)

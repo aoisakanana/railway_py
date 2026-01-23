@@ -1,0 +1,22 @@
+# Railway Framework Configuration - Development
+
+app:
+  name: test_project
+  version: "0.1.0"
+
+api:
+  base_url: "https://api.example.com"
+  timeout: 30
+
+logging:
+  level: DEBUG
+  format: "{time:HH:mm:ss} | {level} | {message}"
+  handlers:
+    - type: console
+      level: DEBUG
+
+retry:
+  default:
+    max_attempts: 3
+    min_wait: 2
+    max_wait: 10

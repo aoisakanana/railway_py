@@ -92,7 +92,7 @@ def init_logging(settings: "LoggingSettings") -> None:
         # If no handlers configured, add default console handler
         _add_default_handler(settings)
 
-    logger.debug(f"Logging initialized (level={settings.level})")
+    logger.debug(f"ロギング初期化完了 (レベル={settings.level})")
 
 
 def get_logger(name: str | None = None) -> "logger":  # type: ignore[valid-type]

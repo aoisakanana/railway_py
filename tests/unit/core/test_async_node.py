@@ -51,10 +51,10 @@ class TestAsyncNodeBasic:
         with patch("railway.core.decorators.logger") as mock_logger:
             await logged_async()
 
-            # Should have start and complete logs
+            # Should have start and complete logs (日本語)
             info_calls = [str(c) for c in mock_logger.info.call_args_list]
-            assert any("Starting" in str(c) for c in info_calls)
-            assert any("Completed" in str(c) for c in info_calls)
+            assert any("開始" in str(c) for c in info_calls)
+            assert any("完了" in str(c) for c in info_calls)
 
 
 class TestAsyncNodeMetadata:

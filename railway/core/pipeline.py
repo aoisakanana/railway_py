@@ -20,39 +20,50 @@ def pipeline(
     strict: bool = False,
 ) -> Any:
     """
-    Execute a pipeline of processing steps.
+    線形パイプライン実行（レガシー/動的ユースケース向け）
 
-    Features:
-    1. Sequential execution of steps
-    2. Automatic error propagation (skip remaining steps on error)
-    3. Runtime type checking between steps (enabled by default)
-    4. Detailed logging of execution flow
-    5. Strict mode type checking (optional)
+    Note:
+        通常の開発では typed_pipeline を推奨します。
+        このpipelineは以下のユースケースで使用してください:
+        - 動的にステップを構成する場合
+        - 既存の値からパイプラインを開始する場合
 
-    IMPORTANT: Understanding the 'initial' argument
-    -----------------------------------------------
-    The 'initial' argument is the STARTING VALUE for the pipeline.
-    It is NOT a function, but a value (or the result of a function call).
+    typed_pipeline との違い:
+        | 特徴 | pipeline | typed_pipeline |
+        |------|----------|----------------|
+        | 最初の引数 | 評価済みの値 | 関数 |
+        | 型安全性 | 限定的 | Contract ベース |
+        | IDE補完 | 限定的 | フル対応 |
+        | 依存解決 | なし | 自動 |
+        | 推奨用途 | 動的構成 | 通常開発 |
 
     Args:
-        initial: Initial value to pass to first step
-        *steps: Processing functions to apply sequentially
-        type_check: Enable runtime type checking (default: True)
-        strict: Enable strict type checking between steps (default: False)
+        initial: パイプラインの開始値（関数ではなく値）
+        *steps: 順次適用する処理関数
+        type_check: ランタイム型チェック有効化（デフォルト: True）
+        strict: 厳密な型チェック（デフォルト: False）
 
     Returns:
-        Final result from the last step
+        最後のステップの出力
 
     Raises:
-        Exception: If any step fails
-        TypeError: If an async function is passed or type mismatch in strict mode
+        Exception: ステップの実行失敗時
+        TypeError: async関数が渡された場合、または厳密モードで型不一致
 
     Example:
-        result = pipeline(
-            fetch_data(),   # Initial value (evaluated immediately)
-            process_data,   # Step 1: receives result of fetch_data()
-            save_data,      # Step 2: receives result of process_data()
-        )
+        # 動的パイプライン構成
+        def build_pipeline(config: dict):
+            steps = [transform_data]
+            if config.get("filter"):
+                steps.append(filter_data)
+            return lambda data: pipeline(data, *steps)
+
+        # 既存データからのパイプライン開始
+        existing_data = load_from_cache()
+        result = pipeline(existing_data, process, save)
+
+    See Also:
+        typed_pipeline: 通常の開発で推奨される型安全なパイプライン
     """
     # Check for async functions
     for step in steps:
@@ -67,7 +78,7 @@ def pipeline(
                 "Use async_pipeline() for async nodes."
             )
 
-    logger.debug(f"Pipeline starting with {len(steps)} steps")
+    logger.debug(f"パイプライン開始: {len(steps)} ステップ")
 
     # Return initial value if no steps
     if not steps:
@@ -96,26 +107,26 @@ def pipeline(
                             )
                         )
 
-            logger.debug(f"Pipeline step {i}/{len(steps)}: {step_name}")
+            logger.debug(f"パイプラインステップ {i}/{len(steps)}: {step_name}")
 
             try:
                 result = step(current_value)
                 current_value = result
-                logger.debug(f"Pipeline step {i}/{len(steps)}: Success")
+                logger.debug(f"パイプラインステップ {i}/{len(steps)}: 成功")
 
             except Exception as e:
                 logger.error(
-                    f"Pipeline step {i}/{len(steps)} ({step_name}): "
-                    f"Failed with {type(e).__name__}: {e}"
+                    f"パイプラインステップ {i}/{len(steps)} ({step_name}): "
+                    f"失敗 {type(e).__name__}: {e}"
                 )
-                logger.info(f"Pipeline: Skipping remaining {len(steps) - i} steps")
+                logger.info(f"パイプライン: 残り {len(steps) - i} ステップをスキップ")
                 raise
 
-        logger.debug("Pipeline completed successfully")
+        logger.debug("パイプライン正常完了")
         return current_value
 
     except Exception:
-        logger.error(f"Pipeline failed at step {current_step}/{len(steps)}")
+        logger.error(f"パイプライン失敗: ステップ {current_step}/{len(steps)}")
         raise
 
 
@@ -149,7 +160,7 @@ async def async_pipeline(
             async_save,    # Async step 3
         )
     """
-    logger.debug(f"Async pipeline starting with {len(steps)} steps")
+    logger.debug(f"非同期パイプライン開始: {len(steps)} ステップ")
 
     # Return initial value if no steps
     if not steps:
@@ -181,7 +192,7 @@ async def async_pipeline(
                             )
                         )
 
-            logger.debug(f"Async pipeline step {i}/{len(steps)}: {step_name}")
+            logger.debug(f"非同期パイプラインステップ {i}/{len(steps)}: {step_name}")
 
             try:
                 if is_async:
@@ -189,19 +200,19 @@ async def async_pipeline(
                 else:
                     result = step(current_value)
                 current_value = result
-                logger.debug(f"Async pipeline step {i}/{len(steps)}: Success")
+                logger.debug(f"非同期パイプラインステップ {i}/{len(steps)}: 成功")
 
             except Exception as e:
                 logger.error(
-                    f"Async pipeline step {i}/{len(steps)} ({step_name}): "
-                    f"Failed with {type(e).__name__}: {e}"
+                    f"非同期パイプラインステップ {i}/{len(steps)} ({step_name}): "
+                    f"失敗 {type(e).__name__}: {e}"
                 )
-                logger.info(f"Async pipeline: Skipping remaining {len(steps) - i} steps")
+                logger.info(f"非同期パイプライン: 残り {len(steps) - i} ステップをスキップ")
                 raise
 
-        logger.debug("Async pipeline completed successfully")
+        logger.debug("非同期パイプライン正常完了")
         return current_value
 
     except Exception:
-        logger.error(f"Async pipeline failed at step {current_step}/{len(steps)}")
+        logger.error(f"非同期パイプライン失敗: ステップ {current_step}/{len(steps)}")
         raise
