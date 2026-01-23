@@ -1,0 +1,198 @@
+"""マイグレーション実行。
+
+関数型パラダイム:
+- ロジック（計画生成）と実行（IO）を分離
+- 実行結果はイミュータブルなResultで返す
+
+Note:
+    変更定義型は railway/migrations/changes.py からインポート。
+"""
+from pathlib import Path
+from typing import Callable, Optional
+
+import yaml
+
+from railway import __version__
+from railway.core.project_metadata import (
+    load_metadata,
+    save_metadata,
+    create_metadata,
+    update_metadata_version,
+)
+from railway.migrations.backup import create_backup
+from railway.migrations.types import MigrationPlan, MigrationResult
+from railway.migrations.changes import (
+    MigrationDefinition,
+    FileChange,
+    ConfigChange,
+    ChangeType,
+)
+from railway.migrations.config_merger import merge_config
+
+
+# ============================================================
+# ファイル変更アクション（IO）
+# ============================================================
+
+def apply_file_change(project_path: Path, change: FileChange) -> None:
+    """ファイル変更を適用する。
+
+    Args:
+        project_path: プロジェクトルートパス
+        change: 適用するファイル変更
+
+    Raises:
+        IOError: ファイル操作失敗時
+    """
+    file_path = project_path / change.path
+
+    match change.change_type:
+        case ChangeType.FILE_CREATE:
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            file_path.write_text(change.content or "", encoding="utf-8")
+
+        case ChangeType.FILE_DELETE:
+            if file_path.exists():
+                file_path.unlink()
+
+        case ChangeType.FILE_UPDATE:
+            # テンプレートから再生成（簡略化版）
+            # TODO: 実際のテンプレートレンダリング実装
+            if change.content:
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                file_path.write_text(change.content, encoding="utf-8")
+
+
+def apply_config_change(project_path: Path, change: ConfigChange) -> None:
+    """設定変更を適用する。
+
+    Args:
+        project_path: プロジェクトルートパス
+        change: 適用する設定変更
+    """
+    config_path = project_path / change.path
+    if not config_path.exists():
+        return
+
+    with open(config_path, encoding="utf-8") as f:
+        original = yaml.safe_load(f) or {}
+
+    result, _ = merge_config(original, change)
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.dump(result, f, default_flow_style=False, allow_unicode=True)
+
+
+def apply_migration(project_path: Path, migration: MigrationDefinition) -> None:
+    """マイグレーションを適用する。
+
+    Args:
+        project_path: プロジェクトルートパス
+        migration: 適用するマイグレーション定義
+    """
+    # ファイル変更を適用
+    for change in migration.file_changes:
+        apply_file_change(project_path, change)
+
+    # 設定変更を適用
+    for change in migration.config_changes:
+        apply_config_change(project_path, change)
+
+
+# ============================================================
+# 高レベル実行関数
+# ============================================================
+
+def execute_migration_plan(
+    project_path: Path,
+    plan: MigrationPlan,
+    create_backup_flag: bool = True,
+    on_progress: Optional[Callable[[str], None]] = None,
+) -> MigrationResult:
+    """マイグレーション計画を実行する。
+
+    Args:
+        project_path: プロジェクトルートパス
+        plan: 実行するマイグレーション計画
+        create_backup_flag: バックアップを作成するか
+        on_progress: 進捗コールバック
+
+    Returns:
+        MigrationResult with success status and details
+    """
+    if plan.is_empty:
+        return MigrationResult(
+            success=True,
+            from_version=plan.from_version,
+            to_version=plan.to_version,
+        )
+
+    backup_path: Optional[Path] = None
+    current_version = plan.from_version
+
+    try:
+        # バックアップ作成
+        if create_backup_flag:
+            backup_path = create_backup(project_path, plan.from_version)
+            if on_progress:
+                on_progress(f"💾 バックアップ作成: {backup_path}")
+
+        # マイグレーション実行
+        for migration in plan.migrations:
+            if on_progress:
+                on_progress(f"⏳ {migration.description}...")
+
+            apply_migration(project_path, migration)
+            current_version = migration.to_version
+
+        # メタデータ更新
+        metadata = load_metadata(project_path)
+        if metadata:
+            updated = update_metadata_version(metadata, plan.to_version)
+            save_metadata(project_path, updated)
+
+        return MigrationResult(
+            success=True,
+            from_version=plan.from_version,
+            to_version=plan.to_version,
+            backup_path=backup_path,
+        )
+
+    except Exception as e:
+        return MigrationResult(
+            success=False,
+            from_version=plan.from_version,
+            to_version=current_version,
+            backup_path=backup_path,
+            error=str(e),
+        )
+
+
+def initialize_project(project_path: Path) -> MigrationResult:
+    """バージョン情報のないプロジェクトを初期化する。
+
+    Args:
+        project_path: プロジェクトルートパス
+
+    Returns:
+        MigrationResult
+    """
+    try:
+        # プロジェクト名を推定
+        project_name = project_path.name
+
+        metadata = create_metadata(project_name, __version__)
+        save_metadata(project_path, metadata)
+
+        return MigrationResult(
+            success=True,
+            from_version="unknown",
+            to_version=__version__,
+        )
+    except Exception as e:
+        return MigrationResult(
+            success=False,
+            from_version="unknown",
+            to_version="unknown",
+            error=str(e),
+        )

@@ -5,12 +5,14 @@ from typing import Optional
 import typer
 
 from railway import __version__
+from railway.cli.backup import app as backup_app
 from railway.cli.docs import docs
 from railway.cli.init import init
 from railway.cli.list import list_components
 from railway.cli.new import new
 from railway.cli.run import run
 from railway.cli.show import show
+from railway.cli.update import app as update_app
 
 
 def version_callback(value: bool) -> None:
@@ -49,6 +51,8 @@ app.command(name="list")(list_components)
 app.command(name="run")(run)
 app.command(name="docs")(docs)
 app.command(name="show")(show)
+app.add_typer(update_app, name="update")
+app.add_typer(backup_app, name="backup")
 
 
 if __name__ == "__main__":

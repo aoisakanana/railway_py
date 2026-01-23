@@ -1,134 +1,4 @@
-"""railway init command implementation."""
-
-from pathlib import Path
-from typing import Callable
-
-import typer
-
-from railway import __version__
-from railway.core.project_metadata import create_metadata, save_metadata
-
-
-def _validate_project_name(name: str) -> str:
-    """
-    Validate and normalize project name.
-
-    Replaces dashes with underscores for Python compatibility.
-    """
-    normalized = name.replace("-", "_")
-    if not normalized.isidentifier():
-        raise typer.BadParameter(f"'{name}' is not a valid Python identifier")
-    return normalized
-
-
-def _create_directory(path: Path) -> None:
-    """Create a directory if it doesn't exist."""
-    path.mkdir(parents=True, exist_ok=True)
-
-
-def _write_file(path: Path, content: str) -> None:
-    """Write content to a file."""
-    path.write_text(content)
-
-
-def _create_pyproject_toml(project_path: Path, project_name: str, python_version: str) -> None:
-    """Create pyproject.toml file."""
-    content = f'''[project]
-name = "{project_name}"
-version = "0.1.0"
-description = "Railway framework automation project"
-requires-python = ">={python_version}"
-dependencies = [
-    "railway-framework>=0.1.0",
-    "loguru>=0.7.0",
-    "pydantic>=2.0.0",
-    "pydantic-settings>=2.0.0",
-    "typer>=0.9.0",
-    "pyyaml>=6.0.0",
-]
-
-[dependency-groups]
-dev = [
-    "ruff>=0.1.0",
-    "mypy>=1.7.0",
-    "pytest>=7.4.0",
-    "pytest-cov>=4.1.0",
-]
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.hatch.build.targets.wheel]
-packages = ["src"]
-
-# src/ プレフィックスを取り除く設定
-[tool.hatch.build.targets.wheel.sources]
-"src" = ""
-'''
-    _write_file(project_path / "pyproject.toml", content)
-
-
-def _create_env_example(project_path: Path, project_name: str) -> None:
-    """Create .env.example file."""
-    content = f'''# Environment (development/staging/production)
-RAILWAY_ENV=development
-
-# Application
-APP_NAME={project_name}
-
-# Log Level Override (optional)
-LOG_LEVEL=DEBUG
-'''
-    _write_file(project_path / ".env.example", content)
-
-
-def _create_development_yaml(project_path: Path, project_name: str) -> None:
-    """Create config/development.yaml file."""
-    content = f'''# Railway Framework Configuration - Development
-
-app:
-  name: {project_name}
-  version: "0.1.0"
-
-api:
-  base_url: "https://api.example.com"
-  timeout: 30
-
-logging:
-  level: DEBUG
-  format: "{{time:HH:mm:ss}} | {{level}} | {{message}}"
-  handlers:
-    - type: console
-      level: DEBUG
-
-retry:
-  default:
-    max_attempts: 3
-    min_wait: 2
-    max_wait: 10
-'''
-    _write_file(project_path / "config" / "development.yaml", content)
-
-
-def _create_settings_py(project_path: Path) -> None:
-    """Create src/settings.py file."""
-    content = '''"""Application settings."""
-
-from railway.core.settings import Settings, get_settings, reset_settings
-
-# Re-export for convenience
-__all__ = ["Settings", "get_settings", "reset_settings", "settings"]
-
-# Lazy settings proxy
-settings = get_settings()
-'''
-    _write_file(project_path / "src" / "settings.py", content)
-
-
-def _create_tutorial_md(project_path: Path, project_name: str) -> None:
-    """Create TUTORIAL.md file."""
-    content = f'''# {project_name} チュートリアル
+# test_project チュートリアル
 
 Railway Framework の**型安全なパイプライン**を体験しましょう！
 
@@ -139,7 +9,6 @@ Railway Framework の**型安全なパイプライン**を体験しましょう�
 - IDE補完の活用
 - TDDワークフロー
 - typed_pipeline による依存関係の自動解決
-- バージョン管理と安全なアップグレード
 
 ## 所要時間
 
@@ -380,14 +249,14 @@ from contracts.report_result import ReportResult
 
 
 @node(
-    inputs={{"users": UsersFetchResult}},
+    inputs={"users": UsersFetchResult},
     output=ReportResult,
 )
 def generate_report(users: UsersFetchResult) -> ReportResult:
     # ここで users. と入力して Ctrl+Space を押してください！
     names = ", ".join(u.name for u in users.users)  # IDE補完が効く！
     return ReportResult(
-        content=f"Users: {{names}}",
+        content=f"Users: {names}",
         user_count=users.total,  # typo するとIDEが警告
         generated_at=datetime.now(),
     )
@@ -427,7 +296,7 @@ def main():
     )
 
     print(result.content)      # IDE補完が効く！
-    print(f"Count: {{result.user_count}}")
+    print(f"Count: {result.user_count}")
     return result
 
 
@@ -552,7 +421,7 @@ from contracts.external_data_result import ExternalDataResult
 
 @node(output=ExternalDataResult)
 def fetch_external_data() -> ExternalDataResult:
-    \"\"\"不安定な外部APIをシミュレート\"\"\"
+    """不安定な外部APIをシミュレート"""
     if random.random() < 0.5:
         raise ConnectionError("Network timeout")
     return ExternalDataResult(data="success", value=42)
@@ -569,7 +438,7 @@ def fetch_external_data() -> ExternalDataResult:
     retry_on=(ConnectionError,)
 )
 def fetch_with_retry() -> ExternalDataResult:
-    \"\"\"ConnectionError は3回までリトライ\"\"\"
+    """ConnectionError は3回までリトライ"""
     if random.random() < 0.5:
         raise ConnectionError("Network timeout")
     return ExternalDataResult(data="success", value=42)
@@ -601,10 +470,10 @@ result = typed_pipeline(fetch_external_data, process_data)
 from railway import entry_point, typed_pipeline
 
 def smart_error_handler(error: Exception, step_name: str):
-    \"\"\"例外タイプに応じて適切に処理\"\"\"
+    """例外タイプに応じて適切に処理"""
     match error:
         case ConnectionError():
-            print(f"⚠️ {{step_name}}: 接続エラー、フォールバック値を使用")
+            print(f"⚠️ {step_name}: 接続エラー、フォールバック値を使用")
             return ExternalDataResult(data="cached", value=0)
         case _:
             raise  # 他の例外は再送出
@@ -615,7 +484,7 @@ def main():
         fetch_external_data,
         on_error=smart_error_handler
     )
-    print(f"Result: {{result.data}}, Value: {{result.value}}")
+    print(f"Result: {result.data}, Value: {result.value}")
 ```
 
 ### 8.5 on_step でデバッグ/監査
@@ -626,8 +495,8 @@ def main():
 steps = []
 
 def capture_step(step_name: str, output):
-    steps.append({{"step": step_name, "output": output}})
-    print(f"[{{step_name}}] -> {{output}}")
+    steps.append({"step": step_name, "output": output})
+    print(f"[{step_name}] -> {output}")
 
 result = typed_pipeline(
     fetch_users,
@@ -647,104 +516,6 @@ result = typed_pipeline(
 
 **重要**: 多くのケースでは「何もしない」（デフォルト伝播）で十分です。
 高度な機能は必要な時だけ使いましょう。
-
----
-
-## Step 9: バージョン管理 - 安全なアップグレード体験（5分）
-
-Railway Framework は**プロジェクトのバージョンを追跡**し、安全なアップグレードを支援します。
-
-### 9.1 現状を確認
-
-プロジェクトのバージョン情報を確認します:
-
-```bash
-cat .railway/project.yaml
-```
-
-**出力例:**
-```yaml
-railway:
-  version: "{__version__}"
-  created_at: "2026-01-23T10:30:00+09:00"
-  updated_at: "2026-01-23T10:30:00+09:00"
-
-project:
-  name: "{project_name}"
-
-compatibility:
-  min_version: "{__version__}"
-```
-
-**ポイント:**
-- `railway init` 時に自動生成される
-- チーム全員で同じバージョン情報を共有（Git管理対象）
-
----
-
-### 9.2 バージョン不一致の警告
-
-フレームワークがアップグレードされた後に `railway new` を実行すると:
-
-```
-$ railway new node my_new_node
-
-⚠️  バージョン不一致を検出
-    プロジェクト: 0.10.0
-    現在:         0.11.0
-
-    [c] 続行 / [u] 'railway update' を実行 / [a] 中止
-```
-
-**なぜ重要か:**
-- 古いテンプレートと新しいテンプレートの混在を防ぐ
-- チーム内の不整合を防止
-
----
-
-### 9.3 railway update でマイグレーション
-
-プロジェクトを最新バージョンに更新:
-
-```bash
-# まず変更内容をプレビュー
-railway update --dry-run
-
-# 実際に更新
-railway update
-```
-
-**ポイント:**
-- `--dry-run` で事前確認
-- 更新前に自動バックアップ
-- ユーザーコード（`src/nodes/*`）は変更されない
-
----
-
-### 9.4 バックアップから復元
-
-問題が発生した場合は簡単に復元:
-
-```bash
-# 一覧表示
-railway backup list
-
-# 復元
-railway backup restore
-```
-
----
-
-### 9.5 恩恵のまとめ
-
-| 問題 | Railway の解決策 |
-|------|------------------|
-| バージョン不明 | `.railway/project.yaml` で明示 |
-| 手動マイグレーション | `railway update` で自動化 |
-| 失敗時のリカバリ | 自動バックアップ + 復元 |
-| 変更内容不明 | `--dry-run` で事前確認 |
-
-🎉 **これでバージョンアップも安心！**
 
 ---
 
@@ -781,28 +552,10 @@ def generate_report(users: UsersFetchResult) -> ReportResult:
     ...
 
 # 明示的に指定も可能（レガシー互換）
-@node(inputs={{"users": UsersFetchResult}}, output=ReportResult)
+@node(inputs={"users": UsersFetchResult}, output=ReportResult)
 def generate_report(users: UsersFetchResult) -> ReportResult:
     ...
 ```
-
-### Q: 既存プロジェクトにバージョン情報を追加するには？
-
-```bash
-railway update --init
-```
-
-これにより `.railway/project.yaml` が作成され、バージョン追跡が開始されます。
-
-### Q: バージョン不一致の警告を無視できる？
-
-`--force` オプションで警告をスキップできます:
-
-```bash
-railway new node my_node --force
-```
-
-ただし、チーム開発では推奨しません。`railway update` で先にプロジェクトを更新してください。
 
 ---
 
@@ -820,7 +573,6 @@ railway new node my_node --force
 - 安全なリファクタリング
 - **3層エラーハンドリング** (retry_on, デフォルト伝播, on_error)
 - **on_step でデバッグ/監査**
-- **バージョン管理** (`railway update`, `railway backup`)
 
 ### さらに学ぶ
 
@@ -856,250 +608,3 @@ rm -rf .pytest_cache/ __pycache__/
 # 依存関係を再同期
 uv sync
 ```
-'''
-    _write_file(project_path / "TUTORIAL.md", content)
-
-
-def _create_gitignore(project_path: Path) -> None:
-    """Create .gitignore file."""
-    content = '''# Python
-__pycache__/
-*.py[cod]
-*.so
-.Python
-*.egg-info/
-dist/
-build/
-
-# Environment
-.env
-.venv/
-venv/
-
-# IDE
-.idea/
-.vscode/
-*.swp
-
-# Logs
-logs/*.log
-
-# Testing
-.coverage
-htmlcov/
-.pytest_cache/
-
-# mypy
-.mypy_cache/
-'''
-    _write_file(project_path / ".gitignore", content)
-
-
-def _create_py_typed(project_path: Path) -> None:
-    """Create py.typed marker for PEP 561 compliance.
-
-    This enables type checking tools (mypy, pyright) to recognize
-    the user's project as a typed package.
-    """
-    content = "# PEP 561 marker - this package supports type checking\n"
-    _write_file(project_path / "src" / "py.typed", content)
-
-
-def _create_init_files(project_path: Path) -> None:
-    """Create __init__.py files."""
-    init_files = [
-        (project_path / "src" / "__init__.py", '"""Source package."""\n'),
-        (project_path / "src" / "nodes" / "__init__.py", '"""Node modules."""\n'),
-        (project_path / "src" / "common" / "__init__.py", '"""Common utilities."""\n'),
-        (project_path / "tests" / "__init__.py", ""),
-    ]
-    for path, content in init_files:
-        _write_file(path, content)
-
-
-def _create_conftest_py(project_path: Path) -> None:
-    """Create tests/conftest.py file."""
-    content = '''"""Pytest configuration and shared fixtures."""
-
-import pytest
-
-
-@pytest.fixture
-def sample_user_data() -> dict:
-    """サンプルユーザーデータを提供するフィクスチャ"""
-    return {
-        "user_id": 1,
-        "name": "Test User",
-        "email": "test@example.com",
-    }
-
-
-@pytest.fixture
-def empty_data() -> dict:
-    """空のデータを提供するフィクスチャ"""
-    return {}
-'''
-    _write_file(project_path / "tests" / "conftest.py", content)
-
-
-def _create_simple_hello_entry(project_path: Path) -> None:
-    """Create minimal hello.py for immediate verification.
-
-    This simple entry point allows users to verify their setup works
-    immediately after `railway init` without any additional steps.
-    """
-    content = '''"""Hello World entry point - セットアップ確認用."""
-
-from railway import entry_point
-
-
-@entry_point
-def hello():
-    """最小限のHello World
-
-    railway init 後すぐに動作確認できます:
-        uv run railway run hello
-    """
-    print("Hello, World!")
-    return {"message": "Hello, World!"}
-
-
-if __name__ == "__main__":
-    hello()
-'''
-    _write_file(project_path / "src" / "hello.py", content)
-
-
-def _create_example_entry(project_path: Path) -> None:
-    """Create complex example entry point with pipeline demonstration."""
-    content = '''"""Hello World entry point with pipeline example."""
-
-from railway import entry_point, node, pipeline
-
-
-@node
-def validate_name(name: str) -> str:
-    """名前を検証して正規化する（純粋関数）"""
-    if not name or not name.strip():
-        raise ValueError("Name cannot be empty")
-    return name.strip()
-
-
-@node
-def create_greeting(name: str) -> str:
-    """挨拶メッセージを作成する（純粋関数）"""
-    return f"Hello, {name}!"
-
-
-@entry_point
-def hello(name: str = "World"):
-    """パイプラインを使った Hello World
-
-    Args:
-        name: 挨拶する相手の名前
-
-    Usage:
-        uv run railway run hello
-        uv run railway run hello --name Alice
-    """
-    message = pipeline(
-        name,
-        validate_name,
-        create_greeting,
-    )
-    print(message)
-    return message
-
-
-if __name__ == "__main__":
-    hello()
-'''
-    _write_file(project_path / "src" / "hello.py", content)
-
-
-def _create_project_structure(
-    project_path: Path,
-    project_name: str,
-    python_version: str,
-    with_examples: bool,
-) -> None:
-    """Create all project directories and files."""
-    # Create directories (functional approach with map)
-    directories = [
-        project_path / "src" / "nodes",
-        project_path / "src" / "common",
-        project_path / "tests" / "nodes",
-        project_path / "config",
-        project_path / "logs",
-    ]
-    list(map(_create_directory, directories))
-
-    # Create files (using pure functions)
-    _create_pyproject_toml(project_path, project_name, python_version)
-    _create_env_example(project_path, project_name)
-    _create_development_yaml(project_path, project_name)
-    _create_settings_py(project_path)
-    _create_tutorial_md(project_path, project_name)
-    _create_gitignore(project_path)
-    _create_init_files(project_path)
-    _create_conftest_py(project_path)
-    _create_py_typed(project_path)
-
-    # Create hello entry point
-    # Default: simple hello.py for immediate verification
-    # --with-examples: complex pipeline example
-    if with_examples:
-        _create_example_entry(project_path)
-    else:
-        _create_simple_hello_entry(project_path)
-
-    # Create .railway/project.yaml with version metadata
-    metadata = create_metadata(project_name, __version__)
-    save_metadata(project_path, metadata)
-
-
-def _show_success_output(project_name: str) -> None:
-    """Display success message and next steps."""
-    typer.echo(f"\nCreated project: {project_name}\n")
-    typer.echo("Project structure:")
-    typer.echo(f"  {project_name}/")
-    typer.echo("  ├── .railway/")
-    typer.echo("  │   └── project.yaml")
-    typer.echo("  ├── src/")
-    typer.echo("  ├── tests/")
-    typer.echo("  ├── config/")
-    typer.echo("  ├── .env.example")
-    typer.echo("  └── TUTORIAL.md\n")
-    typer.echo("Next steps:")
-    typer.echo(f"  1. cd {project_name}")
-    typer.echo("  2. uv sync --group dev")
-    typer.echo("  3. cp .env.example .env")
-    typer.echo("  4. uv run railway run hello  # 動作確認")
-    typer.echo("  5. Open TUTORIAL.md and follow the guide")
-
-
-def init(
-    project_name: str = typer.Argument(..., help="Name of the project to create"),
-    python_version: str = typer.Option("3.10", help="Minimum Python version"),
-    with_examples: bool = typer.Option(False, help="Include example entry points"),
-) -> None:
-    """
-    Create a new Railway Framework project.
-
-    Creates the project directory structure with all necessary files
-    for a Railway-based automation project.
-    """
-    # Validate project name
-    normalized_name = _validate_project_name(project_name)
-
-    # Check if directory exists
-    project_path = Path.cwd() / normalized_name
-    if project_path.exists():
-        typer.echo(f"Error: Directory '{normalized_name}' already exists", err=True)
-        raise typer.Exit(1)
-
-    # Create directory structure
-    _create_project_structure(project_path, normalized_name, python_version, with_examples)
-
-    # Show success message
-    _show_success_output(normalized_name)
