@@ -420,9 +420,60 @@ railway run greeting
 
 ---
 
-## Step 5: エラーハンドリング（3分）
+## Step 5: railway new node でノードを素早く追加（3分）
 
-### 5.1 失敗パスの追加
+既存のワークフローに新しいノードを追加する方法を学びます。
+ここで体験するのは「**3つのファイルを1コマンドで生成し、即座にTDDを開始できる**」という恩恵です。
+
+### 5.1 1コマンドで3ファイル生成
+
+```bash
+railway new node log_result
+```
+
+**たった1コマンドで以下が生成されます:**
+
+| ファイル | 役割 | 恩恵 |
+|----------|------|------|
+| `src/nodes/log_result.py` | ノード本体 | 動作するサンプル付き |
+| `src/contracts/log_result_context.py` | Contract | IDE補完が効く |
+| `tests/nodes/test_log_result.py` | テスト | すぐにTDD開始可能 |
+
+### 5.2 TDDワークフローを体験
+
+**Step 1: テストを編集（期待する動作を定義）**
+
+`tests/nodes/test_log_result.py` を開き、具体的なテストを追加。
+
+**Step 2: テスト実行（失敗を確認 = Red）**
+
+```bash
+uv run pytest tests/nodes/test_log_result.py -v
+```
+
+失敗することを確認。これがTDDの「Red」フェーズです。
+
+**Step 3: 実装（テストを通す = Green）**
+
+`src/nodes/log_result.py` と `src/contracts/log_result_context.py` を実装。
+
+**Step 4: テスト再実行（成功を確認）**
+
+成功！これがTDDの「Green」フェーズです。
+
+### 5.3 linear モード（参考）
+
+線形パイプライン向けのノードを作成する場合:
+
+```bash
+railway new node format_output --mode linear
+```
+
+---
+
+## Step 6: エラーハンドリング（3分）
+
+### 6.1 失敗パスの追加
 
 遷移グラフに失敗パスを追加:
 
@@ -435,7 +486,7 @@ transitions:
     failure::error: exit::error
 ```
 
-### 5.2 ノードでのエラーハンドリング
+### 6.2 ノードでのエラーハンドリング
 
 ```python
 @node
@@ -451,9 +502,9 @@ def check_time() -> tuple[TimeContext, Outcome]:
 
 ---
 
-## Step 6: ステップコールバック（3分）
+## Step 7: ステップコールバック（3分）
 
-### 6.1 StepRecorder で実行履歴を記録
+### 7.1 StepRecorder で実行履歴を記録
 
 ```python
 from railway.core.dag import dag_runner, StepRecorder
@@ -471,7 +522,7 @@ for step in recorder.get_history():
     print(f"[{{step.node_name}}] -> {{step.state}}")
 ```
 
-### 6.2 AuditLogger で監査ログ
+### 7.2 AuditLogger で監査ログ
 
 ```python
 from railway.core.dag import AuditLogger
@@ -487,15 +538,15 @@ result = dag_runner(
 
 ---
 
-## Step 7: バージョン管理（3分）
+## Step 8: バージョン管理（3分）
 
-### 7.1 現状を確認
+### 8.1 現状を確認
 
 ```bash
 cat .railway/project.yaml
 ```
 
-### 7.2 更新
+### 8.2 更新
 
 ```bash
 # プレビュー
@@ -505,7 +556,7 @@ railway update --dry-run
 railway update
 ```
 
-### 7.3 バックアップから復元
+### 8.3 バックアップから復元
 
 ```bash
 railway backup list
