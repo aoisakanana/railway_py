@@ -533,6 +533,79 @@ compatibility:
 
 ---
 
+## 既存プロジェクトのアップグレード
+
+v0.10.x 以前のプロジェクトを最新形式にアップグレードできます。
+
+### なぜアップグレードが必要か？
+
+| 旧形式の問題 | v0.11.3 での解決策 |
+|-------------|-------------------|
+| 条件分岐が書きにくい | **dag_runner** で宣言的に定義 |
+| ノードの戻り値が不明確 | **Outcome** で状態を明示 |
+| 遷移ロジックがコードに埋まる | **YAML** で可視化 |
+
+### アップグレード手順
+
+**1. プレビュー**（変更内容を確認）
+
+```bash
+railway update --dry-run
+```
+
+出力例:
+```
+マイグレーション: 0.10.0 → 0.12.0
+
+ファイル追加:
+  - transition_graphs/.gitkeep
+  - _railway/generated/.gitkeep
+
+コードガイダンス:
+  src/nodes/process.py:5
+    現在: def process(data: dict) -> dict:
+    推奨: def process(ctx: ProcessContext) -> tuple[ProcessContext, Outcome]:
+```
+
+**2. アップグレード実行**
+
+```bash
+railway update
+```
+
+**3. ガイダンスに従ってコードを修正**
+
+旧形式のノードを新形式に変更します:
+
+**Before:**
+```python
+@node
+def process(data: dict) -> dict:
+    return data
+```
+
+**After:**
+```python
+@node
+def process(ctx: ProcessContext) -> tuple[ProcessContext, Outcome]:
+    return ctx, Outcome.success("done")
+```
+
+### 検出される旧形式パターン
+
+| パターン | 推奨変更 |
+|----------|----------|
+| `def node(data: dict) -> dict:` | `def node(ctx: Context) -> tuple[Context, Outcome]:` |
+| `from railway import pipeline` | `from railway.core.dag import dag_runner` |
+
+### アップグレードの恩恵
+
+- **Outcome** で次の遷移先を制御できる
+- **Contract** で型安全にデータを扱える
+- **YAML** で遷移ロジックを可視化できる
+
+---
+
 ## テストの書き方
 
 **DAGノードはテストが簡単:**

@@ -565,6 +565,61 @@ railway backup restore
 
 ---
 
+## Step 9: 既存プロジェクトのアップグレード（3分）
+
+v0.10.x 以前のプロジェクトを最新形式にアップグレードする方法を学びます。
+
+### 9.1 変更内容をプレビュー
+
+```bash
+railway update --dry-run
+```
+
+**出力例:**
+```
+マイグレーション: 0.10.0 → 0.12.0
+
+ファイル追加:
+  - transition_graphs/.gitkeep
+  - _railway/generated/.gitkeep
+
+コードガイダンス:
+  src/nodes/process.py:5
+    現在: def process(data: dict) -> dict:
+    推奨: def process(ctx: ProcessContext) -> tuple[ProcessContext, Outcome]:
+```
+
+### 9.2 アップグレード実行
+
+```bash
+railway update
+```
+
+### 9.3 コードを修正
+
+ガイダンスに従って、旧形式のノードを新形式に変更します。
+
+**Before:**
+```python
+@node
+def process(data: dict) -> dict:
+    return data
+```
+
+**After:**
+```python
+@node
+def process(ctx: ProcessContext) -> tuple[ProcessContext, Outcome]:
+    return ctx, Outcome.success("done")
+```
+
+**恩恵:**
+- Outcome で次の遷移先を制御できる
+- Contract で型安全にデータを扱える
+- YAML で遷移ロジックを可視化できる
+
+---
+
 ## ポイントまとめ
 
 1. **ノードは状態を返すだけ** - 遷移先はYAMLで定義
@@ -583,6 +638,7 @@ railway backup restore
 - 遷移グラフ（YAML）の定義
 - コード生成
 - ステップコールバック
+- バージョン管理とアップグレード
 
 ### さらに学ぶ
 
