@@ -14,15 +14,16 @@ from packaging.version import Version
 
 from railway.migrations.types import MigrationPlan
 from railway.migrations.changes import MigrationDefinition, FileChange, ConfigChange
+from railway.migrations.definitions.v0_10_to_v0_11 import MIGRATION_0_10_TO_0_11
 
 
 # ============================================================
 # マイグレーション定義（不変）
-# 実際のプロジェクトでは definitions/ ディレクトリから動的にロード
+# definitions/ ディレクトリから登録
 # ============================================================
 
 MIGRATIONS: tuple[MigrationDefinition, ...] = (
-    # 必要に応じてマイグレーション定義を追加
+    MIGRATION_0_10_TO_0_11,
 )
 
 

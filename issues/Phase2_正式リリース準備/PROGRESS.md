@@ -63,19 +63,63 @@ Phase 2 の正式リリース準備タスクの進捗を記録します。
 
 ---
 
+### Issue #23: railway update マイグレーション定義の実装 ✅
+
+**完了日:** 2026-01-26
+
+**実装内容:**
+
+#### マイグレーション定義
+- `railway/migrations/definitions/` パッケージ作成
+- `v0_10_to_v0_12.py` マイグレーション定義
+  - FileChange: `transition_graphs/.gitkeep`, `_railway/generated/.gitkeep`
+  - CodeGuidance: dict戻り値検出、dictパラメータ検出、旧pipeline import検出
+  - Warnings: ノード形式変更、pipeline非推奨
+
+#### registry.py 更新
+- `MIGRATIONS` タプルにマイグレーション定義を登録
+
+#### ドキュメント更新
+- **README.md**: 「既存プロジェクトのアップグレード」セクション追加
+  - 恩恵の比較表（旧形式の問題 vs v0.11.3の解決策）
+  - アップグレード手順（プレビュー → 実行 → 修正）
+  - Before/After コード例
+  - 検出パターン一覧
+- **TUTORIAL.md** (railway/cli/init.py): Step 9「既存プロジェクトのアップグレード」追加
+  - dry-run プレビューの体験
+  - Before/After コード例
+  - Outcome の恩恵説明
+
+**テスト結果:**
+- `tests/unit/migrations/test_v0_10_to_v0_12_migration.py`: 17テスト全て通過
+- `tests/unit/docs/test_readme_upgrade_section.py`: 7テスト全て通過
+- `tests/unit/docs/test_tutorial_upgrade_step.py`: 6テスト全て通過
+
+**修正ファイル:**
+- `railway/migrations/definitions/__init__.py` (新規)
+- `railway/migrations/definitions/v0_10_to_v0_12.py` (新規)
+- `railway/migrations/registry.py`
+- `readme.md`
+- `railway/cli/init.py`
+- `tests/unit/migrations/test_v0_10_to_v0_12_migration.py` (新規)
+- `tests/unit/docs/test_readme_upgrade_section.py` (新規)
+- `tests/unit/docs/test_tutorial_upgrade_step.py` (新規)
+
+---
+
 ## 全体テスト結果
 
 ```
-============================= 822 passed in 20.78s =============================
+============================= 852 passed in 38.33s =============================
 ```
 
-全822テストが通過。リグレッションなし。
+全852テストが通過。リグレッションなし。
 
 ---
 
 ## 次のアクション
 
-- [ ] バージョン番号の更新検討
+- [ ] バージョン番号の更新検討（v0.11.3）
 - [ ] 変更内容のgit commit
 - [ ] PyPIへのリリース準備
 
@@ -105,3 +149,4 @@ Phase 2 の正式リリース準備タスクの進捗を記録します。
 |------|-------|------|
 | 2026-01-26 | #21 | railway new node テンプレート最新化 |
 | 2026-01-26 | #22 | ドキュメント追加（README.md, TUTORIAL.md） |
+| 2026-01-26 | #23 | railway update マイグレーション定義実装 |
