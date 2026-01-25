@@ -8,6 +8,17 @@
 
 ## 1. 設計原則
 
+### 1.0 用語定義
+
+| 用語 | 英語 | 説明 | 例 |
+|------|------|------|-----|
+| 状態文字列 | State String | ノード実行結果を表す文字列 | `"fetch_alert::success::done"` |
+| Outcome | - | ノードが返す結果オブジェクト（ユーザーAPI） | `Outcome.success("done")` |
+| State Enum | - | 生成コード内の状態定数（内部用） | `Top2State.FETCH_ALERT_SUCCESS_DONE` |
+| NodeOutcome | - | State Enum の基底クラス | `class MyState(NodeOutcome)` |
+| Exit | - | 終了コード定数（ユーザーAPI） | `Exit.GREEN`, `Exit.RED` |
+| ExitOutcome | - | 生成コード内の終了Enum基底（内部用） | `class MyExit(ExitOutcome)` |
+
 ### 1.1 TDD基本方針
 
 Phase1と同様に、以下のサイクルを厳守：
@@ -122,12 +133,13 @@ class TransitionGraph:
 
 > **Note:** #08 は #06（バリデータ）にも依存。生成前に検証することで、不正なコード生成を防止。
 
-### Phase 2c: ランタイム（Issue 10-11, 15）
+### Phase 2c: ランタイム（Issue 15, 10, 11）
 
 | Issue | タイトル | 依存関係 | 見積もり |
 |-------|---------|----------|----------|
-| #10 | DAGランナー実装 | #04, #07 | 1.5日 |
-| #11 | ステップコールバック（監査用） | #10, #15 | 0.5日 |
+| #15 | Outcome クラス & @node デコレータ | #07 | 1日 |
+| #10 | DAGランナー実装 | #04, #07, #15 | 1.5日 |
+| #11 | ステップコールバック（監査用） | #10 | 0.5日 |
 
 ### Phase 2d: テンプレート・ドキュメント（Issue 12, 16-19）
 
@@ -169,9 +181,9 @@ Phase 2b (コード生成)
 Phase 2c (ランタイム)
 ====================
 
-#03.1 + #04 + #07 ──→ #10 DAGランナー
-#07 + #10 ──→ #15 @node自動マッピング & Outcome
-#10 + #15 ──→ #11 ステップコールバック
+#07 ──→ #15 Outcomeクラス & @nodeデコレータ
+#03.1 + #04 + #07 + #15 ──→ #10 DAGランナー
+#10 ──→ #11 ステップコールバック
 
 Phase 2d (ドキュメント)
 =====================
@@ -188,12 +200,15 @@ Phase 2d (ドキュメント)
 ```
 #04 → #05 → #06 → #08 → #09 → #12 → #17 → #19
       ↓
-      #07 → #10 → #15 → #16 → #18
-             ↓
-            #11
+      #07 → #15 → #10 → #11
+                   ↓
+                  #16 → #18
 ```
 
 最長パス: #04 → #05 → #06 → #08 → #09 → #12 → #17 → #19 (7日)
+
+> **Note:** #15（Outcome）は #07 のみに依存し、#10（dag_runner）が #15 に依存する。
+> これにより、Outcome クラスを先に実装してから dag_runner で使用する正しい順序になる。
 
 ---
 
@@ -304,9 +319,9 @@ tests/
 | 07 | 状態Enum基底クラス | 2a | #04 | 0.5日 |
 | 08 | コード生成器実装 | 2b | #04,#05,#06,#07 | 1.5日 |
 | 09 | CLI `railway sync transition` | 2b | #05,#06,#08 | 1日 |
-| 10 | DAGランナー実装 | 2c | #04,#07 | 1.5日 |
-| 15 | @node自動マッピング & Outcome | 2c | #07,#10 | 1日 |
-| 11 | ステップコールバック | 2c | #10,#15 | 0.5日 |
+| 15 | Outcomeクラス & @nodeデコレータ | 2c | #07 | 1日 |
+| 10 | DAGランナー実装 | 2c | #04,#07,#15 | 1.5日 |
+| 11 | ステップコールバック | 2c | #10 | 0.5日 |
 | 12 | プロジェクトテンプレート更新 | 2d | #09 | 0.5日 |
 | 16 | アーキテクチャガイド（ADR追加） | 2d | #10,#15 | 0.5日 |
 | 17 | `railway new entry` コマンド変更 | 2d | #09,#12,#15 | 0.5日 |
@@ -427,7 +442,7 @@ exits:
 start: a
 transitions:
   a:
-    success: exit::done
+    success::done: exit::done
 """
     yaml_path = tmp_path / "orphan.yml"
     yaml_path.write_text(content)
@@ -457,9 +472,9 @@ exits:
 start: a
 transitions:
   a:
-    success: b
+    success::done: b
   b:
-    success: a  # 循環！終了への到達不能
+    success::done: a  # 循環！終了への到達不能
 """
     yaml_path = tmp_path / "cycle.yml"
     yaml_path.write_text(content)
@@ -549,9 +564,10 @@ Phase2実装開始前に以下を確認：
 DAGワークフローでも、Phase1のContract原則を尊重します：
 
 ```python
-# Contract使用（必須）
-from railway import Contract
+# Contract + Outcome（唯一のサポート形式）
+from railway import Contract, node
 from railway.core.dag.outcome import Outcome
+from railway.core.dag.runner import dag_runner, Exit
 
 class WorkflowContext(Contract):
     incident_id: str
@@ -561,9 +577,16 @@ class WorkflowContext(Contract):
 def fetch_alert(params: AlertParams) -> tuple[WorkflowContext, Outcome]:
     ctx = WorkflowContext(incident_id=params.incident_id)
     return ctx, Outcome.success("done")
+
+# 遷移テーブルは文字列キーのみ（シンプル！）
+transitions = {
+    "fetch_alert::success::done": process,
+    "fetch_alert::failure::http": Exit.RED,
+    "process::success::done": Exit.GREEN,
+}
 ```
 
-**重要:** v0.11.0以降、`dict` はサポートされません。Contractの使用が必須です。
+**重要:** `dict` はサポートされません。Contractの使用が必須です。
 
 ### 10.3 Outcome クラス
 
@@ -573,15 +596,34 @@ def fetch_alert(params: AlertParams) -> tuple[WorkflowContext, Outcome]:
 from railway.core.dag.outcome import Outcome
 
 # 成功状態
-return ctx, Outcome.success("done")       # → success::done
-return ctx, Outcome.success("validated")  # → success::validated
+return ctx, Outcome.success("done")       # → {node_name}::success::done
+return ctx, Outcome.success("validated")  # → {node_name}::success::validated
 
 # 失敗状態
-return ctx, Outcome.failure("error")      # → failure::error
-return ctx, Outcome.failure("timeout")    # → failure::timeout
+return ctx, Outcome.failure("error")      # → {node_name}::failure::error
+return ctx, Outcome.failure("timeout")    # → {node_name}::failure::timeout
 ```
 
-詳細は Issue #15 を参照。
+dag_runner が関数名から状態文字列を自動生成します。詳細は Issue #15 を参照。
+
+### 10.4 Exit 定数クラス
+
+終了コードには `Exit` クラスの定数を使用します：
+
+```python
+from railway.core.dag.runner import Exit
+
+transitions = {
+    "process::success::done": Exit.GREEN,      # 正常終了
+    "process::failure::error": Exit.RED,       # 異常終了
+    "validate::success::warning": Exit.YELLOW, # 警告終了
+}
+
+# カスタム終了コード
+Exit.code("green", "resolved")  # → "exit::green::resolved"
+```
+
+詳細は Issue #10 を参照。
 
 ---
 
@@ -708,18 +750,56 @@ return ctx, Outcome.failure("timeout")    # → failure::timeout
 - Issue #10 の dag_runner 実装を拡張（Outcome 自動変換、文字列キー対応）
 - Issue #10 に `TestDagRunnerWithOutcome` テストクラスを追加
 
-#### ラウンド6: ユーザビリティ向上
+#### ラウンド6: API シンプル化（旧: ユーザビリティ向上）
 
-**設計改善:**
-dag_runner が2つのパターンをサポートするよう拡張：
+**設計改善（更新）:**
+dag_runner は **Outcome + 文字列キー のみ** をサポート（シンプルに統一！）
 
-1. **Outcome パターン（シンプル）**
-   - ノード: `Outcome.success("done")` を返す
-   - 遷移テーブル: 状態文字列 `"node_name::success::done"` をキーに使用
-   - 用途: シンプルなワークフロー、import を減らしたい場合
+- ノード: `Outcome.success("done")` を返す
+- dag_runner: 関数名から状態文字列を自動生成
+- 遷移テーブル: 文字列キー `"node_name::success::done"` のみ
+- State Enum: 生成コード内部でのみ使用（ユーザーは触らない）
 
-2. **State Enum パターン（型安全）**
-   - ノード: `MyState.NODE_SUCCESS_DONE` を返す
+**Note:** State Enum を直接使用するパターンは削除。シンプルさを優先。
+
+---
+
+### レビュー実施日: 2026-01-26（大規模リファクタリング）
+
+#### ラウンド7: シンプル化の徹底
+
+**発見した問題:**
+1. @node(state_enum=...) パラメータが冗長（DRY違反）
+2. 遷移テーブルのキー形式が2種類（State Enum + 文字列）で混乱
+3. Exit が Enum で複雑（定数クラスで十分）
+4. コード生成が Enum キーを使用（文字列キーに統一すべき）
+5. コールバック引数が NodeOutcome を使用（文字列に統一すべき）
+
+**対応:**
+- Issue #15: @node デコレータから state_enum パラメータを削除
+- Issue #15: dag_runner が関数名から状態文字列を自動生成
+- Issue #10: Exit を定数クラスに変更（Enum から）
+- Issue #10: 遷移テーブルを文字列キーのみに統一
+- Issue #10: dag_runner の型シグネチャを更新
+- Issue #11: コールバック引数を state_string: str に変更
+- Issue #08: 遷移テーブル生成を文字列キーに変更
+- Issue #07: NodeOutcome/ExitOutcome を内部実装専用として位置づけ
+
+### 最終改善結果サマリー（ラウンド7）
+
+| カテゴリ | 改善前 | 改善後 |
+|---------|--------|--------|
+| @node パラメータ | state_enum 必要 | パラメータ不要 |
+| 遷移テーブルキー | Enum + 文字列混在 | 文字列のみ |
+| Exit 型 | Enum (ExitOutcome) | 定数クラス |
+| コールバック引数 | NodeOutcome | str (状態文字列) |
+| 状態文字列生成 | ユーザー手動 | dag_runner 自動 |
+| 生成コードの役割 | ユーザー直接使用 | 内部検証/IDE補完用 |
+
+**設計方針:**
+- **ユーザー API**: Outcome + 文字列キー + Exit 定数（最もシンプル）
+- **内部実装**: State Enum（型安全性維持）
+- **コード生成**: 遷移テーブル + メタデータ（文字列キー）
    - 遷移テーブル: State Enum をキーに使用
    - 用途: 複雑なワークフロー、IDE補完を活用したい場合
 
@@ -736,3 +816,76 @@ dag_runner が2つのパターンをサポートするよう拡張：
 | dag_runner 柔軟性 | State Enum のみ | Outcome + State Enum 両対応 |
 | 遷移テーブルキー | Enum のみ | 文字列 + Enum 両対応 |
 | Issue 間参照 | 一部古い | 全て最新化 |
+
+---
+
+### レビュー実施日: 2026-01-26（Issue全体整合性レビュー継続）
+
+#### ラウンド8: 依存関係・API整合性
+
+**発見した問題:**
+1. Issue #15 が #10 に依存と記載されているが、実際は逆（#10 が #15 に依存）
+   - dag_runner が `Outcome.to_state_string()` を呼び出す
+   - #15 → #10 の順で実装すべき
+2. Exit クラスが公開APIにエクスポートされていない
+   - ユーザーは `railway.core.dag.runner` からインポートする必要があった
+3. NodeOutcome/ExitOutcome と Outcome/Exit の関係性が不明確
+4. 用語（状態文字列、State Enum、Outcome等）の定義が欠如
+
+**対応:**
+- Issue #15 の依存関係を `#07` のみに修正
+- Issue #10 の依存関係に `#15` を追加
+- Issue #11 の依存関係を `#10` のみに簡略化（推移的依存で十分）
+- Phase 2c の実装順序を `#15 → #10 → #11` に変更
+- Issue #15 の API エクスポートに `Exit` を追加
+- Issue #07 に型の関係性テーブルを追加
+- 計画書に用語定義セクション（1.0）を追加
+- Issue #08 に生成コードの実行時依存（Exit）について注記を追加
+
+### ラウンド8 改善結果サマリー
+
+| カテゴリ | 改善前 | 改善後 |
+|---------|--------|--------|
+| #15 依存関係 | #07, #10（誤り） | #07 のみ |
+| #10 依存関係 | #04, #07 | #04, #07, #15 |
+| #11 依存関係 | #10, #15 | #10 のみ |
+| Phase 2c 順序 | #10 → #11 (+ #15) | #15 → #10 → #11 |
+| Exit 公開API | なし | `from railway import Exit` |
+| 用語定義 | なし | セクション1.0に追加 |
+| 型の関係性 | 不明確 | Issue #07 にテーブル追加 |
+
+#### ラウンド9: YAML形式・クリティカルパス整合性
+
+**発見した問題:**
+1. conftest.py の invalid fixtures で短縮形式 `success:` を使用（正式形式は `success::done:`）
+2. クリティカルパス図が依存関係変更を反映していない
+3. 「次のIssue」参照が一部古い
+
+**対応:**
+- Issue #03.1 と #00 の invalid YAML fixtures を完全形式に修正
+  - `success: exit::done` → `success::done: exit::done`
+  - `success: b` → `success::done: b`
+- クリティカルパス図を更新: `#07 → #15 → #10 → #11`
+- Issue #07 の「次のIssue」に #15 を追加
+- Issue #15 の「次のIssue」を #10 に修正
+
+### 最終レビュー結果サマリー（ラウンド8-9）
+
+| カテゴリ | 問題数 | 修正済 |
+|---------|--------|--------|
+| 依存関係の逆転 | 1 | ✓ |
+| 公開APIの欠落 | 1 | ✓ |
+| 用語定義の欠如 | 1 | ✓ |
+| 型関係性の曖昧さ | 1 | ✓ |
+| YAML形式の不整合 | 2 | ✓ |
+| クリティカルパス図の誤り | 1 | ✓ |
+| 「次のIssue」参照の誤り | 2 | ✓ |
+
+**修正したIssue:**
+- #00: 用語定義追加、クリティカルパス修正、YAML形式修正
+- #03.1: YAML形式修正
+- #07: 型関係性テーブル追加、「次のIssue」修正
+- #08: 実行時依存の注記追加
+- #10: 依存関係に #15 追加
+- #11: 依存関係を #10 のみに簡略化
+- #15: 依存関係修正、Exit公開API追加、「次のIssue」修正

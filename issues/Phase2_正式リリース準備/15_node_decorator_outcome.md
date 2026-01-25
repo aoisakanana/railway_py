@@ -2,8 +2,11 @@
 
 **Phase:** 2c
 **優先度:** 高
-**依存関係:** #07, #10
+**依存関係:** #07（状態Enum基底クラス）
 **見積もり:** 1日
+
+> **Note:** dag_runner（#10）が本Issueに依存します（Outcome.to_state_string() を使用するため）。
+> 本Issueの統合テスト（TestOutcomeWithDagRunner）は #10 完了後に実行可能になります。
 
 ---
 
@@ -12,9 +15,9 @@
 ノード関数の戻り値を簡潔かつ型安全に記述するため、以下を実装する：
 
 1. **Outcome クラス** - `success`/`failure` を表現する軽量な型
-2. **@node デコレータ拡張** - Outcome から State Enum への自動マッピング
+2. **dag_runner の自動状態解決** - 関数名から状態文字列を自動生成
 
-これにより、冗長な State Enum 値の記述が不要になり、ノード実装がシンプルになる。
+これにより、State Enum のimportや指定が**完全に不要**になり、ノード実装が最もシンプルになる。
 
 ---
 
@@ -35,15 +38,15 @@ def fetch_alert(ctx: InputContext) -> tuple[OutputContext, MyWorkflowState]:
 
 **問題点:**
 - State Enum 名が冗長（`FETCH_ALERT_SUCCESS_DONE`）
-- ノード名が Enum 値に含まれるため DRY 原則違反
-- import が増える
+- 生成コードのimportが必要
+- DRY 原則違反（関数名がEnum値に重複）
 
 ### After（理想の実装）
 
 ```python
 from railway import node, Outcome
 
-@node(state_enum=MyWorkflowState)  # オプション: 省略時は自動推論
+@node  # state_enum 指定は不要！
 def fetch_alert(ctx: InputContext) -> tuple[OutputContext, Outcome]:
     if success:
         return OutputContext(...), Outcome.success("done")
@@ -52,9 +55,10 @@ def fetch_alert(ctx: InputContext) -> tuple[OutputContext, Outcome]:
 ```
 
 **改善点:**
-- `Outcome.success("done")` → 自動的に `MyWorkflowState.FETCH_ALERT_SUCCESS_DONE` に変換
-- ノード名は関数名から自動取得
-- 型安全性は維持
+- `Outcome.success("done")` を返すだけ
+- dag_runner が自動的に `"fetch_alert::success::done"` を生成
+- 生成コードのimport不要
+- ノード実装が最もシンプル
 
 ---
 
@@ -124,10 +128,14 @@ class TestOutcome:
 
 
 class TestOutcomeMapping:
-    """Test Outcome to State Enum mapping."""
+    """Test Outcome to State Enum mapping (internal use only).
+
+    Note: map_to_state() is used internally by code generation validation.
+          Users do not need to call this directly.
+    """
 
     def test_map_outcome_to_state_enum(self):
-        """Should map Outcome to State Enum value."""
+        """Should map Outcome to State Enum value (internal)."""
         from railway.core.dag.outcome import Outcome, map_to_state
         from railway.core.dag.state import NodeOutcome
 
@@ -141,7 +149,7 @@ class TestOutcomeMapping:
         assert state == MyState.FETCH_SUCCESS_DONE
 
     def test_map_failure_outcome(self):
-        """Should map failure Outcome to State Enum."""
+        """Should map failure Outcome to State Enum (internal)."""
         from railway.core.dag.outcome import Outcome, map_to_state
         from railway.core.dag.state import NodeOutcome
 
@@ -155,7 +163,7 @@ class TestOutcomeMapping:
         assert state == MyState.FETCH_FAILURE_HTTP
 
     def test_map_unknown_outcome_raises(self):
-        """Should raise error for unknown outcome."""
+        """Should raise error for unknown outcome (internal)."""
         from railway.core.dag.outcome import Outcome, map_to_state, OutcomeMappingError
         from railway.core.dag.state import NodeOutcome
 
@@ -168,58 +176,50 @@ class TestOutcomeMapping:
             map_to_state(outcome, "fetch", MyState)
 
 
-class TestNodeDecoratorWithStateEnum:
-    """Test @node decorator with state_enum parameter."""
+class TestNodeDecorator:
+    """Test @node decorator (simple, no state_enum needed)."""
 
-    def test_node_decorator_maps_outcome(self):
-        """@node should automatically map Outcome to State Enum."""
+    def test_node_decorator_passes_outcome_through(self):
+        """@node should pass Outcome through unchanged (dag_runner handles conversion)."""
         from railway import Contract
         from railway.core.decorators import node
         from railway.core.dag.outcome import Outcome
-        from railway.core.dag.state import NodeOutcome
 
         class TestContext(Contract):
             value: int
 
-        class TestState(NodeOutcome):
-            PROCESS_SUCCESS_DONE = "process::success::done"
-
-        @node(state_enum=TestState)
+        @node  # シンプル！state_enum 不要
         def process(ctx: TestContext) -> tuple[TestContext, Outcome]:
             return ctx, Outcome.success("done")
 
-        # Execute the decorated function
-        result_ctx, result_state = process(TestContext(value=1))
+        result_ctx, result_outcome = process(TestContext(value=1))
 
-        assert isinstance(result_state, TestState)
-        assert result_state == TestState.PROCESS_SUCCESS_DONE
+        # @node は Outcome をそのまま返す（変換は dag_runner が行う）
+        assert isinstance(result_outcome, Outcome)
+        assert result_outcome.is_success
+        assert result_outcome.detail == "done"
 
-    def test_node_decorator_infers_node_name(self):
-        """@node should infer node name from function name."""
+    def test_node_decorator_preserves_function_name(self):
+        """@node should preserve function name for dag_runner state resolution."""
         from railway import Contract
         from railway.core.decorators import node
         from railway.core.dag.outcome import Outcome
-        from railway.core.dag.state import NodeOutcome
 
         class Ctx(Contract):
             value: int
 
-        class State(NodeOutcome):
-            MY_CUSTOM_NODE_SUCCESS_OK = "my_custom_node::success::ok"
-
-        @node(state_enum=State)
+        @node
         def my_custom_node(ctx: Ctx) -> tuple[Ctx, Outcome]:
             return ctx, Outcome.success("ok")
 
-        _, state = my_custom_node(Ctx(value=1))
-        assert state == State.MY_CUSTOM_NODE_SUCCESS_OK
+        # 関数名が保持されていることを確認（dag_runner が状態文字列生成に使用）
+        assert my_custom_node.__name__ == "my_custom_node"
 
     def test_node_decorator_preserves_context_type(self):
         """@node should preserve Contract type in return."""
         from railway import Contract
         from railway.core.decorators import node
         from railway.core.dag.outcome import Outcome
-        from railway.core.dag.state import NodeOutcome
 
         class InputCtx(Contract):
             input_value: str
@@ -227,20 +227,18 @@ class TestNodeDecoratorWithStateEnum:
         class OutputCtx(Contract):
             output_value: str
 
-        class State(NodeOutcome):
-            TRANSFORM_SUCCESS_DONE = "transform::success::done"
-
-        @node(state_enum=State)
+        @node
         def transform(ctx: InputCtx) -> tuple[OutputCtx, Outcome]:
             return OutputCtx(output_value=ctx.input_value.upper()), Outcome.success("done")
 
-        result_ctx, _ = transform(InputCtx(input_value="hello"))
+        result_ctx, result_outcome = transform(InputCtx(input_value="hello"))
 
         assert isinstance(result_ctx, OutputCtx)
         assert result_ctx.output_value == "HELLO"
+        assert isinstance(result_outcome, Outcome)
 
-    def test_node_decorator_without_state_enum(self):
-        """@node without state_enum should pass Outcome through unchanged."""
+    def test_node_decorator_failure_outcome(self):
+        """@node should handle failure outcomes."""
         from railway import Contract
         from railway.core.decorators import node
         from railway.core.dag.outcome import Outcome
@@ -248,78 +246,86 @@ class TestNodeDecoratorWithStateEnum:
         class Ctx(Contract):
             value: int
 
-        @node  # No state_enum
-        def simple(ctx: Ctx) -> tuple[Ctx, Outcome]:
+        @node
+        def may_fail(ctx: Ctx) -> tuple[Ctx, Outcome]:
+            if ctx.value < 0:
+                return ctx, Outcome.failure("negative")
             return ctx, Outcome.success("done")
 
-        result_ctx, result_outcome = simple(Ctx(value=1))
+        _, failure_outcome = may_fail(Ctx(value=-1))
+        assert failure_outcome.is_failure
+        assert failure_outcome.detail == "negative"
 
-        assert isinstance(result_outcome, Outcome)
-        assert result_outcome.is_success
-
-
-class TestNodeDecoratorWithExistingStateEnum:
-    """Test @node decorator when returning State Enum directly."""
-
-    def test_node_accepts_state_enum_directly(self):
-        """@node should accept State Enum as return value."""
-        from railway import Contract
-        from railway.core.decorators import node
-        from railway.core.dag.state import NodeOutcome
-
-        class Ctx(Contract):
-            value: int
-
-        class State(NodeOutcome):
-            DIRECT_SUCCESS_DONE = "direct::success::done"
-
-        @node(state_enum=State)
-        def direct(ctx: Ctx) -> tuple[Ctx, State]:
-            return ctx, State.DIRECT_SUCCESS_DONE
-
-        _, state = direct(Ctx(value=1))
-
-        assert state == State.DIRECT_SUCCESS_DONE
+        _, success_outcome = may_fail(Ctx(value=1))
+        assert success_outcome.is_success
 
 
 class TestOutcomeWithDagRunner:
     """Integration test: Outcome with dag_runner."""
 
     def test_dag_runner_with_outcome_nodes(self):
-        """dag_runner should work with Outcome-returning nodes."""
+        """dag_runner should work with Outcome-returning nodes (string keys)."""
         from railway import Contract
         from railway.core.decorators import node
         from railway.core.dag.outcome import Outcome
-        from railway.core.dag.state import NodeOutcome, ExitOutcome
-        from railway.core.dag.runner import dag_runner
+        from railway.core.dag.runner import dag_runner, Exit
 
         class Ctx(Contract):
             value: int
 
-        class State(NodeOutcome):
-            START_SUCCESS_DONE = "start::success::done"
-            PROCESS_SUCCESS_COMPLETE = "process::success::complete"
-
-        class Exit(ExitOutcome):
-            DONE = "exit::green::done"
-
-        @node(state_enum=State)
+        @node  # シンプル！state_enum 不要
         def start() -> tuple[Ctx, Outcome]:
             return Ctx(value=1), Outcome.success("done")
 
-        @node(state_enum=State)
+        @node
         def process(ctx: Ctx) -> tuple[Ctx, Outcome]:
             return Ctx(value=ctx.value + 1), Outcome.success("complete")
 
+        # 遷移テーブルは文字列キーのみ（シンプル！）
         transitions = {
-            State.START_SUCCESS_DONE: process,
-            State.PROCESS_SUCCESS_COMPLETE: Exit.DONE,
+            "start::success::done": process,
+            "process::success::complete": Exit.GREEN,
         }
 
         result = dag_runner(start=start, transitions=transitions)
 
         assert result.is_success
         assert result.context.value == 2
+
+    def test_dag_runner_with_failure_path(self):
+        """dag_runner should handle failure outcomes."""
+        from railway import Contract
+        from railway.core.decorators import node
+        from railway.core.dag.outcome import Outcome
+        from railway.core.dag.runner import dag_runner, Exit
+
+        class Ctx(Contract):
+            should_fail: bool
+
+        @node
+        def check(ctx: Ctx) -> tuple[Ctx, Outcome]:
+            if ctx.should_fail:
+                return ctx, Outcome.failure("validation")
+            return ctx, Outcome.success("done")
+
+        transitions = {
+            "check::success::done": Exit.GREEN,
+            "check::failure::validation": Exit.RED,
+        }
+
+        # 成功パス
+        success_result = dag_runner(
+            start=lambda: check(Ctx(should_fail=False)),
+            transitions=transitions,
+        )
+        assert success_result.is_success
+
+        # 失敗パス
+        failure_result = dag_runner(
+            start=lambda: check(Ctx(should_fail=True)),
+            transitions=transitions,
+        )
+        assert not failure_result.is_success
 ```
 
 ```bash
@@ -460,83 +466,42 @@ def is_outcome(value: object) -> bool:
 
 ```python
 # railway/core/decorators.py への追加
-# 既存の @node デコレータを拡張
+# @node デコレータをシンプルに（state_enum 不要）
 
 from functools import wraps
-from typing import Any, Callable, TypeVar, ParamSpec, overload
-from railway.core.dag.outcome import Outcome, map_to_state, is_outcome
+from typing import Callable, TypeVar, ParamSpec
 
 
 P = ParamSpec("P")
 R = TypeVar("R")
 
 
-def node(
-    func: Callable[P, R] | None = None,
-    *,
-    state_enum: type | None = None,
-) -> Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]:
+def node(func: Callable[P, R]) -> Callable[P, R]:
     """
     Decorator for DAG node functions.
 
-    When state_enum is provided, automatically maps Outcome to State Enum.
-
-    Args:
-        func: The function to decorate (when used without parentheses)
-        state_enum: Optional State Enum class for automatic mapping
+    Simply marks a function as a node and preserves metadata.
+    Outcome to state string conversion is handled by dag_runner.
 
     Usage:
-        # Without state mapping (pass-through)
         @node
-        def my_node(ctx) -> tuple[Context, Outcome]:
-            return ctx, Outcome.success("done")
+        def my_node(ctx: InputCtx) -> tuple[OutputCtx, Outcome]:
+            return OutputCtx(...), Outcome.success("done")
 
-        # With state mapping
-        @node(state_enum=MyState)
-        def my_node(ctx) -> tuple[Context, Outcome]:
-            return ctx, Outcome.success("done")  # Auto-mapped to MyState
+        # dag_runner が自動的に "my_node::success::done" を生成
     """
-    def decorator(fn: Callable[P, R]) -> Callable[P, R]:
-        node_name = fn.__name__
+    @wraps(func)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+        return func(*args, **kwargs)
 
-        @wraps(fn)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            result = fn(*args, **kwargs)
+    # Store node name for dag_runner state resolution
+    wrapper._node_name = func.__name__
+    wrapper._is_railway_node = True
 
-            # If no state_enum, return as-is
-            if state_enum is None:
-                return result
-
-            # Extract context and outcome from tuple
-            if isinstance(result, tuple) and len(result) == 2:
-                context, outcome_or_state = result
-
-                # If already a State Enum, return as-is
-                if isinstance(outcome_or_state, state_enum):
-                    return result
-
-                # If Outcome, map to State Enum
-                if is_outcome(outcome_or_state):
-                    mapped_state = map_to_state(
-                        outcome_or_state,
-                        node_name,
-                        state_enum,
-                    )
-                    return (context, mapped_state)
-
-            return result
-
-        # Store metadata for introspection
-        wrapper._node_name = node_name
-        wrapper._state_enum = state_enum
-
-        return wrapper
-
-    # Handle both @node and @node(state_enum=...) syntax
-    if func is not None:
-        return decorator(func)
-    return decorator
+    return wrapper
 ```
+
+**Note:** `state_enum` パラメータは削除しました。状態文字列の生成は `dag_runner` が担当します。
 
 ```bash
 pytest tests/unit/core/dag/test_outcome.py -v
@@ -555,10 +520,9 @@ pytest tests/unit/core/dag/test_outcome.py -v
 
 - [ ] `Outcome` クラスが `success`/`failure` ファクトリメソッドを持つ
 - [ ] `Outcome` がイミュータブル（`frozen=True`）
-- [ ] `map_to_state()` が Outcome を State Enum に変換
-- [ ] `@node(state_enum=...)` が自動マッピングを実行
-- [ ] `@node` がノード名を関数名から推論
-- [ ] State Enum を直接返す場合も動作
+- [ ] `Outcome.to_state_string(node_name)` が状態文字列を生成
+- [ ] `@node` がノード名を保持（`_node_name` 属性）
+- [ ] `dag_runner` が Outcome から状態文字列を自動生成
 - [ ] `dag_runner` との統合テストが通過
 - [ ] テストカバレッジ90%以上
 
@@ -571,13 +535,13 @@ pytest tests/unit/core/dag/test_outcome.py -v
 コンテキストは `Contract` のみをサポート：
 
 ```python
-# ✅ 推奨（唯一のサポート形式）
-@node(state_enum=MyState)
+# ✅ 唯一のサポート形式（シンプル！）
+@node
 def my_node(ctx: MyContract) -> tuple[MyContract, Outcome]:
     return MyContract(...), Outcome.success("done")
 
 # ❌ 非対応（dict は使用不可）
-@node(state_enum=MyState)
+@node
 def my_node(ctx: dict) -> tuple[dict, Outcome]:  # 型エラー
     ...
 ```
@@ -589,18 +553,34 @@ def my_node(ctx: dict) -> tuple[dict, Outcome]:  # 型エラー
 ```python
 # railway/__init__.py への追加
 from railway.core.dag.outcome import Outcome
+from railway.core.dag.runner import Exit
 
 __all__ = [
     # ... existing exports
     "Outcome",
+    "Exit",
 ]
+```
+
+これにより、ユーザーは以下のようにシンプルにインポートできます：
+
+```python
+from railway import node, Outcome, Exit
+
+@node
+def my_node(ctx: MyContract) -> tuple[MyContract, Outcome]:
+    return MyContract(...), Outcome.success("done")
+
+transitions = {
+    "my_node::success::done": Exit.GREEN,
+}
 ```
 
 ---
 
 ## 次のIssue
 
-- #11: ステップコールバック（#10 完了後に着手）
+- #10: DAGランナー実装（本Issueに依存、Outcome.to_state_string() を使用）
 
 ---
 

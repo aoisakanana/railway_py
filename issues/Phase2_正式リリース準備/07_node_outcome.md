@@ -9,23 +9,51 @@
 
 ## 概要
 
-ノードが返す状態を表現するための基底クラス `NodeOutcome` を実装する。
-コード生成時にこの基底クラスを継承した状態Enumが生成される。
+状態文字列を操作するためのヘルパー関数と、コード生成で使用する基底クラスを実装する。
+
+**重要:** これは内部実装用のモジュールです。ユーザーは以下を使用します：
+- **ノード実装:** `Outcome` クラス（Issue #15）
+- **遷移テーブル:** 文字列キー + `Exit` 定数（Issue #10）
+
+### 型の関係性
+
+| 型 | 用途 | 定義場所 | ユーザー利用 |
+|----|------|----------|-------------|
+| `NodeOutcome` | 生成コードの状態Enum基底 | 本Issue (#07) | 不要 |
+| `ExitOutcome` | 生成コードの終了Enum基底 | 本Issue (#07) | 不要 |
+| `Outcome` | ノードの戻り値（success/failure） | Issue #15 | **必須** |
+| `Exit` | 遷移テーブルの終了定数 | Issue #10 | **必須** |
 
 ---
 
 ## 設計原則
 
-### 型安全な状態表現
+### ユーザーが書くコード（シンプル！）
 
 ```python
-# 生成されるEnum（NodeOutcomeを継承）
+from railway import node, Outcome
+from railway.core.dag.runner import Exit
+
+@node
+def fetch_alert(ctx: InputCtx) -> tuple[OutputCtx, Outcome]:
+    return OutputCtx(...), Outcome.success("done")
+
+transitions = {
+    "fetch_alert::success::done": process,
+    "fetch_alert::failure::http": Exit.RED,
+}
+```
+
+### 内部で生成されるEnum（ユーザーは触らない）
+
+```python
+# _railway/generated/top2_transitions.py（コード生成）
 class Top2State(NodeOutcome):
     FETCH_ALERT_SUCCESS_DONE = "fetch_alert::success::done"
     FETCH_ALERT_FAILURE_HTTP = "fetch_alert::failure::http"
 ```
 
-### 状態の構造
+### 状態文字列の構造
 
 ```
 {node_name}::{outcome_type}::{detail}
@@ -424,4 +452,5 @@ pytest tests/unit/core/dag/test_state.py -v
 
 ## 次のIssue
 
-- #08: コード生成器実装
+- #15: Outcomeクラス & @nodeデコレータ（Phase 2c、本Issueに依存）
+- #08: コード生成器実装（Phase 2b、本Issueに依存）

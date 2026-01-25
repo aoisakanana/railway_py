@@ -7,13 +7,20 @@
 
 > **Note:** #06（バリデータ）への依存を追加。コード生成前に検証を行う設計とする。
 > テストでフィクスチャYAMLを使用するため、#03.1 も依存に含む。
+>
+> **実行時依存:** 生成コードは `Exit` クラス（#10）をインポートするため、
+> 生成コードの実行には #10 が必要。ただし生成処理自体は #10 に依存しない。
 
 ---
 
 ## 概要
 
 `TransitionGraph` からPythonコードを生成する純粋関数を実装する。
-生成されるコードには状態Enum、遷移テーブル、メタデータが含まれる。
+
+**重要:** ユーザーは `Outcome` + 文字列キーを直接使用するため、生成コードは主に以下の目的で使用：
+1. **遷移テーブル**: 文字列キー → ノード関数/Exit のマッピング
+2. **メタデータ**: バージョン、開始ノード、最大イテレーション数
+3. **State Enum**: IDE補完・内部検証用（ユーザーは直接使用しない）
 
 ---
 
@@ -29,6 +36,20 @@ def generate_transition_code(graph: TransitionGraph) -> str:
 # IO境界でファイルに書き込む
 def write_generated_code(code: str, path: Path) -> None:
     path.write_text(code)
+```
+
+### 遷移テーブルは文字列キー
+
+ユーザーは `Outcome.success("done")` を返し、dag_runner が状態文字列を生成。
+生成コードの遷移テーブルも文字列キーを使用：
+
+```python
+# 生成される遷移テーブル
+TRANSITION_TABLE: dict[str, Callable | str] = {
+    "fetch_alert::success::done": process_data,
+    "fetch_alert::failure::http": Exit.RED,
+    "process_data::success::done": Exit.GREEN,
+}
 ```
 
 ### テンプレートベースの生成
@@ -147,10 +168,10 @@ class TestGenerateExitEnum:
 
 
 class TestGenerateTransitionTable:
-    """Test transition table generation."""
+    """Test transition table generation (string keys)."""
 
     def test_generate_transition_table(self):
-        """Should generate valid transition table."""
+        """Should generate valid transition table with string keys."""
         from railway.core.dag.codegen import generate_transition_table
         from railway.core.dag.types import (
             TransitionGraph, NodeDefinition, ExitDefinition,
@@ -167,8 +188,8 @@ class TestGenerateTransitionTable:
             ),
             exits=(ExitDefinition("done", 0, ""),),
             transitions=(
-                StateTransition("a", "success", "b"),
-                StateTransition("b", "success", "exit::done"),
+                StateTransition("a", "success::done", "b"),
+                StateTransition("b", "success::done", "exit::done"),
             ),
             start_node="a",
             options=GraphOptions(),
@@ -179,10 +200,11 @@ class TestGenerateTransitionTable:
         # Should be valid Python
         ast.parse(code)
 
+        # 文字列キーで生成
         assert "TRANSITION_TABLE" in code
-        assert "WorkflowState.A_SUCCESS" in code
+        assert '"a::success::done"' in code
         assert "node_b" in code
-        assert "WorkflowExit.DONE" in code
+        assert 'Exit.GREEN' in code or '"exit::green::done"' in code
 
 
 class TestGenerateImports:
@@ -506,8 +528,9 @@ def _generate_header(source_file: str) -> str:
 
 def _generate_framework_imports() -> str:
     """Generate framework imports."""
-    return '''from typing import Callable, Union
+    return '''from typing import Callable
 from railway.core.dag.state import NodeOutcome, ExitOutcome
+from railway.core.dag.runner import Exit
 '''
 
 
@@ -589,7 +612,9 @@ def generate_exit_enum(graph: TransitionGraph) -> str:
 
 def generate_transition_table(graph: TransitionGraph) -> str:
     """
-    Generate transition table mapping states to next steps.
+    Generate transition table mapping state strings to next steps.
+
+    Uses string keys for simplicity - matches Outcome-based API.
 
     Args:
         graph: Transition graph
@@ -597,22 +622,23 @@ def generate_transition_table(graph: TransitionGraph) -> str:
     Returns:
         Transition table definition as string
     """
-    class_name = _to_class_name(graph.entrypoint)
-    state_class = f"{class_name}State"
-    exit_class = f"{class_name}Exit"
-
     lines = [
-        f"TRANSITION_TABLE: dict[{state_class}, Callable | {exit_class}] = {{",
+        "TRANSITION_TABLE: dict[str, Callable | str] = {",
     ]
 
     for transition in graph.transitions:
-        enum_name = _to_enum_name(transition.from_node, transition.from_state)
-        state_ref = f"{state_class}.{enum_name}"
+        # 状態文字列キー: "node_name::outcome_type::detail"
+        state_key = f"{transition.from_node}::{transition.from_state}"
 
         if transition.is_exit:
+            # 終了コード: "exit::color::name"
             exit_name = transition.exit_name
-            exit_enum = _to_exit_enum_name(exit_name) if exit_name else "UNKNOWN"
-            target_ref = f"{exit_class}.{exit_enum}"
+            exit_def = graph.get_exit(exit_name) if exit_name else None
+            if exit_def:
+                color = "green" if exit_def.code == 0 else "red"
+            else:
+                color = "red"  # default to error
+            target_ref = f'Exit.code("{color}", "{exit_name}")'
         else:
             # Find the node to get function name
             target_node = graph.get_node(transition.to_target)
@@ -621,7 +647,7 @@ def generate_transition_table(graph: TransitionGraph) -> str:
             else:
                 target_ref = f"# ERROR: unknown node '{transition.to_target}'"
 
-        lines.append(f"    {state_ref}: {target_ref},")
+        lines.append(f'    "{state_key}": {target_ref},')
 
     lines.append("}")
 

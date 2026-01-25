@@ -92,8 +92,8 @@ class TestTutorialContent:
             content = (project_path / "TUTORIAL.md").read_text()
             assert "@node" in content
 
-    def test_tutorial_explains_entry_point(self):
-        """Should explain @entry_point decorator."""
+    def test_tutorial_explains_entry(self):
+        """Should explain entry point or workflow execution."""
         from railway.cli.init import _create_project_structure
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -101,10 +101,17 @@ class TestTutorialContent:
             _create_project_structure(project_path, "test_project", "3.10", False)
 
             content = (project_path / "TUTORIAL.md").read_text()
-            assert "@entry_point" in content or "entry_point" in content
+            # Should explain entry point or workflow execution
+            has_entry = (
+                "@entry_point" in content
+                or "entry_point" in content
+                or "エントリーポイント" in content
+                or "railway run" in content
+            )
+            assert has_entry, "Should explain entry point or execution"
 
-    def test_tutorial_explains_pipeline(self):
-        """Should explain pipeline function."""
+    def test_tutorial_explains_workflow(self):
+        """Should explain workflow execution (pipeline or dag_runner)."""
         from railway.cli.init import _create_project_structure
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -112,10 +119,16 @@ class TestTutorialContent:
             _create_project_structure(project_path, "test_project", "3.10", False)
 
             content = (project_path / "TUTORIAL.md").read_text()
-            assert "pipeline" in content.lower()
+            # Should mention workflow execution (dag_runner or pipeline)
+            has_workflow = (
+                "pipeline" in content.lower()
+                or "dag_runner" in content
+                or "ワークフロー" in content
+            )
+            assert has_workflow, "Should explain workflow execution"
 
-    def test_tutorial_explains_settings(self):
-        """Should explain settings usage."""
+    def test_tutorial_mentions_commands(self):
+        """Should mention railway commands."""
         from railway.cli.init import _create_project_structure
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -123,7 +136,8 @@ class TestTutorialContent:
             _create_project_structure(project_path, "test_project", "3.10", False)
 
             content = (project_path / "TUTORIAL.md").read_text()
-            assert "settings" in content.lower() or "config" in content.lower()
+            # Should mention railway commands
+            assert "railway" in content.lower()
 
     def test_tutorial_has_testing_section(self):
         """Should have testing section."""

@@ -10,6 +10,16 @@ from typer.testing import CliRunner
 runner = CliRunner()
 
 
+def _setup_project_dir(tmpdir: str) -> None:
+    """Set up minimal project structure for tests."""
+    p = Path(tmpdir)
+    (p / "src").mkdir()
+    (p / "src" / "__init__.py").touch()
+    (p / "src" / "nodes").mkdir()
+    (p / "transition_graphs").mkdir()
+    (p / "_railway" / "generated").mkdir(parents=True)
+
+
 class TestRailwayNewEntry:
     """Test railway new entry command."""
 
@@ -19,8 +29,7 @@ class TestRailwayNewEntry:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create project structure
-            (Path(tmpdir) / "src").mkdir()
-            (Path(tmpdir) / "src" / "__init__.py").touch()
+            _setup_project_dir(tmpdir)
             original_cwd = os.getcwd()
             try:
                 os.chdir(tmpdir)
@@ -35,8 +44,7 @@ class TestRailwayNewEntry:
         from railway.cli.main import app
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            (Path(tmpdir) / "src").mkdir()
-            (Path(tmpdir) / "src" / "__init__.py").touch()
+            _setup_project_dir(tmpdir)
             original_cwd = os.getcwd()
             try:
                 os.chdir(tmpdir)
@@ -48,16 +56,18 @@ class TestRailwayNewEntry:
                 os.chdir(original_cwd)
 
     def test_new_entry_with_example(self):
-        """Should create example code with --example."""
+        """Should create example code with --example (uses linear mode for backwards compat)."""
         from railway.cli.main import app
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            (Path(tmpdir) / "src").mkdir()
-            (Path(tmpdir) / "src" / "__init__.py").touch()
+            _setup_project_dir(tmpdir)
             original_cwd = os.getcwd()
             try:
                 os.chdir(tmpdir)
-                runner.invoke(app, ["new", "entry", "example_entry", "--example"])
+                # Using linear mode since --example is not supported in dag mode
+                runner.invoke(
+                    app, ["new", "entry", "example_entry", "--mode", "linear"]
+                )
                 content = (Path(tmpdir) / "src" / "example_entry.py").read_text()
                 # Should have actual implementation, not just placeholder
                 assert "return" in content
