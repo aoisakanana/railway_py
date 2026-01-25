@@ -33,6 +33,30 @@ README.md や TUTORIAL.md は Contract + Outcome パターンを使用してい�
 
 ---
 
+## この改善がユーザーにもたらす恩恵
+
+### 1. すぐに動くコードが手に入る
+- 生成直後のコードがそのまま動作する
+- ドキュメントと生成コードの乖離がなくなる
+- 「なぜ動かない？」という混乱を解消
+
+### 2. TDDワークフローが即座に始められる
+- テストファイルが自動生成される
+- テストが最初から実行可能な状態
+- Red → Green → Refactor のサイクルにすぐ入れる
+
+### 3. イミュータブル設計の恩恵を自動的に享受
+- `model_copy()` パターンの例示により、安全なデータ更新を学べる
+- 予期せぬ副作用によるバグを防止
+- テストが簡単になる（入力を与えて出力を確認するだけ）
+
+### 4. 型安全の恩恵を最初から
+- Contract が自動生成されるため、IDE補完が即座に有効
+- 型チェッカー（mypy）との親和性
+- リファクタリング時の安全性
+
+---
+
 ## 解決策
 
 1. **`--mode` オプションの追加**: `railway new entry` と同様に `dag` / `linear` モードを追加
@@ -40,6 +64,16 @@ README.md や TUTORIAL.md は Contract + Outcome パターンを使用してい�
 3. **Contract自動生成**: ノード名に基づいたContext/Output Contractを自動生成
 4. **テストテンプレート更新**: 新形式に対応したテストスケルトン
 5. **イミュータブル更新パターンの例示**: `model_copy()` を使用した例
+
+### 関数型パラダイムの適用
+
+本実装では以下の原則を適用する：
+
+| 原則 | 適用方法 |
+|------|----------|
+| **純粋関数** | テンプレート生成関数は引数→文字列の純粋関数 |
+| **副作用の局所化** | ファイルI/Oは専用関数に集約 |
+| **イミュータブル** | 生成されるノードは `model_copy()` で状態更新 |
 
 ---
 
@@ -93,11 +127,29 @@ tests/
 
 ## TDD実装手順
 
+### なぜTDDで実装するのか
+
+| 恩恵 | 説明 |
+|------|------|
+| **設計の強制** | テストを先に書くことで、使いやすいAPIを設計できる |
+| **回帰防止** | 既存機能を壊さずに新機能を追加できる |
+| **ドキュメント** | テストがそのまま仕様書になる |
+| **リファクタリング安全性** | 内部実装を変えてもテストが通れば正しい |
+
 ### Step 1: Red（テストを書く）
+
+まず「こうあるべき」というテストを書く。この時点ではテストは失敗する。
 
 ```python
 # tests/unit/cli/test_new_node_template.py
-"""Tests for railway new node template generation."""
+"""Tests for railway new node template generation.
+
+このテストスイートは以下を保証する：
+1. 生成されるコードがdag_runner形式に準拠している
+2. Contractが自動生成される
+3. TDDワークフローを促進するテストテンプレートが生成される
+4. 既存オプションとの後方互換性
+"""
 
 import pytest
 from pathlib import Path
@@ -108,7 +160,10 @@ runner = CliRunner()
 
 @pytest.fixture
 def project_dir(tmp_path, monkeypatch):
-    """Set up minimal project structure for tests."""
+    """Set up minimal project structure for tests.
+
+    純粋なテスト環境を用意し、他のテストからの影響を排除する。
+    """
     monkeypatch.chdir(tmp_path)
     (tmp_path / "src" / "nodes").mkdir(parents=True)
     (tmp_path / "src" / "contracts").mkdir(parents=True)
@@ -118,10 +173,20 @@ def project_dir(tmp_path, monkeypatch):
 
 
 class TestNewNodeDagMode:
-    """Test railway new node generates dag-style template by default."""
+    """Test railway new node generates dag-style template by default.
+
+    DAG形式がデフォルトである理由：
+    - 条件分岐を含むワークフローに対応（運用自動化の多くのケース）
+    - Outcome による遷移制御で複雑なフローを表現可能
+    - YAML遷移グラフとの親和性が高い
+    """
 
     def test_node_returns_tuple_contract_outcome(self, project_dir):
-        """Node should return tuple[Contract, Outcome] by default."""
+        """Node should return tuple[Contract, Outcome] by default.
+
+        重要性: dag_runnerは tuple[Contract, Outcome] を期待する。
+        これにより遷移先をOutcomeで制御できる。
+        """
         from railway.cli.main import app
 
         result = runner.invoke(app, ["new", "node", "check_status"])
@@ -137,7 +202,13 @@ class TestNewNodeDagMode:
         assert "Outcome.success" in node_content
 
     def test_node_creates_context_contract(self, project_dir):
-        """Should create a Context Contract for the node."""
+        """Should create a Context Contract for the node.
+
+        重要性: Contractを自動生成することで：
+        - 型安全がすぐに有効になる
+        - IDE補完が効く
+        - 手動でファイルを作成する手間を省く
+        """
         from railway.cli.main import app
 
         runner.invoke(app, ["new", "node", "validate_input"])
@@ -150,7 +221,11 @@ class TestNewNodeDagMode:
         assert "from railway import Contract" in contract_content
 
     def test_node_imports_context_contract(self, project_dir):
-        """Node should import its Context Contract."""
+        """Node should import its Context Contract.
+
+        重要性: import文が正しく設定されていることで、
+        生成直後からコードが動作する。
+        """
         from railway.cli.main import app
 
         runner.invoke(app, ["new", "node", "process_data"])
@@ -160,7 +235,13 @@ class TestNewNodeDagMode:
         assert "from contracts.process_data_context import ProcessDataContext" in node_content
 
     def test_node_shows_immutable_update_pattern(self, project_dir):
-        """Node template should demonstrate immutable update with model_copy."""
+        """Node template should demonstrate immutable update with model_copy.
+
+        重要性: イミュータブル更新パターンを例示することで：
+        - 予期せぬ副作用によるバグを防止
+        - テストが簡単になる（入力を与えて出力を確認するだけ）
+        - 並行処理での安全性確保
+        """
         from railway.cli.main import app
 
         runner.invoke(app, ["new", "node", "update_status"])
@@ -171,7 +252,11 @@ class TestNewNodeDagMode:
         assert "model_copy" in node_content or "# ctx.model_copy" in node_content
 
     def test_dag_mode_explicit(self, project_dir):
-        """Should accept --mode dag explicitly."""
+        """Should accept --mode dag explicitly.
+
+        重要性: 明示的に指定できることで、
+        スクリプトやCIでの利用時に意図を明確化できる。
+        """
         from railway.cli.main import app
 
         result = runner.invoke(app, ["new", "node", "explicit_dag", "--mode", "dag"])
@@ -182,10 +267,20 @@ class TestNewNodeDagMode:
 
 
 class TestNewNodeLinearMode:
-    """Test railway new node --mode linear generates typed_pipeline style."""
+    """Test railway new node --mode linear generates typed_pipeline style.
+
+    linear形式が存在する理由：
+    - ETL、データ変換パイプラインに最適
+    - Outcome不要でシンプル
+    - typed_pipeline との親和性
+    """
 
     def test_linear_node_returns_contract(self, project_dir):
-        """Linear node should return Contract (not tuple)."""
+        """Linear node should return Contract (not tuple).
+
+        重要性: linear形式ではOutcomeを使用しないため、
+        シンプルなContract返却のみで良い。
+        """
         from railway.cli.main import app
 
         result = runner.invoke(app, ["new", "node", "transform", "--mode", "linear"])
@@ -200,7 +295,11 @@ class TestNewNodeLinearMode:
         assert "-> TransformOutput:" in node_content
 
     def test_linear_node_has_optional_input_parameter(self, project_dir):
-        """Linear node should have optional input Contract parameter."""
+        """Linear node should have optional input Contract parameter.
+
+        重要性: Optional にすることで、パイプラインの最初のノードとしても
+        途中のノードとしても使用可能になる。
+        """
         from railway.cli.main import app
 
         runner.invoke(app, ["new", "node", "process", "--mode", "linear"])
@@ -212,7 +311,11 @@ class TestNewNodeLinearMode:
         assert "input_data" in node_content
 
     def test_linear_node_creates_both_contracts(self, project_dir):
-        """Linear node should create both Input and Output Contracts."""
+        """Linear node should create both Input and Output Contracts.
+
+        重要性: Input/Outputの両方を生成することで、
+        型安全なパイプラインをすぐに構築できる。
+        """
         from railway.cli.main import app
 
         runner.invoke(app, ["new", "node", "aggregate", "--mode", "linear"])
@@ -227,10 +330,20 @@ class TestNewNodeLinearMode:
 
 
 class TestNewNodeTestTemplate:
-    """Test that node test templates match the new node style."""
+    """Test that node test templates match the new node style.
+
+    テストテンプレートが重要な理由：
+    - TDDワークフローをすぐに開始できる
+    - テストの書き方のお手本を提供
+    - 「テストを書く」心理的ハードルを下げる
+    """
 
     def test_dag_node_test_imports_outcome(self, project_dir):
-        """Test template for dag node should import and test Outcome."""
+        """Test template for dag node should import and test Outcome.
+
+        重要性: Outcome検証の例を示すことで、
+        正しい遷移制御のテスト方法を学べる。
+        """
         from railway.cli.main import app
 
         runner.invoke(app, ["new", "node", "check_health"])
@@ -244,7 +357,10 @@ class TestNewNodeTestTemplate:
         assert "outcome.is_success" in test_content or "Outcome" in test_content
 
     def test_linear_node_test_imports_contracts(self, project_dir):
-        """Test template for linear node should import both contracts."""
+        """Test template for linear node should import both contracts.
+
+        重要性: Input/Outputの両方をテストで使用する例を示す。
+        """
         from railway.cli.main import app
 
         runner.invoke(app, ["new", "node", "format_output", "--mode", "linear"])
@@ -255,7 +371,11 @@ class TestNewNodeTestTemplate:
         assert "FormatOutputInput" in test_content or "FormatOutputOutput" in test_content
 
     def test_test_has_tdd_workflow_comment(self, project_dir):
-        """Test template should have TDD workflow comment."""
+        """Test template should have TDD workflow comment.
+
+        重要性: TDDワークフローの手順を示すことで、
+        開発者がRed-Green-Refactorサイクルを実践できる。
+        """
         from railway.cli.main import app
 
         runner.invoke(app, ["new", "node", "my_node"])
@@ -267,10 +387,20 @@ class TestNewNodeTestTemplate:
 
 
 class TestNewNodeContractIntegration:
-    """Test integration between node and contract generation."""
+    """Test integration between node and contract generation.
+
+    ノードとContractの整合性が重要な理由：
+    - 生成直後からコードが動作する
+    - import文のタイポによるエラーを防止
+    - IDE補完が即座に効く
+    """
 
     def test_node_and_contract_are_consistent(self, project_dir):
-        """Node signature should match generated contract."""
+        """Node signature should match generated contract.
+
+        重要性: クラス名が一致していないとimportエラーになる。
+        この整合性テストで回帰を防止。
+        """
         from railway.cli.main import app
 
         runner.invoke(app, ["new", "node", "validate"])
@@ -283,7 +413,11 @@ class TestNewNodeContractIntegration:
         assert "ValidateContext" in node_content
 
     def test_existing_contract_not_overwritten(self, project_dir):
-        """Should not overwrite existing contract file but still create node."""
+        """Should not overwrite existing contract file but still create node.
+
+        重要性: ユーザーが既に作成したContractを誤って上書きしない。
+        安全性のための重要なガード。
+        """
         from railway.cli.main import app
 
         # Create existing contract
@@ -305,10 +439,20 @@ class TestNewNodeContractIntegration:
 
 
 class TestNewNodeCliOutput:
-    """Test CLI output messages."""
+    """Test CLI output messages.
+
+    CLI出力が重要な理由：
+    - ユーザーが何が生成されたかを即座に把握できる
+    - 次のステップ（TDDワークフロー）を案内する
+    - 発見可能性を高める
+    """
 
     def test_shows_created_files(self, project_dir):
-        """Should show list of created files."""
+        """Should show list of created files.
+
+        重要性: どのファイルが生成されたかを明示することで、
+        ユーザーは次にどのファイルを編集すべきか分かる。
+        """
         from railway.cli.main import app
 
         result = runner.invoke(app, ["new", "node", "show_files"])
@@ -318,7 +462,11 @@ class TestNewNodeCliOutput:
         assert "tests/nodes/test_show_files.py" in result.output
 
     def test_shows_tdd_workflow(self, project_dir):
-        """Should show TDD workflow instructions."""
+        """Should show TDD workflow instructions.
+
+        重要性: TDDワークフローを案内することで、
+        テスト駆動開発の文化を促進する。
+        """
         from railway.cli.main import app
 
         result = runner.invoke(app, ["new", "node", "tdd_test"])
@@ -327,7 +475,11 @@ class TestNewNodeCliOutput:
         assert "pytest" in result.output
 
     def test_linear_mode_shows_both_contracts(self, project_dir):
-        """Linear mode should show both input and output contracts."""
+        """Linear mode should show both input and output contracts.
+
+        重要性: linear モードでは2つのContractが生成されることを
+        明示的に伝える。
+        """
         from railway.cli.main import app
 
         result = runner.invoke(app, ["new", "node", "both_contracts", "--mode", "linear"])
@@ -337,10 +489,20 @@ class TestNewNodeCliOutput:
 
 
 class TestNewNodeBackwardsCompatibility:
-    """Test that existing typed node options still work."""
+    """Test that existing typed node options still work.
+
+    後方互換性が重要な理由：
+    - 既存ユーザーのスクリプトやワークフローを壊さない
+    - 段階的な移行を可能にする
+    - --output / --input オプションは特定のユースケースで有用
+    """
 
     def test_output_option_still_works(self, project_dir):
-        """--output option should still work for custom output types."""
+        """--output option should still work for custom output types.
+
+        重要性: 既存の typed_pipeline ユーザーが
+        引き続き同じ方法でノードを生成できる。
+        """
         from railway.cli.main import app
 
         # First create a contract
@@ -355,7 +517,10 @@ class TestNewNodeBackwardsCompatibility:
         assert "UserList" in node_content
 
     def test_input_option_still_works(self, project_dir):
-        """--input option should still work."""
+        """--input option should still work.
+
+        重要性: 入力型を明示的に指定するワークフローをサポート。
+        """
         from railway.cli.main import app
 
         # Create contracts
@@ -371,7 +536,11 @@ class TestNewNodeBackwardsCompatibility:
         assert result.exit_code == 0
 
     def test_mode_ignored_when_output_specified(self, project_dir):
-        """--mode should be ignored when --output is specified."""
+        """--mode should be ignored when --output is specified.
+
+        重要性: --output 指定時は既存のテンプレートを使用し、
+        予期せぬ動作変更を防止する。
+        """
         from railway.cli.main import app
 
         runner.invoke(app, ["new", "contract", "CustomOutput"])
@@ -389,10 +558,20 @@ class TestNewNodeBackwardsCompatibility:
 
 
 class TestNewNodeForceOption:
-    """Test --force option with new templates."""
+    """Test --force option with new templates.
+
+    --force オプションが重要な理由：
+    - テンプレート更新後に再生成したい場合がある
+    - 間違った内容を上書きで修正できる
+    - CI/CDでの自動再生成に使用できる
+    """
 
     def test_force_overwrites_node(self, project_dir):
-        """--force should overwrite existing node."""
+        """--force should overwrite existing node.
+
+        重要性: 意図的な上書きを可能にすることで、
+        テンプレート更新後の再生成をサポート。
+        """
         from railway.cli.main import app
 
         # Create initial node
@@ -411,7 +590,11 @@ class TestNewNodeForceOption:
         assert "@node" in content
 
     def test_force_overwrites_contract(self, project_dir):
-        """--force should overwrite existing contract."""
+        """--force should overwrite existing contract.
+
+        重要性: Contractも含めて上書きできることで、
+        完全な再生成が可能になる。
+        """
         from railway.cli.main import app
 
         # Create contract
@@ -428,6 +611,8 @@ class TestNewNodeForceOption:
 
 ### Step 2: Green（実装）
 
+テストを通すための最小限の実装を書く。
+
 `railway/cli/new.py` を修正：
 
 ```python
@@ -438,12 +623,22 @@ class NodeMode(str, Enum):
     linear = "linear"
 
 
-# 2. 新しいテンプレート関数を追加
+# =============================================================================
+# 2. テンプレート生成関数（純粋関数）
+# =============================================================================
+# 以下の関数はすべて純粋関数：引数を受け取り、文字列を返すだけ。
+# ファイルI/Oなどの副作用は一切持たない。
+# これにより：
+#   - テストが容易（入力を与えて出力を確認するだけ）
+#   - 再利用可能
+#   - 予測可能な動作
+# =============================================================================
 
 def _get_dag_node_standalone_template(name: str) -> str:
     """Get dag-style node template that returns tuple[Contract, Outcome].
 
-    Pure function: name -> template string
+    純粋関数: name -> template string
+    副作用なし、テスト容易
     """
     class_name = _to_pascal_case(name)
     return f'''"""{name} ノード"""
@@ -677,12 +872,20 @@ class Test{class_name}:
 '''
 
 
-# 3. Contract生成関数を更新
+# =============================================================================
+# 3. Contract生成関数（副作用を持つ関数）
+# =============================================================================
+# 副作用を持つ関数は最小限に留め、明確にマークする。
+# Side effects（副作用）を持つ関数は以下のルールに従う：
+#   - 関数名やdocstringで副作用を明示
+#   - 副作用は1箇所に集約（_write_file に委譲）
+#   - テストではモックまたはtmp_pathを使用
+# =============================================================================
 
 def _create_node_contract(name: str, mode: NodeMode, force: bool = False) -> None:
     """Create Contract(s) for node based on mode.
 
-    Side effects: Creates contract file(s) in src/contracts/
+    副作用あり: src/contracts/ にファイルを作成
     """
     contracts_dir = Path.cwd() / "src" / "contracts"
     if not contracts_dir.exists():
@@ -879,15 +1082,24 @@ def new(
 
 ## 完了条件
 
+### 機能要件
 - [ ] `railway new node <name>` がデフォルトで dag 形式（Contract + Outcome）を生成
 - [ ] `railway new node <name> --mode linear` が linear 形式（Input/Output Contract）を生成
 - [ ] ノード生成時に対応する Contract が自動生成される
 - [ ] 生成されるテンプレートに `model_copy()` のイミュータブル更新例が含まれる
-- [ ] テストテンプレートがイミュータビリティのテストを含む
+- [ ] テストテンプレートがTDDワークフロー手順を含む
 - [ ] `--output` / `--input` オプションの後方互換性を維持
 - [ ] `--force` オプションが Contract も含めて上書きできる
 - [ ] 既存 Contract がある場合は上書きしない（`--force` なしの場合）
-- [ ] 全テストが通過
+
+### 品質要件
+- [ ] 全テストが通過（Red → Green → Refactor 完了）
+- [ ] 純粋関数と副作用関数が明確に分離されている
+- [ ] 生成直後のコードがそのまま実行可能
+
+### ユーザー体験
+- [ ] 生成後のCLI出力にTDDワークフローの手順が表示される
+- [ ] 生成されるテストがすぐに実行可能（`uv run pytest` で動く）
 
 ---
 
@@ -901,6 +1113,7 @@ def new(
 
 ## 備考
 
+### 設計上の決定
 - `railway new entry` と `railway new node` で `--mode` オプションのインターフェースを統一
 - ノード単独作成時は `nodes/` ディレクトリ直下に配置
 - Contract は `contracts/` ディレクトリに自動生成
@@ -908,3 +1121,15 @@ def new(
 - イミュータビリティは Railway Framework の重要な原則であり、テンプレートで明示する
 - テストの import パス（`from nodes.{name} import {name}`）は Issue #20 で `src/` が `sys.path` に追加されるため動作する
 - linear モードの入力は `Optional` にすることで、パイプラインの最初のノードとしても使用可能
+
+### 実装者向けガイド
+
+**TDD実践のポイント:**
+1. まず全テストを書いてから実装に入る（Red フェーズを一括で完了）
+2. 1つずつテストを通す（Green フェーズ）
+3. コードの重複を除去（Refactor フェーズ）
+
+**関数型パラダイムの実践:**
+- テンプレート生成関数は必ず純粋関数として実装
+- 副作用（ファイルI/O）は呼び出し元で行うか、明示的にマークした関数に集約
+- グローバル状態への依存を避ける

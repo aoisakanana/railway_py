@@ -174,6 +174,83 @@ node_name::status::detail
 
 ---
 
+## ノードの作成
+
+`railway new node` コマンドは、**型安全なノードをすぐに開発開始できる状態で生成**します。
+
+**なぜこのコマンドを使うのか？**
+
+| 手動作成 | `railway new node` |
+|----------|-------------------|
+| ノード、Contract、テストを個別に作成 | **3ファイル同時生成** |
+| import文を自分で書く | **正しいimport済み** |
+| テスト構造を考える | **TDDテンプレート付き** |
+| Outcomeの使い方を調べる | **動作するサンプル付き** |
+
+```bash
+# dag 形式（デフォルト）: 条件分岐ワークフロー向け
+railway new node check_status
+# → src/nodes/check_status.py        ← ノード本体（動作するサンプル付き）
+# → src/contracts/check_status_context.py  ← Contract（型安全）
+# → tests/nodes/test_check_status.py       ← TDDテンプレート
+
+# linear 形式: 線形パイプライン向け
+railway new node transform --mode linear
+# → Input/Output の2つのContractが生成される
+```
+
+**dag 形式（デフォルト）** - 条件分岐が可能:
+
+```python
+from railway import node
+from railway.core.dag.outcome import Outcome
+
+from contracts.check_status_context import CheckStatusContext
+
+
+@node
+def check_status(ctx: CheckStatusContext) -> tuple[CheckStatusContext, Outcome]:
+    """ステータスをチェックする。"""
+    if ctx.is_valid:
+        return ctx, Outcome.success("valid")   # → valid 遷移
+    return ctx, Outcome.failure("invalid")     # → invalid 遷移
+```
+
+**linear 形式** - シンプルなデータ変換向け:
+
+```python
+from typing import Optional
+
+from railway import node
+
+from contracts.transform_input import TransformInput
+from contracts.transform_output import TransformOutput
+
+
+@node
+def transform(input_data: Optional[TransformInput] = None) -> TransformOutput:
+    """データを変換する。"""
+    return TransformOutput(result="transformed")
+```
+
+### どちらを使う？
+
+| 用途 | 形式 | 理由 |
+|------|------|------|
+| 運用自動化、条件分岐あり | **dag（デフォルト）** | Outcomeで遷移を制御 |
+| ETL、データ変換 | linear | シンプルな入出力 |
+| 迷ったら | **dag** | より汎用的 |
+
+### 使い分けガイド
+
+| 場面 | 推奨方法 |
+|------|----------|
+| 既存ワークフローにノード追加 | `railway new node` |
+| 単体の処理を作成 | `railway new node` |
+| 新規ワークフロー作成 | `railway new entry`（ノードも同時生成） |
+
+---
+
 ## 実行モデル
 
 Railway Framework は2つの実行モデルを提供します：
