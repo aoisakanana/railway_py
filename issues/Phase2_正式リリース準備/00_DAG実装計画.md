@@ -117,8 +117,10 @@ class TransitionGraph:
 
 | Issue | タイトル | 依存関係 | 見積もり |
 |-------|---------|----------|----------|
-| #08 | コード生成器（純粋関数） | #04, #05, #07 | 1.5日 |
+| #08 | コード生成器（純粋関数） | #04, #05, #06, #07 | 1.5日 |
 | #09 | CLIコマンド `railway sync transition` | #05, #06, #08 | 1日 |
+
+> **Note:** #08 は #06（バリデータ）にも依存。生成前に検証することで、不正なコード生成を防止。
 
 ### Phase 2c: ランタイム（Issue 10-11）
 
@@ -127,46 +129,71 @@ class TransitionGraph:
 | #10 | DAGランナー実装 | #04, #07 | 1.5日 |
 | #11 | ステップコールバック（監査用） | #10 | 0.5日 |
 
-### Phase 2d: テンプレート・ドキュメント（Issue 12-14）
+### Phase 2d: テンプレート・ドキュメント（Issue 12, 16-19）
 
 | Issue | タイトル | 依存関係 | 見積もり |
 |-------|---------|----------|----------|
 | #12 | プロジェクトテンプレート更新 | #09 | 0.5日 |
-| #13 | README.md 更新 | #10 | 0.5日 |
-| #14 | TUTORIAL.md 更新 | #10, #12 | 1日 |
+| #16 | アーキテクチャガイド（ADR追加） | #10, #15 | 0.5日 |
+| #17 | `railway new entry` コマンド変更 | #09, #12, #15 | 0.5日 |
+| #18 | README.md 更新（dag_runner 型デフォルト） | #10, #15, #16, #17 | 0.5日 |
+| #19 | TUTORIAL.md 更新（dag_runner 型デフォルト） | #10, #12, #15, #16, #17 | 1日 |
 
 ---
 
 ## 4. 依存関係グラフ
 
 ```
+Phase 2a-0 (前提条件)
+====================
+
+#03.1 テストフィクスチャ準備 ← すべてのTDD Issueの前提
+
 Phase 2a (基盤)
 ===============
 
-#04 TransitionGraph データ型
- ├── #05 YAMLパーサー
- ├── #06 グラフバリデータ
- └── #07 状態Enum基底クラス
+#03.1 ──→ #04 TransitionGraph データ型
+              ├── #05 YAMLパーサー (#03.1にも依存)
+              ├── #06 グラフバリデータ (#03.1にも依存)
+              └── #07 状態Enum基底クラス
 
 Phase 2b (コード生成)
 ====================
 
-#05 + #07 ──→ #08 コード生成器
-#05 + #06 + #08 ──→ #09 CLIコマンド
+#03.1 + #05 + #06 + #07 ──→ #08 コード生成器
+                                 │
+                                 │ ※ #06 依存: 生成前検証のため
+                                 ↓
+#03.1 + #05 + #06 + #08 ──→ #09 CLIコマンド
 
 Phase 2c (ランタイム)
 ====================
 
-#04 + #07 ──→ #10 DAGランナー
+#03.1 + #04 + #07 ──→ #10 DAGランナー
 #10 ──→ #11 ステップコールバック
+#07 + #10 ──→ #15 @node自動マッピング & Outcome
 
 Phase 2d (ドキュメント)
 =====================
 
 #09 ──→ #12 テンプレート更新
-#10 ──→ #13 README更新
-#10 + #12 ──→ #14 TUTORIAL更新
+#10 + #15 ──→ #16 アーキテクチャガイド（ADR追加）
+#09 + #12 + #15 ──→ #17 `railway new entry` コマンド変更
+#10 + #15 + #16 + #17 ──→ #18 README更新（dag_runner デフォルト）
+#10 + #12 + #15 + #16 + #17 ──→ #19 TUTORIAL更新（dag_runner デフォルト）
 ```
+
+### 4.1 クリティカルパス
+
+```
+#04 → #05 → #06 → #08 → #09 → #12 → #17 → #19
+      ↓
+      #07 → #10 → #15 → #16 → #18
+             ↓
+            #11
+```
+
+最長パス: #04 → #05 → #06 → #08 → #09 → #12 → #17 → #19 (7日)
 
 ---
 
@@ -237,27 +264,328 @@ tests/
 
 ## 7. Issue一覧
 
-| # | タイトル | Phase | ファイル |
-|---|---------|-------|---------|
-| 00 | DAG実装計画（本ドキュメント） | - | `00_DAG実装計画.md` |
-| 01 | DAG/グラフワークフローの必要性 | 背景 | `001_dag_pipeline_native_support.md` |
-| 02 | 状態命名規則の検討 | 背景 | `002_dag_state_naming_convention.md` |
-| 03 | YAML駆動の遷移グラフ設計 | 背景 | `003_yaml_driven_transition_graph.md` |
-| 04 | TransitionGraph データ型定義 | 2a | `04_transition_graph_types.md` |
-| 05 | YAMLパーサー実装 | 2a | `05_yaml_parser.md` |
-| 06 | グラフバリデータ実装 | 2a | `06_graph_validator.md` |
-| 07 | 状態Enum基底クラス | 2a | `07_node_outcome.md` |
-| 08 | コード生成器実装 | 2b | `08_codegen.md` |
-| 09 | CLI `railway sync transition` | 2b | `09_cli_sync.md` |
-| 10 | DAGランナー実装 | 2c | `10_dag_runner.md` |
-| 11 | ステップコールバック | 2c | `11_step_callback.md` |
-| 12 | プロジェクトテンプレート更新 | 2d | `12_template_update.md` |
-| 13 | README.md 更新 | 2d | `13_readme_update.md` |
-| 14 | TUTORIAL.md 更新 | 2d | `14_tutorial_update.md` |
+### 7.1 Issue番号体系
+
+| 範囲 | カテゴリ | 説明 |
+|------|----------|------|
+| 00 | 計画 | 本計画ドキュメント |
+| 001-003 | 背景/設計 | 設計検討・ADR（実装対象外） |
+| 03.1 | 前提条件 | テストフィクスチャ準備 |
+| 04-12, 15-19 | 実装 | TDDで実装するIssue |
+
+> **Note:** 001-003 は設計背景・決定事項を記録するドキュメントであり、
+> 実装対象ではありません。実装は 04 から開始します。
+> #17-#19 はドキュメント・CLI変更で、#18/#19 が最終Issue（README/TUTORIAL更新）。
+
+### 7.2 背景/設計Issue（参照用）
+
+| # | タイトル | 内容 |
+|---|---------|------|
+| 001 | DAG/グラフワークフローの必要性 | 機能要件の背景、API設計案 |
+| 002 | 状態命名規則の検討 | 状態文字列のフォーマット決定 |
+| 003 | YAML駆動の遷移グラフ設計 | YAMLスキーマ、コード生成設計 |
+
+### 7.3 前提条件Issue（TDD開始前に完了必須）
+
+| # | タイトル | 依存関係 | 見積もり |
+|---|---------|----------|----------|
+| 03.1 | テストフィクスチャ準備（conftest.py + YAML） | - | 0.25日 |
+
+> **重要:** Issue 03.1 は TDD の Red Phase を開始する前に完了している必要があります。
+> フィクスチャなしではテストが ImportError ではなく適切に失敗しません。
+
+### 7.4 実装Issue（TDD対象）
+
+| # | タイトル | Phase | 依存関係 | 見積もり |
+|---|---------|-------|----------|----------|
+| 04 | TransitionGraph データ型定義 | 2a | 03.1 | 0.5日 |
+| 05 | YAMLパーサー実装 | 2a | #04 | 1日 |
+| 06 | グラフバリデータ実装 | 2a | #04 | 1日 |
+| 07 | 状態Enum基底クラス | 2a | #04 | 0.5日 |
+| 08 | コード生成器実装 | 2b | #04,#05,#06,#07 | 1.5日 |
+| 09 | CLI `railway sync transition` | 2b | #05,#06,#08 | 1日 |
+| 10 | DAGランナー実装 | 2c | #04,#07 | 1.5日 |
+| 11 | ステップコールバック | 2c | #10 | 0.5日 |
+| 15 | @node自動マッピング & Outcome | 2c | #07,#10 | 1日 |
+| 12 | プロジェクトテンプレート更新 | 2d | #09 | 0.5日 |
+| 16 | アーキテクチャガイド（ADR追加） | 2d | #10,#15 | 0.5日 |
+| 17 | `railway new entry` コマンド変更 | 2d | #09,#12,#15 | 0.5日 |
+| 18 | README.md 更新（dag_runner デフォルト） | 2d | #10,#15,#16,#17 | 0.5日 |
+| 19 | TUTORIAL.md 更新（dag_runner デフォルト） | 2d | #10,#12,#15,#16,#17 | 1日 |
+
+**合計見積もり: 12.25日**
 
 ---
 
-## 8. 関連ドキュメント
+## 8. テストYAMLの活用
+
+### 8.1 テスト用YAMLファイル
+
+`tests/fixtures/transition_graphs/` ディレクトリにテスト用YAMLが配置されています：
+
+| ファイル | 用途 | 複雑度 |
+|---------|------|--------|
+| `simple_20250125000000.yml` | 最小構成（1ノード、2終了） | 低 |
+| `branching_20250125000000.yml` | 分岐テスト（5ノード、3分岐→合流） | 中 |
+| `top2_20250125000000.yml` | 事例1完全版（8ノード、4終了） | 高 |
+
+### 8.2 conftest.py の実装（必須）
+
+**重要:** Phase2実装の前提条件として、以下の `tests/conftest.py` を実装してください。
+
+```python
+# tests/conftest.py
+"""
+Pytest fixtures for DAG workflow tests.
+
+このファイルはPhase2のすべてのテストで共有されるフィクスチャを定義します。
+"""
+import pytest
+from pathlib import Path
+
+
+FIXTURES_DIR = Path(__file__).parent / "fixtures" / "transition_graphs"
+
+
+@pytest.fixture
+def simple_yaml() -> Path:
+    """最小構成YAML（1ノード、2終了）
+
+    用途:
+    - パーサーの基本動作確認
+    - バリデータの正常系テスト
+    - コード生成器の最小構成テスト
+    """
+    return FIXTURES_DIR / "simple_20250125000000.yml"
+
+
+@pytest.fixture
+def branching_yaml() -> Path:
+    """分岐テストYAML（5ノード、3分岐→合流）
+
+    用途:
+    - 条件分岐のパース・検証
+    - 合流点の到達可能性テスト
+    - 複数パスのコード生成テスト
+    """
+    return FIXTURES_DIR / "branching_20250125000000.yml"
+
+
+@pytest.fixture
+def top2_yaml() -> Path:
+    """事例1完全版YAML（8ノード、4終了）
+
+    用途:
+    - 実運用レベルのワークフローテスト
+    - 複雑な遷移パターンの検証
+    - E2Eテストのベースライン
+    """
+    return FIXTURES_DIR / "top2_20250125000000.yml"
+
+
+@pytest.fixture
+def invalid_yaml_missing_start(tmp_path) -> Path:
+    """開始ノードが未定義のYAML（バリデータエラーテスト用）"""
+    content = """
+version: "1.0"
+entrypoint: invalid
+description: ""
+nodes:
+  a:
+    module: nodes.a
+    function: func_a
+    description: ""
+exits: {}
+start: nonexistent
+transitions: {}
+"""
+    yaml_path = tmp_path / "invalid_start.yml"
+    yaml_path.write_text(content)
+    return yaml_path
+
+
+@pytest.fixture
+def invalid_yaml_orphan_node(tmp_path) -> Path:
+    """到達不能ノードを含むYAML（バリデータ警告テスト用）"""
+    content = """
+version: "1.0"
+entrypoint: orphan
+description: ""
+nodes:
+  a:
+    module: nodes.a
+    function: func_a
+    description: ""
+  orphan:
+    module: nodes.orphan
+    function: orphan_func
+    description: "到達不能ノード"
+exits:
+  done:
+    code: 0
+    description: ""
+start: a
+transitions:
+  a:
+    success: exit::done
+"""
+    yaml_path = tmp_path / "orphan.yml"
+    yaml_path.write_text(content)
+    return yaml_path
+
+
+@pytest.fixture
+def invalid_yaml_cycle(tmp_path) -> Path:
+    """循環参照を含むYAML（バリデータエラーテスト用）"""
+    content = """
+version: "1.0"
+entrypoint: cycle
+description: ""
+nodes:
+  a:
+    module: nodes.a
+    function: func_a
+    description: ""
+  b:
+    module: nodes.b
+    function: func_b
+    description: ""
+exits:
+  done:
+    code: 0
+    description: ""
+start: a
+transitions:
+  a:
+    success: b
+  b:
+    success: a  # 循環！終了への到達不能
+"""
+    yaml_path = tmp_path / "cycle.yml"
+    yaml_path.write_text(content)
+    return yaml_path
+```
+
+**ディレクトリ構造:**
+```
+tests/
+├── conftest.py                 # ← 必ず実装
+├── fixtures/
+│   └── transition_graphs/
+│       ├── simple_20250125000000.yml    ✓ 既存
+│       ├── branching_20250125000000.yml ✓ 既存
+│       └── top2_20250125000000.yml      ✓ 既存
+└── unit/
+    └── core/
+        └── dag/
+            ├── test_types.py
+            ├── test_parser.py
+            ├── test_validator.py
+            ├── test_codegen.py
+            ├── test_runner.py
+            ├── test_state.py
+            └── test_callbacks.py
+```
+
+### 8.3 各Issueでの活用
+
+- **#05 YAMLパーサー**: 3種類すべてのYAMLをパースしてTransitionGraphに変換
+- **#06 バリデータ**: 正常系YAMLの検証、`invalid_yaml_*` フィクスチャでエラー検出
+- **#08 コード生成器**: 生成コードの構文チェック、import検証
+- **#10 DAGランナー**: モックノードでのワークフロー実行テスト
+
+### 8.4 前提条件チェックリスト
+
+Phase2実装開始前に以下を確認：
+- [ ] `tests/fixtures/transition_graphs/` に3つのYAMLが存在
+- [ ] `tests/conftest.py` にフィクスチャが定義済み
+- [ ] `pytest tests/conftest.py --collect-only` でフィクスチャが認識される
+
+---
+
+## 9. エラーコード一覧
+
+### 9.1 バリデータエラーコード
+
+| コード | 分類 | 説明 | 対処 |
+|--------|------|------|------|
+| E001 | エラー | 開始ノードが定義されていない | `start:` に指定したノード名が `nodes:` に存在するか確認 |
+| E002 | エラー | 遷移先の終了コードが未定義 | `exits:` にターゲット名を追加 |
+| E003 | エラー | 遷移先ノードが未定義 | `nodes:` にターゲットノードを追加 |
+| E004 | エラー | ノードに遷移が定義されていない（行き止まり） | `transitions:` にそのノードの遷移を追加 |
+| E005 | エラー | 同一ノードで状態が重複 | 重複した状態を削除または名前変更 |
+| E006 | エラー | 終了に到達できない（無限ループ）| 循環パスに終了への遷移を追加 |
+| W001 | 警告 | ノードが開始ノードから到達不能 | 到達パスを追加するか、不要なノードを削除 |
+
+### 9.2 パーサーエラーコード
+
+| コード | 分類 | 説明 | 対処 |
+|--------|------|------|------|
+| P001 | エラー | YAML構文エラー | YAMLの構文を確認（インデント、コロン等） |
+| P002 | エラー | 必須フィールドが不足 | `version`, `entrypoint`, `nodes`, `start` を確認 |
+| P003 | エラー | サポート外バージョン | `version: "1.0"` を指定 |
+
+### 9.3 ランタイムエラーコード
+
+| コード | 分類 | 説明 | 対処 |
+|--------|------|------|------|
+| R001 | エラー | 最大イテレーション数超過 | `max_iterations` を増やすか、ワークフローを見直す |
+| R002 | エラー | 未定義の状態（strictモード）| 遷移テーブルに状態を追加 |
+
+---
+
+## 10. Phase1との統合
+
+### 9.1 typed_pipeline と dag_runner の使い分け
+
+| 用途 | 推奨API | 理由 |
+|------|---------|------|
+| 線形パイプライン | `typed_pipeline` | シンプル、Contract自動解決 |
+| 条件分岐あり | `dag_runner` | 状態ベースの遷移制御 |
+| 複雑なワークフロー | `dag_runner` | YAMLで可視化・管理可能 |
+
+### 10.2 コンテキストの型安全性
+
+DAGワークフローでも、Phase1のContract原則を尊重します：
+
+```python
+# Contract使用（必須）
+from railway import Contract
+from railway.core.dag.outcome import Outcome
+
+class WorkflowContext(Contract):
+    incident_id: str
+    session_id: str | None = None
+
+@node
+def fetch_alert(params: AlertParams) -> tuple[WorkflowContext, Outcome]:
+    ctx = WorkflowContext(incident_id=params.incident_id)
+    return ctx, Outcome.success("done")
+```
+
+**重要:** v0.11.0以降、`dict` はサポートされません。Contractの使用が必須です。
+
+### 10.3 Outcome クラス
+
+状態返却には `Outcome` クラスを使用します：
+
+```python
+from railway.core.dag.outcome import Outcome
+
+# 成功状態
+return ctx, Outcome.success("done")       # → success::done
+return ctx, Outcome.success("validated")  # → success::validated
+
+# 失敗状態
+return ctx, Outcome.failure("error")      # → failure::error
+return ctx, Outcome.failure("timeout")    # → failure::timeout
+```
+
+詳細は Issue #15 を参照。
+
+---
+
+## 11. 関連ドキュメント
 
 - 背景Issue: `001_dag_pipeline_native_support.md`
 - 命名規則検討: `002_dag_state_naming_convention.md`
@@ -267,4 +595,94 @@ tests/
 
 ---
 
-**次のステップ:** Issue #04 から順に実装を開始
+**次のステップ:** Issue #03.1 を完了後、Issue #04 から順に実装を開始
+
+---
+
+## 12. レビューログ
+
+### レビュー実施日: 2025-01-25
+
+#### ラウンド1: 整合性チェック
+
+**発見した問題:**
+1. テストフィクスチャの前提条件がIssue化されていなかった
+2. 各IssueのフィクスチャへのTDD依存が明示されていなかった
+3. ok/failヘルパー関数の将来対応が不明確だった
+4. READMEとTUTORIALの内容重複があった
+
+**対応:**
+- Issue #03.1（テストフィクスチャ準備）を新規作成
+- Issue #04, #05, #06, #08, #09, #10 に #03.1 への依存を追加
+- Issue #10 のヘルパー関数に将来対応のバージョン（v0.11.0以降）を明記
+- Issue #13 のREADMEセクションを簡略化し、TUTORIALへの誘導を追加
+
+#### ラウンド2: 依存関係グラフ整合性
+
+**発見した問題:**
+1. 依存関係グラフが #03.1 の追加を反映していなかった
+2. Issue #04 の依存関係が「なし」のままだった
+3. Issue #12 のタイムスタンプ生成ロジックが不明確だった
+
+**対応:**
+- セクション4の依存関係グラフを更新し、Phase 2a-0（前提条件）を追加
+- Issue #04 の依存関係を #03.1 に更新
+- Issue #12 にタイムスタンプ生成の実装詳細を追加
+
+#### ラウンド3: TDD・関数型パラダイム準拠
+
+**発見した問題:**
+1. Issue #10 のテストコードでミュータブルな操作（`context["value"] = 1`）が使用されていた
+2. Contract推奨の強調が一部のIssueで不足していた
+
+**対応:**
+- Issue #10 のテストコードをイミュータブルパターン（`{**ctx, "value": 2}`）に修正
+- テストクラスのdocstringにContract推奨の注記を追加
+- `TestDagRunnerWithContract` を模範例として明示
+
+### 改善結果サマリー
+
+| カテゴリ | 改善前 | 改善後 |
+|---------|--------|--------|
+| Issue数 | 14 | 15（#03.1追加） |
+| フィクスチャ依存明示 | なし | 6 Issue に追加 |
+| TDD Red Phase 明確性 | 曖昧 | 前提条件明示 |
+| 関数型パラダイム準拠 | 一部違反 | イミュータブルパターン徹底 |
+| ドキュメント重複 | あり | 役割分担明確化 |
+
+---
+
+### レビュー実施日: 2025-01-25（追加レビュー）
+
+#### ラウンド4: 設計明確化・APIデフォルト変更
+
+**ユーザーからのフィードバック:**
+1. 後方互換性は不要、理想の実装を優先
+2. Contract継続利用の是非
+3. pipeline() vs dag_runner() の関係性明確化
+4. `railway new entry` のデフォルトを dag_runner 型に変更
+5. README/TUTORIALを dag_runner 型デフォルトに
+
+**対応:**
+- Issue #15（@node自動マッピング & Outcome）を新規作成
+- Issue #16（アーキテクチャガイド ADR-002/003）を新規作成
+- Issue #17（`railway new entry` コマンド変更）を新規作成
+- Issue #13 → #18 に採番変更（README更新、dag_runner デフォルト）
+- Issue #14 → #19 に採番変更（TUTORIAL更新、dag_runner デフォルト）
+- Issue #10 から dict サポートを削除（Contract のみ）
+- readme_linear.md / TUTORIAL_linear.md を新設（typed_pipeline 用）
+
+**成果物:**
+- `.claude_output/design_analysis_20250125.md` - Contract継続利用の分析
+- `.claude_output/architecture_clarification_20250125.md` - アーキテクチャ明確化
+
+### 最終改善結果サマリー
+
+| カテゴリ | 改善前 | 改善後 |
+|---------|--------|--------|
+| Issue数 | 15 | 18（#15,#16,#17追加、#13→#18,#14→#19採番変更） |
+| デフォルト実行モデル | typed_pipeline | dag_runner |
+| コンテキスト型 | dict または Contract | Contract のみ |
+| 状態返却 | 手動Enum | Outcome クラス |
+| アーキテクチャドキュメント | なし | ADR-002, ADR-003 追加 |
+| 線形パイプラインドキュメント | READMEに統合 | 分離（readme_linear.md, TUTORIAL_linear.md） |

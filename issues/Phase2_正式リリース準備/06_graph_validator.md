@@ -2,7 +2,7 @@
 
 **Phase:** 2a
 **優先度:** 高
-**依存関係:** #04
+**依存関係:** #03.1（フィクスチャ）, #04
 **見積もり:** 1日
 
 ---
@@ -447,7 +447,112 @@ class TestValidateDuplicateStates:
         result = validate_no_duplicate_states(graph)
 
         assert result.is_valid is False
-        assert any("success" in e.message and "重複" in e.message for e in result.errors)
+        # テストの堅牢化: 特定の日本語文字列ではなく、エラーコードと重複状態名で検証
+        assert any(e.code == "E005" for e in result.errors)
+        assert any("success" in e.message for e in result.errors)
+
+
+class TestValidateCycleDetection:
+    """Test cycle detection validation."""
+
+    def test_no_cycle_passes(self, simple_yaml):
+        """Should pass when no cycles exist."""
+        from railway.core.dag.parser import load_transition_graph
+        from railway.core.dag.validator import validate_no_infinite_loop
+
+        graph = load_transition_graph(simple_yaml)
+        result = validate_no_infinite_loop(graph)
+
+        assert result.is_valid is True
+
+    def test_cycle_detected(self, invalid_yaml_cycle):
+        """Should fail when cycle exists without exit path."""
+        from railway.core.dag.parser import load_transition_graph
+        from railway.core.dag.validator import validate_no_infinite_loop
+
+        graph = load_transition_graph(invalid_yaml_cycle)
+        result = validate_no_infinite_loop(graph)
+
+        assert result.is_valid is False
+        assert any(e.code == "E006" for e in result.errors)  # 循環検出エラー
+
+    def test_cycle_with_exit_passes(self):
+        """Should pass when cycle has an exit path."""
+        from railway.core.dag.validator import validate_no_infinite_loop
+        from railway.core.dag.types import (
+            TransitionGraph, NodeDefinition, ExitDefinition,
+            StateTransition, GraphOptions
+        )
+
+        # サイクルがあるが、exitへの到達パスもある場合はOK
+        graph = TransitionGraph(
+            version="1.0",
+            entrypoint="test",
+            description="",
+            nodes=(
+                NodeDefinition("a", "m", "f", "d"),
+                NodeDefinition("b", "m", "f", "d"),
+            ),
+            exits=(ExitDefinition("done", 0, ""),),
+            transitions=(
+                StateTransition("a", "success::continue", "b"),
+                StateTransition("a", "success::done", "exit::done"),  # 出口あり
+                StateTransition("b", "success", "a"),  # サイクルだがOK
+            ),
+            start_node="a",
+            options=GraphOptions(),
+        )
+
+        result = validate_no_infinite_loop(graph)
+        assert result.is_valid is True  # 終了への到達パスがあるのでOK
+
+
+class TestValidateGraphWithFixtures:
+    """Integration tests using test YAML fixtures."""
+
+    def test_validate_simple_yaml(self, simple_yaml):
+        """Should validate simple test YAML successfully.
+
+        Note: Uses tests/fixtures/transition_graphs/simple_20250125000000.yml
+        """
+        from railway.core.dag.parser import load_transition_graph
+        from railway.core.dag.validator import validate_graph
+
+        graph = load_transition_graph(simple_yaml)
+        result = validate_graph(graph)
+
+        assert result.is_valid is True
+        assert len(result.errors) == 0
+
+    def test_validate_branching_yaml(self, branching_yaml):
+        """Should validate branching test YAML successfully.
+
+        Note: Uses tests/fixtures/transition_graphs/branching_20250125000000.yml
+        """
+        from railway.core.dag.parser import load_transition_graph
+        from railway.core.dag.validator import validate_graph
+
+        graph = load_transition_graph(branching_yaml)
+        result = validate_graph(graph)
+
+        assert result.is_valid is True
+        # All nodes should be reachable (no warnings)
+        assert len(result.warnings) == 0
+
+    def test_validate_top2_yaml(self, top2_yaml):
+        """Should validate full 事例1 YAML successfully.
+
+        Note: Uses tests/fixtures/transition_graphs/top2_20250125000000.yml
+        """
+        from railway.core.dag.parser import load_transition_graph
+        from railway.core.dag.validator import validate_graph
+
+        graph = load_transition_graph(top2_yaml)
+        result = validate_graph(graph)
+
+        assert result.is_valid is True
+        # All 8 nodes should be reachable, all paths should terminate
+        assert len(result.errors) == 0
 
 
 class TestValidateGraph:
@@ -619,6 +724,7 @@ def validate_graph(graph: TransitionGraph) -> ValidationResult:
         validate_reachability(graph),
         validate_termination(graph),
         validate_no_duplicate_states(graph),
+        validate_no_infinite_loop(graph),
     )
 
 
@@ -733,6 +839,51 @@ def validate_no_duplicate_states(graph: TransitionGraph) -> ValidationResult:
     if errors:
         return ValidationResult(is_valid=False, errors=tuple(errors), warnings=())
     return ValidationResult.valid()
+
+
+def validate_no_infinite_loop(graph: TransitionGraph) -> ValidationResult:
+    """
+    Validate that all nodes can eventually reach an exit.
+
+    Detects cycles that have no path to any exit (infinite loops).
+    """
+    # 終了に到達可能なノードを逆方向からBFSで探索
+    can_reach_exit: set[str] = set()
+    queue: list[str] = []
+
+    # まず、直接exitに遷移するノードを収集
+    for transition in graph.transitions:
+        if transition.is_exit:
+            can_reach_exit.add(transition.from_node)
+            queue.append(transition.from_node)
+
+    # 逆方向に探索して、exitに到達可能なノードを見つける
+    reverse_edges: dict[str, list[str]] = {}  # target -> [sources]
+    for transition in graph.transitions:
+        if not transition.is_exit:
+            target = transition.to_target
+            if target not in reverse_edges:
+                reverse_edges[target] = []
+            reverse_edges[target].append(transition.from_node)
+
+    while queue:
+        current = queue.pop(0)
+        for source in reverse_edges.get(current, []):
+            if source not in can_reach_exit:
+                can_reach_exit.add(source)
+                queue.append(source)
+
+    # 到達可能だがexitに到達できないノードを検出
+    reachable = _find_reachable_nodes(graph)
+    stuck_nodes = reachable - can_reach_exit
+
+    if stuck_nodes:
+        return ValidationResult.error(
+            "E006",
+            f"以下のノードから終了に到達できません（無限ループの可能性）: "
+            f"{', '.join(sorted(stuck_nodes))}",
+        )
+    return ValidationResult.valid()
 ```
 
 ```bash
@@ -752,11 +903,12 @@ pytest tests/unit/core/dag/test_validator.py -v
 
 - [ ] `ValidationResult` がイミュータブル
 - [ ] `combine_results()` が複数結果を合成
-- [ ] 開始ノード存在チェック
-- [ ] 遷移先（ノード/終了）存在チェック
-- [ ] 到達可能性チェック（警告）
-- [ ] 終了可能性チェック
-- [ ] 状態重複チェック
+- [ ] 開始ノード存在チェック (E001)
+- [ ] 遷移先（ノード/終了）存在チェック (E002, E003)
+- [ ] 到達可能性チェック（警告） (W001)
+- [ ] 終了可能性チェック (E004)
+- [ ] 状態重複チェック (E005)
+- [ ] 無限ループ検出 (E006)
 - [ ] `validate_graph()` が全検証を統合
 - [ ] テストカバレッジ90%以上
 

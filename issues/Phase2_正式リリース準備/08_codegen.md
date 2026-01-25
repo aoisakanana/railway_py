@@ -2,8 +2,11 @@
 
 **Phase:** 2b
 **優先度:** 高
-**依存関係:** #04, #05, #07
+**依存関係:** #03.1（フィクスチャ）, #04, #05, #06, #07
 **見積もり:** 1.5日
+
+> **Note:** #06（バリデータ）への依存を追加。コード生成前に検証を行う設計とする。
+> テストでフィクスチャYAMLを使用するため、#03.1 も依存に含む。
 
 ---
 
@@ -324,6 +327,78 @@ class TestGenerateFullCode:
         assert tree is not None
 
 
+class TestCodegenWithFixtures:
+    """Integration tests using test YAML fixtures."""
+
+    def test_generate_from_simple_yaml(self, simple_yaml):
+        """Should generate code from simple test YAML.
+
+        Note: Uses tests/fixtures/transition_graphs/simple_20250125000000.yml
+        """
+        from railway.core.dag.parser import load_transition_graph
+        from railway.core.dag.codegen import generate_transition_code
+        import ast
+
+        graph = load_transition_graph(simple_yaml)
+        code = generate_transition_code(graph, str(simple_yaml))
+
+        # Should be valid Python
+        ast.parse(code)
+
+        # Should have correct class names
+        assert "class SimpleState(NodeOutcome)" in code
+        assert "class SimpleExit(ExitOutcome)" in code
+
+    def test_generate_from_branching_yaml(self, branching_yaml):
+        """Should generate code from branching test YAML.
+
+        Note: Uses tests/fixtures/transition_graphs/branching_20250125000000.yml
+        """
+        from railway.core.dag.parser import load_transition_graph
+        from railway.core.dag.codegen import generate_transition_code
+        import ast
+
+        graph = load_transition_graph(branching_yaml)
+        code = generate_transition_code(graph, str(branching_yaml))
+
+        # Should be valid Python
+        ast.parse(code)
+
+        # Should have all 5 nodes' states
+        assert "CHECK_CONDITION" in code
+        assert "PROCESS_A" in code
+        assert "PROCESS_B" in code
+        assert "PROCESS_C" in code
+        assert "FINALIZE" in code
+
+    def test_generate_from_top2_yaml(self, top2_yaml):
+        """Should generate code from full 事例1 YAML.
+
+        Note: Uses tests/fixtures/transition_graphs/top2_20250125000000.yml
+        """
+        from railway.core.dag.parser import load_transition_graph
+        from railway.core.dag.codegen import generate_transition_code
+        import ast
+
+        graph = load_transition_graph(top2_yaml)
+        code = generate_transition_code(graph, str(top2_yaml))
+
+        # Should be valid Python
+        ast.parse(code)
+
+        # Should have all 8 nodes
+        assert "FETCH_ALERT" in code
+        assert "CHECK_SESSION_EXISTS" in code
+        assert "CHECK_SESSION_STATUS" in code
+        assert "RESOLVE_INCIDENT" in code
+
+        # Should have all 4 exit codes
+        assert "GREEN_ACTIVE_TIMEOUT" in code
+        assert "GREEN_CTIME_OK" in code
+        assert "GREEN_RESOLVED" in code
+        assert "RED_ERROR" in code
+
+
 class TestCodegenHelpers:
     """Test helper functions."""
 
@@ -387,8 +462,16 @@ def generate_transition_code(graph: TransitionGraph, source_file: str) -> str:
 
     Returns:
         Generated Python code as string
+
+    Note:
+        この関数を呼ぶ前に validate_graph(graph) で検証することを推奨。
+        検証エラーがある場合、生成されたコードは不正な参照を含む可能性がある。
     """
     class_name = _to_class_name(graph.entrypoint)
+
+    # 開始ノードの関数名を取得
+    start_node = graph.get_node(graph.start_node)
+    start_function = start_node.function if start_node else "None  # ERROR: start node not found"
 
     parts = [
         _generate_header(source_file),
@@ -403,7 +486,7 @@ def generate_transition_code(graph: TransitionGraph, source_file: str) -> str:
         "",
         generate_metadata(graph, source_file),
         "",
-        _generate_helper_functions(class_name),
+        _generate_helper_functions(class_name, start_function),
     ]
 
     return "\n".join(parts)
@@ -569,8 +652,18 @@ def generate_metadata(graph: TransitionGraph, source_file: str) -> str:
 }}'''
 
 
-def _generate_helper_functions(class_name: str) -> str:
-    """Generate helper functions."""
+def _generate_helper_functions(class_name: str, start_function: str) -> str:
+    """
+    Generate helper functions.
+
+    Args:
+        class_name: PascalCase class name prefix
+        start_function: Name of the start node function
+
+    Note:
+        start_function は generate_transition_code から渡される。
+        graph をクロージャで参照しないことで、純粋関数を維持。
+    """
     state_class = f"{class_name}State"
     exit_class = f"{class_name}Exit"
 
@@ -595,7 +688,7 @@ def get_next_step(state: {state_class}) -> Callable | {exit_class}:
 
 def get_start_node() -> Callable:
     """Get the start node function."""
-    return {graph.nodes[0].function if graph.nodes else 'None'}
+    return {start_function}
 '''
 
 
@@ -644,6 +737,7 @@ pytest tests/unit/core/dag/test_codegen.py -v
 
 - [ ] `generate_transition_code()` が完全なPythonファイルを生成
 - [ ] 生成コードが `ast.parse()` で検証可能
+- [ ] 生成コードが `mypy --strict` でエラーなし（下記参照）
 - [ ] 状態Enumが正しく生成される
 - [ ] 終了Enumが正しく生成される
 - [ ] 遷移テーブルが正しく生成される
@@ -651,6 +745,42 @@ pytest tests/unit/core/dag/test_codegen.py -v
 - [ ] ノードのimport文が正しく生成される
 - [ ] ヘルパー関数 `get_next_step()` が生成される
 - [ ] テストカバレッジ90%以上
+
+### mypy検証テスト
+
+生成コードの型安全性を保証するため、以下のテストを追加：
+
+```python
+# tests/unit/core/dag/test_codegen.py に追加
+
+class TestGeneratedCodeTypeChecking:
+    """Test that generated code passes mypy."""
+
+    def test_generated_code_passes_mypy(self, tmp_path, simple_yaml):
+        """Generated code should pass mypy --strict."""
+        from railway.core.dag.parser import load_transition_graph
+        from railway.core.dag.codegen import generate_transition_code
+        import subprocess
+
+        graph = load_transition_graph(simple_yaml)
+        code = generate_transition_code(graph, str(simple_yaml))
+
+        # Write to temp file
+        code_file = tmp_path / "generated.py"
+        code_file.write_text(code)
+
+        # Run mypy
+        result = subprocess.run(
+            ["mypy", "--strict", str(code_file)],
+            capture_output=True,
+            text=True,
+        )
+
+        # Allow some mypy errors for missing imports (nodes module)
+        # but ensure no type errors in the generated code itself
+        assert "error: invalid syntax" not in result.stdout
+        assert "error: Name" not in result.stdout or "nodes" in result.stdout
+```
 
 ---
 

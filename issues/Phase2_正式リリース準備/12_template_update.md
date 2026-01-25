@@ -145,8 +145,22 @@ pytest tests/unit/cli/test_init_dag.py -v
 
 #### テンプレートファイル追加
 
+**Note:** テンプレートファイルは `hello.yml.template` として配置し、
+`railway init` 実行時に動的にタイムスタンプ付きファイル名 `hello_{YYYYMMDDHHmmss}.yml` で生成する。
+
+**実装詳細:**
+```python
+from datetime import datetime
+
+def _generate_sample_yaml_filename(entrypoint: str) -> str:
+    """サンプルYAMLファイル名を生成（タイムスタンプ付き）"""
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    return f"{entrypoint}_{timestamp}.yml"
+```
+
 ```yaml
-# railway/templates/project/transition_graphs/hello_%Y%m%d%H%M%S.yml
+# railway/templates/project/transition_graphs/hello.yml.template
+# このファイルは railway init 時に hello_{timestamp}.yml として出力される
 version: "1.0"
 entrypoint: hello
 description: "サンプルワークフロー"
@@ -226,6 +240,19 @@ def _create_project_structure(project_dir: Path) -> None:
 pytest tests/unit/cli/test_init_dag.py -v
 # Expected: PASSED
 ```
+
+---
+
+## テストYAMLの活用
+
+プロジェクトテンプレートのサンプルYAMLは、`tests/fixtures/transition_graphs/` のテストYAMLを参考に作成されています。
+より複雑なワークフローの例が必要な場合は、以下のファイルを参照してください：
+
+| ファイル | 説明 |
+|---------|------|
+| `tests/fixtures/transition_graphs/simple_20250125000000.yml` | 最小構成（1ノード） |
+| `tests/fixtures/transition_graphs/branching_20250125000000.yml` | 3分岐パターン（5ノード） |
+| `tests/fixtures/transition_graphs/top2_20250125000000.yml` | 完全な事例1（8ノード、4終了コード） |
 
 ---
 

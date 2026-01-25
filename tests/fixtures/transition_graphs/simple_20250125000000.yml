@@ -1,0 +1,32 @@
+# Simple Workflow - ユニットテスト用の最小構成YAML
+#
+# パーサー、バリデータ、コード生成器のユニットテストに使用します。
+# 最小限の構成で動作確認が可能です。
+
+version: "1.0"
+entrypoint: simple
+description: "最小構成のテストワークフロー"
+
+nodes:
+  start:
+    module: nodes.start
+    function: start_node
+    description: "開始ノード"
+
+exits:
+  success:
+    code: 0
+    description: "正常終了"
+  error:
+    code: 1
+    description: "異常終了"
+
+start: start
+
+transitions:
+  start:
+    success::done: exit::success
+    failure::error: exit::error
+
+options:
+  max_iterations: 10

@@ -2,7 +2,7 @@
 
 **Phase:** 2c
 **優先度:** 高
-**依存関係:** #04, #07
+**依存関係:** #03.1（フィクスチャ）, #04, #07
 **見積もり:** 1.5日
 
 ---
@@ -16,14 +16,81 @@
 
 ## 設計原則
 
+### Phase1との整合性
+
+DAGランナーはPhase1のOutput Model Pattern (ADR-001) と整合性を保ちます：
+- **Contractのみ使用**: コンテキストは `Contract` 型のみ（dict は非対応）
+- **純粋関数**: ノードは同じ入力に対して同じ出力
+- **型安全性**: Pydantic + mypyによる検証
+- **イミュータビリティ**: Contract は `frozen=True`
+
+#### ADR-001 Output Model Pattern の復習
+
+Phase1で確立したOutput Model Patternでは：
+1. ノードは `Contract` を出力として返す
+2. Contractは `frozen=True` でイミュータブル
+3. 次のノードは前のノードの出力を入力として受け取る
+
+DAGランナーではこれを拡張し、**戻り値を `(Contract, State)` のタプルとする**：
+```python
+# Phase1 (typed_pipeline)
+@node
+def fetch_data() -> DataContract:
+    return DataContract(data="...")
+
+# Phase2 (dag_runner)
+@node
+def fetch_data() -> tuple[DataContract, Top2State]:
+    return DataContract(data="..."), Top2State.FETCH_DATA_SUCCESS_DONE
+```
+
+#### 重要: dict は非対応
+
+後方互換性より型安全性を優先し、**dict は完全に非対応**とします：
+
+```python
+# ✅ 唯一のサポート形式
+@node
+def fetch_data() -> tuple[MyContract, MyState]:
+    return MyContract(data="..."), MyState.FETCH_DATA_SUCCESS_DONE
+
+# ❌ 非対応（dict は使用不可）
+@node
+def fetch_data() -> tuple[dict, MyState]:  # 型エラー
+    return {"data": "..."}, MyState.FETCH_DATA_SUCCESS_DONE
+```
+
+**理由:**
+1. **型安全性**: dict はキータイポを検出できない
+2. **イミュータビリティ**: dict は変更可能（関数型パラダイム違反）
+3. **シリアライズ**: Contract は `model_dump()` で自動変換
+4. **一貫性**: Phase1 の Contract 原則を徹底
+
 ### ノードはステートレス
 
 ```python
-# ノードは (結果, 状態) のタプルを返す
+# 推奨: Contractを使用した型安全なノード
+from railway import Contract, node
+from _railway.generated.top2_transitions import Top2State
+
+class WorkflowContext(Contract):
+    """ワークフローのコンテキスト"""
+    incident_id: str
+    session_id: str | None = None
+    hostname: str | None = None
+
 @node
-def fetch_alert(incident_id: str) -> tuple[WorkflowContext, Top2State]:
-    ctx = WorkflowContext(incident_id=incident_id)
+def fetch_alert(params: AlertParams) -> tuple[WorkflowContext, Top2State]:
+    """型安全なノード - Phase1のContract原則に準拠"""
+    ctx = WorkflowContext(incident_id=params.incident_id)
     return ctx, Top2State.FETCH_ALERT_SUCCESS_DONE
+```
+
+```python
+# 後方互換: dictも許容（新規開発では非推奨）
+@node
+def fetch_alert_legacy(incident_id: str) -> tuple[dict, Top2State]:
+    return {"incident_id": incident_id}, Top2State.FETCH_ALERT_SUCCESS_DONE
 ```
 
 ### ランナーが遷移を制御
@@ -37,29 +104,68 @@ result = dag_runner(
 )
 ```
 
+### ユーザビリティ向上: Outcome クラス
+
+> **Note:** このセクションの機能は **Issue #15** で実装されます。
+> Issue #10 では State Enum を直接返す実装のみをサポートします。
+
+ノードの戻り値を簡潔に記述するため、`Outcome` クラスと `@node` デコレータの自動マッピングを提供：
+
+```python
+# Issue #15 で実装される機能のプレビュー
+from railway import node, Outcome
+
+@node(state_enum=MyWorkflowState)
+def fetch_data(ctx: InputContext) -> tuple[OutputContext, Outcome]:
+    try:
+        data = api.get("/data")
+        return OutputContext(data=data), Outcome.success("done")
+        # => 自動的に MyWorkflowState.FETCH_DATA_SUCCESS_DONE に変換
+    except HTTPError:
+        return OutputContext(), Outcome.failure("http")
+        # => 自動的に MyWorkflowState.FETCH_DATA_FAILURE_HTTP に変換
+```
+
+**Issue #10 での推奨パターン（State Enum 直接使用）:**
+
+```python
+from _railway.generated.my_workflow_transitions import MyWorkflowState
+
+@node
+def fetch_data(ctx: InputContext) -> tuple[OutputContext, MyWorkflowState]:
+    try:
+        data = api.get("/data")
+        return OutputContext(data=data), MyWorkflowState.FETCH_DATA_SUCCESS_DONE
+    except HTTPError:
+        return OutputContext(), MyWorkflowState.FETCH_DATA_FAILURE_HTTP
+```
+
 ---
 
 ## TDD実装手順
 
 ### Step 1: Red（テストを書く）
 
+> **Note:** すべてのテストで Contract を使用。dict は非対応。
+
 ```python
 # tests/unit/core/dag/test_runner.py
-"""Tests for DAG runner."""
+"""Tests for DAG runner with Contract-only context."""
 import pytest
-from enum import Enum
-from typing import Callable, Any
+from railway import Contract
 
 
 class TestDagRunner:
-    """Test dag_runner function."""
+    """Test dag_runner function with Contract context."""
 
     def test_simple_workflow(self):
         """Should execute a simple linear workflow."""
         from railway.core.dag.runner import dag_runner
         from railway.core.dag.state import NodeOutcome, ExitOutcome
 
-        # Define states
+        class WorkflowContext(Contract):
+            value: int
+
         class State(NodeOutcome):
             A_SUCCESS = "a::success::done"
             B_SUCCESS = "b::success::done"
@@ -67,19 +173,13 @@ class TestDagRunner:
         class Exit(ExitOutcome):
             DONE = "exit::green::done"
 
-        # Define context
-        context = {"value": 0}
+        def node_a() -> tuple[WorkflowContext, State]:
+            return WorkflowContext(value=1), State.A_SUCCESS
 
-        # Define nodes
-        def node_a() -> tuple[dict, State]:
-            context["value"] = 1
-            return context, State.A_SUCCESS
+        def node_b(ctx: WorkflowContext) -> tuple[WorkflowContext, State]:
+            # Contract はイミュータブル、model_copy で新規生成
+            return ctx.model_copy(update={"value": 2}), State.B_SUCCESS
 
-        def node_b(ctx: dict) -> tuple[dict, State]:
-            ctx["value"] = 2
-            return ctx, State.B_SUCCESS
-
-        # Define transitions
         transitions = {
             State.A_SUCCESS: node_b,
             State.B_SUCCESS: Exit.DONE,
@@ -91,13 +191,16 @@ class TestDagRunner:
         )
 
         assert result.exit_code == Exit.DONE
-        assert result.context["value"] == 2
+        assert result.context.value == 2
         assert result.iterations == 2
 
     def test_branching_workflow(self):
         """Should handle conditional branching."""
         from railway.core.dag.runner import dag_runner
         from railway.core.dag.state import NodeOutcome, ExitOutcome
+
+        class BranchContext(Contract):
+            path: str
 
         class State(NodeOutcome):
             CHECK_TRUE = "check::success::true"
@@ -111,18 +214,18 @@ class TestDagRunner:
 
         call_log = []
 
-        def check(condition: bool) -> tuple[dict, State]:
+        def check(condition: bool) -> tuple[BranchContext, State]:
             call_log.append("check")
             if condition:
-                return {"path": "a"}, State.CHECK_TRUE
+                return BranchContext(path="a"), State.CHECK_TRUE
             else:
-                return {"path": "b"}, State.CHECK_FALSE
+                return BranchContext(path="b"), State.CHECK_FALSE
 
-        def path_a(ctx: dict) -> tuple[dict, State]:
+        def path_a(ctx: BranchContext) -> tuple[BranchContext, State]:
             call_log.append("path_a")
             return ctx, State.PATH_A
 
-        def path_b(ctx: dict) -> tuple[dict, State]:
+        def path_b(ctx: BranchContext) -> tuple[BranchContext, State]:
             call_log.append("path_b")
             return ctx, State.PATH_B
 
@@ -147,21 +250,22 @@ class TestDagRunner:
         from railway.core.dag.runner import dag_runner, MaxIterationsError
         from railway.core.dag.state import NodeOutcome
 
+        class LoopContext(Contract):
+            count: int = 0
+
         class State(NodeOutcome):
             LOOP = "loop::success::continue"
 
-        def loop_node(ctx: dict) -> tuple[dict, State]:
-            ctx["count"] = ctx.get("count", 0) + 1
-            return ctx, State.LOOP
+        def loop_node(ctx: LoopContext) -> tuple[LoopContext, State]:
+            return ctx.model_copy(update={"count": ctx.count + 1}), State.LOOP
 
-        # Infinite loop
         transitions = {
             State.LOOP: loop_node,
         }
 
         with pytest.raises(MaxIterationsError):
             dag_runner(
-                start=lambda: loop_node({}),
+                start=lambda: loop_node(LoopContext()),
                 transitions=transitions,
                 max_iterations=5,
             )
@@ -171,16 +275,18 @@ class TestDagRunner:
         from railway.core.dag.runner import dag_runner, UndefinedStateError
         from railway.core.dag.state import NodeOutcome
 
+        class EmptyContext(Contract):
+            pass
+
         class State(NodeOutcome):
             KNOWN = "node::success::known"
             UNKNOWN = "node::failure::unknown"
 
-        def node() -> tuple[dict, State]:
-            return {}, State.UNKNOWN  # Not in transitions
+        def node() -> tuple[EmptyContext, State]:
+            return EmptyContext(), State.UNKNOWN
 
         transitions = {
-            State.KNOWN: lambda x: x,
-            # UNKNOWN not defined
+            State.KNOWN: lambda x: (x, State.KNOWN),
         }
 
         with pytest.raises(UndefinedStateError):
@@ -195,6 +301,10 @@ class TestDagRunner:
         from railway.core.dag.runner import dag_runner
         from railway.core.dag.state import NodeOutcome, ExitOutcome
 
+        class ChainContext(Contract):
+            from_a: bool = False
+            from_b: bool = False
+
         class State(NodeOutcome):
             A = "a::success::done"
             B = "b::success::done"
@@ -202,13 +312,12 @@ class TestDagRunner:
         class Exit(ExitOutcome):
             DONE = "exit::green::done"
 
-        def node_a() -> tuple[dict, State]:
-            return {"from_a": True}, State.A
+        def node_a() -> tuple[ChainContext, State]:
+            return ChainContext(from_a=True), State.A
 
-        def node_b(ctx: dict) -> tuple[dict, State]:
-            assert ctx["from_a"] is True
-            ctx["from_b"] = True
-            return ctx, State.B
+        def node_b(ctx: ChainContext) -> tuple[ChainContext, State]:
+            assert ctx.from_a is True
+            return ctx.model_copy(update={"from_b": True}), State.B
 
         transitions = {
             State.A: node_b,
@@ -217,8 +326,8 @@ class TestDagRunner:
 
         result = dag_runner(start=node_a, transitions=transitions)
 
-        assert result.context["from_a"] is True
-        assert result.context["from_b"] is True
+        assert result.context.from_a is True
+        assert result.context.from_b is True
 
 
 class TestDagRunnerResult:
@@ -229,18 +338,21 @@ class TestDagRunnerResult:
         from railway.core.dag.runner import DagRunnerResult
         from railway.core.dag.state import ExitOutcome
 
+        class ResultContext(Contract):
+            key: str
+
         class Exit(ExitOutcome):
             DONE = "exit::green::done"
 
         result = DagRunnerResult(
             exit_code=Exit.DONE,
-            context={"key": "value"},
+            context=ResultContext(key="value"),
             iterations=3,
-            execution_path=["node_a", "node_b", "node_c"],
+            execution_path=("node_a", "node_b", "node_c"),
         )
 
         assert result.exit_code == Exit.DONE
-        assert result.context["key"] == "value"
+        assert result.context.key == "value"
         assert result.iterations == 3
         assert len(result.execution_path) == 3
 
@@ -249,25 +361,66 @@ class TestDagRunnerResult:
         from railway.core.dag.runner import DagRunnerResult
         from railway.core.dag.state import ExitOutcome
 
+        class EmptyContext(Contract):
+            pass
+
         class Exit(ExitOutcome):
             GREEN = "exit::green::done"
             RED = "exit::red::error"
 
         success_result = DagRunnerResult(
             exit_code=Exit.GREEN,
-            context={},
+            context=EmptyContext(),
             iterations=1,
-            execution_path=[],
+            execution_path=(),
         )
         assert success_result.is_success is True
 
         failure_result = DagRunnerResult(
             exit_code=Exit.RED,
-            context={},
+            context=EmptyContext(),
             iterations=1,
-            execution_path=[],
+            execution_path=(),
         )
         assert failure_result.is_success is False
+
+
+class TestDagRunnerContractOnly:
+    """Test that dag_runner ONLY supports Contract context."""
+
+    def test_workflow_with_contract_context(self):
+        """Should work with Contract-based context."""
+        from railway.core.dag.runner import dag_runner
+        from railway.core.dag.state import NodeOutcome, ExitOutcome
+
+        class WorkflowContext(Contract):
+            value: int
+            processed: bool = False
+
+        class State(NodeOutcome):
+            A_SUCCESS = "a::success::done"
+            B_SUCCESS = "b::success::done"
+
+        class Exit(ExitOutcome):
+            DONE = "exit::green::done"
+
+        def node_a() -> tuple[WorkflowContext, State]:
+            return WorkflowContext(value=1), State.A_SUCCESS
+
+        def node_b(ctx: WorkflowContext) -> tuple[WorkflowContext, State]:
+            # Contract is immutable, use model_copy
+            return ctx.model_copy(update={"processed": True}), State.B_SUCCESS
+
+        transitions = {
+            State.A_SUCCESS: node_b,
+            State.B_SUCCESS: Exit.DONE,
+        }
+
+        result = dag_runner(start=node_a, transitions=transitions)
+
+        assert result.is_success
+        assert isinstance(result.context, WorkflowContext)
+        assert result.context.processed is True
 
 
 class TestDagRunnerAsync:
@@ -279,14 +432,17 @@ class TestDagRunnerAsync:
         from railway.core.dag.runner import async_dag_runner
         from railway.core.dag.state import NodeOutcome, ExitOutcome
 
+        class AsyncContext(Contract):
+            is_async: bool
+
         class State(NodeOutcome):
             A = "a::success::done"
 
         class Exit(ExitOutcome):
             DONE = "exit::green::done"
 
-        async def async_node() -> tuple[dict, State]:
-            return {"async": True}, State.A
+        async def async_node() -> tuple[AsyncContext, State]:
+            return AsyncContext(is_async=True), State.A
 
         transitions = {
             State.A: Exit.DONE,
@@ -298,7 +454,38 @@ class TestDagRunnerAsync:
         )
 
         assert result.is_success
-        assert result.context["async"] is True
+        assert result.context.is_async is True
+
+
+class TestDagRunnerIntegration:
+    """Integration tests using test YAML fixtures."""
+
+    def test_with_simple_yaml_workflow(self, simple_yaml):
+        """Should execute workflow from simple test YAML.
+
+        Note: Uses tests/fixtures/transition_graphs/simple_20250125000000.yml
+        """
+        from railway.core.dag.parser import load_transition_graph
+        from railway.core.dag.runner import dag_runner
+
+        # Parse the test YAML
+        graph = load_transition_graph(simple_yaml)
+
+        assert graph.entrypoint == "simple"
+        assert len(graph.nodes) == 1
+        # Further integration tests would mock the nodes
+
+    def test_with_branching_yaml_workflow(self, branching_yaml):
+        """Should parse branching workflow from test YAML.
+
+        Note: Uses tests/fixtures/transition_graphs/branching_20250125000000.yml
+        """
+        from railway.core.dag.parser import load_transition_graph
+
+        graph = load_transition_graph(branching_yaml)
+
+        assert graph.entrypoint == "branching"
+        assert len(graph.nodes) == 5  # 5 nodes in branching workflow
 ```
 
 ```bash
@@ -315,15 +502,23 @@ DAG workflow runner.
 
 Executes workflows defined by transition tables,
 routing between nodes based on their returned states.
+
+Note: This runner ONLY supports Contract context.
+      dict context is NOT supported.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, TypeVar, Generic
+from typing import Callable, TypeVar
 
 from loguru import logger
 
 from railway.core.dag.state import NodeOutcome, ExitOutcome
+from railway.core.contract import Contract
+
+
+# Context type: Contract only (dict is NOT supported)
+ContextT = TypeVar("ContextT", bound=Contract)
 
 
 class MaxIterationsError(Exception):
@@ -343,12 +538,12 @@ class DagRunnerResult:
 
     Attributes:
         exit_code: The exit outcome that terminated the workflow
-        context: Final context from the last node
+        context: Final context from the last node (Contract only)
         iterations: Number of nodes executed
-        execution_path: List of node names in execution order
+        execution_path: Tuple of node names in execution order
     """
     exit_code: ExitOutcome
-    context: Any
+    context: Contract
     iterations: int
     execution_path: tuple[str, ...]
 

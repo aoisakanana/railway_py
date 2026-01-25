@@ -2,7 +2,7 @@
 
 **Phase:** 2b
 **優先度:** 高
-**依存関係:** #05, #06, #08
+**依存関係:** #03.1（フィクスチャ）, #05, #06, #08
 **見積もり:** 1日
 
 ---
@@ -456,7 +456,10 @@ def _sync_entry(
     # Write generated code (IO operation)
     output_path = output_dir / f"{entry_name}_transitions.py"
     if output_path.exists() and not force:
-        typer.echo(f"  警告: {output_path} は既に存在します。--force で上書き可能です")
+        # デフォルト動作: 既存ファイルがある場合は上書きしてスキップ
+        # ただし警告を表示してユーザーに通知
+        typer.echo(f"  スキップ: {output_path} は既に存在します。--force で上書き可能です")
+        return  # 上書きせずに正常終了
 
     output_path.write_text(code, encoding="utf-8")
 

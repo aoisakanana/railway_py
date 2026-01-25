@@ -1,0 +1,75 @@
+# Branching Workflow - 条件分岐テスト用YAML
+#
+# 複数の条件分岐パターンをテストするためのワークフローです。
+# バリデータの到達可能性チェック、終了可能性チェックのテストに使用。
+
+version: "1.0"
+entrypoint: branching
+description: "条件分岐テストワークフロー"
+
+nodes:
+  check_condition:
+    module: nodes.check
+    function: check_condition
+    description: "条件判定（3分岐）"
+
+  process_a:
+    module: nodes.process
+    function: process_type_a
+    description: "パターンA処理"
+
+  process_b:
+    module: nodes.process
+    function: process_type_b
+    description: "パターンB処理"
+
+  process_c:
+    module: nodes.process
+    function: process_type_c
+    description: "パターンC処理"
+
+  finalize:
+    module: nodes.finalize
+    function: finalize
+    description: "終了処理（合流点）"
+
+exits:
+  success:
+    code: 0
+    description: "正常終了"
+  error:
+    code: 1
+    description: "異常終了"
+
+start: check_condition
+
+transitions:
+  # 3方向に分岐
+  check_condition:
+    success::type_a: process_a
+    success::type_b: process_b
+    success::type_c: process_c
+    failure::invalid: exit::error
+
+  # 各パスから合流点へ
+  process_a:
+    success::done: finalize
+    failure::error: exit::error
+
+  process_b:
+    success::done: finalize
+    failure::error: exit::error
+
+  process_c:
+    success::done: finalize
+    failure::error: exit::error
+
+  # 合流点から終了
+  finalize:
+    success::complete: exit::success
+    failure::error: exit::error
+
+options:
+  max_iterations: 10
+  enable_loop_detection: true
+  strict_state_check: true
