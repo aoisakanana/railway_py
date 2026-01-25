@@ -12,6 +12,7 @@ from railway.cli.list import list_components
 from railway.cli.new import new
 from railway.cli.run import run
 from railway.cli.show import show
+from railway.cli.sync import app as sync_app
 from railway.cli.update import app as update_app
 
 
@@ -53,6 +54,7 @@ app.command(name="docs")(docs)
 app.command(name="show")(show)
 app.add_typer(update_app, name="update")
 app.add_typer(backup_app, name="backup")
+app.add_typer(sync_app, name="sync")
 
 
 if __name__ == "__main__":

@@ -13,8 +13,8 @@ runner = CliRunner()
 class TestTutorialVersionManagementSection:
     """Test that TUTORIAL includes version management content."""
 
-    def test_tutorial_has_step_9(self):
-        """TUTORIAL should have Step 9 for version management."""
+    def test_tutorial_has_version_management_step(self):
+        """TUTORIAL should have version management section."""
         from railway.cli.main import app
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -26,7 +26,7 @@ class TestTutorialVersionManagementSection:
                 tutorial_md = Path(tmpdir) / "test_project" / "TUTORIAL.md"
                 content = tutorial_md.read_text()
 
-                assert "Step 9" in content
+                # Should have version management section (step number may vary)
                 assert "バージョン管理" in content
             finally:
                 os.chdir(original_cwd)
@@ -84,8 +84,8 @@ class TestTutorialVersionManagementSection:
             finally:
                 os.chdir(original_cwd)
 
-    def test_tutorial_shows_benefits_table(self):
-        """TUTORIAL should show benefits of version management."""
+    def test_tutorial_shows_version_management_commands(self):
+        """TUTORIAL should show version management commands."""
         from railway.cli.main import app
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -97,8 +97,13 @@ class TestTutorialVersionManagementSection:
                 tutorial_md = Path(tmpdir) / "test_project" / "TUTORIAL.md"
                 content = tutorial_md.read_text()
 
-                # Should have a comparison table
-                assert "Railway の解決策" in content or "解決" in content
+                # Should show version management concepts
+                has_version_content = (
+                    "railway update" in content
+                    or "railway backup" in content
+                    or "更新" in content
+                )
+                assert has_version_content, "Should show version management commands"
             finally:
                 os.chdir(original_cwd)
 

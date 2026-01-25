@@ -1,5 +1,6 @@
 """railway init command implementation."""
 
+from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
@@ -127,18 +128,18 @@ settings = get_settings()
 
 
 def _create_tutorial_md(project_path: Path, project_name: str) -> None:
-    """Create TUTORIAL.md file."""
+    """Create TUTORIAL.md file with dag_runner as default."""
     content = f'''# {project_name} チュートリアル
 
-Railway Framework の**型安全なパイプライン**を体験しましょう！
+Railway Framework の**DAGワークフロー**を体験しましょう！
 
 ## 学べること
 
+- dag_runner による条件分岐ワークフロー
+- Outcome クラスによる状態返却
 - Contract（型契約）によるデータ定義
-- Node（処理単位）の実装
-- IDE補完の活用
-- TDDワークフロー
-- typed_pipeline による依存関係の自動解決
+- 遷移グラフ（YAML）の定義
+- コード生成（railway sync transition）
 - バージョン管理と安全なアップグレード
 
 ## 所要時間
@@ -175,243 +176,538 @@ uv run railway run hello
 Hello, World!
 ```
 
-🎉 **2分で動きました！** 次のStepでは、型安全の核心「Contract」を学びます。
+🎉 **2分で動きました！** 次のStepでは、DAGワークフローの核心を学びます。
 
 ---
 
-## Step 2: Contract - データの「契約」を定義する（3分）
+## Step 2: はじめてのDAGワークフロー（5分）
 
-従来のパイプラインの問題点：
+DAGワークフローでは、条件分岐を含むワークフローを定義できます。
 
-```python
-# ❌ 従来: 何が入っているか分からない
-def process(data):
-    users = data["users"]  # KeyError? typo? IDE補完なし
+### 2.1 エントリーポイント作成
+
+```bash
+railway new entry greeting
 ```
 
-Railwayでは**Contract**でデータ構造を定義します：
+以下のファイルが生成されます：
 
-```python
-# ✅ Railway: 型で明確に定義
-class UsersFetchResult(Contract):
-    users: list[User]
-    total: int
+- `src/greeting.py` - エントリーポイント（dag_runner使用）
+- `src/nodes/greeting/start.py` - 開始ノード
+- `transition_graphs/greeting_*.yml` - 遷移グラフ定義
+
+### 2.2 遷移グラフを確認
+
+`transition_graphs/greeting_*.yml` を開いて確認してください:
+
+```yaml
+version: "1.0"
+entrypoint: greeting
+description: "greeting ワークフロー"
+
+nodes:
+  start:
+    module: nodes.greeting.start
+    function: start
+    description: "開始ノード"
+
+exits:
+  success:
+    code: 0
+    description: "正常終了"
+  error:
+    code: 1
+    description: "異常終了"
+
+start: start
+
+transitions:
+  start:
+    success::done: exit::success
+    failure::error: exit::error
 ```
 
-### 2.1 Contractを作成
+### 2.3 コード生成
+
+```bash
+railway sync transition --entry greeting
+```
+
+`_railway/generated/greeting_transitions.py` が生成されます。
+
+### 2.4 実行
+
+```bash
+railway run greeting
+```
+
+---
+
+## Step 3: ノードの実装 - Outcome を使う（3分）
+
+DAGワークフローのノードは `Contract` と `Outcome` を返す純粋関数です。
+
+### 3.1 ノードの基本形
+
+`src/nodes/greeting/start.py` を確認:
+
+```python
+from railway import Contract, node
+from railway.core.dag import Outcome
+
+
+class GreetingContext(Contract):
+    \"\"\"ワークフローコンテキスト\"\"\"
+    message: str = ""
+
+
+@node
+def start() -> tuple[GreetingContext, Outcome]:
+    \"\"\"開始ノード\"\"\"
+    ctx = GreetingContext(message="Hello, Railway!")
+    return ctx, Outcome.success("done")
+```
+
+### 3.2 Outcome クラス
+
+`Outcome` は状態を簡潔に表現します:
+
+```python
+# 成功状態
+Outcome.success("done")      # → success::done
+Outcome.success("validated") # → success::validated
+
+# 失敗状態
+Outcome.failure("error")     # → failure::error
+Outcome.failure("timeout")   # → failure::timeout
+```
+
+**ポイント:**
+- ノードは状態を返すだけ
+- 次のノードへの遷移はYAMLで定義
+- 純粋関数として実装
+
+---
+
+## Step 4: 条件分岐ワークフロー（5分）
+
+時間帯に応じて挨拶を変えるワークフローを作成します。
+
+### 4.1 遷移グラフを編集
+
+`transition_graphs/greeting_*.yml` を以下のように編集:
+
+```yaml
+version: "1.0"
+entrypoint: greeting
+description: "挨拶ワークフロー"
+
+nodes:
+  check_time:
+    module: nodes.greeting.check_time
+    function: check_time
+    description: "時間帯を判定"
+  greet_morning:
+    module: nodes.greeting.greet
+    function: greet_morning
+    description: "朝の挨拶"
+  greet_afternoon:
+    module: nodes.greeting.greet
+    function: greet_afternoon
+    description: "午後の挨拶"
+  greet_evening:
+    module: nodes.greeting.greet
+    function: greet_evening
+    description: "夜の挨拶"
+
+exits:
+  success:
+    code: 0
+    description: "正常終了"
+
+start: check_time
+
+transitions:
+  check_time:
+    success::morning: greet_morning
+    success::afternoon: greet_afternoon
+    success::evening: greet_evening
+  greet_morning:
+    success::done: exit::success
+  greet_afternoon:
+    success::done: exit::success
+  greet_evening:
+    success::done: exit::success
+```
+
+### 4.2 ノードを実装
+
+`src/nodes/greeting/check_time.py`:
+
+```python
+from datetime import datetime
+from railway import Contract, node
+from railway.core.dag import Outcome
+
+
+class TimeContext(Contract):
+    \"\"\"時間帯コンテキスト\"\"\"
+    period: str
+
+
+@node
+def check_time() -> tuple[TimeContext, Outcome]:
+    \"\"\"時間帯を判定して状態を返す\"\"\"
+    hour = datetime.now().hour
+
+    if 5 <= hour < 12:
+        return TimeContext(period="morning"), Outcome.success("morning")
+    elif 12 <= hour < 18:
+        return TimeContext(period="afternoon"), Outcome.success("afternoon")
+    else:
+        return TimeContext(period="evening"), Outcome.success("evening")
+```
+
+`src/nodes/greeting/greet.py`:
+
+```python
+from railway import node
+from railway.core.dag import Outcome
+from nodes.greeting.check_time import TimeContext
+
+
+@node
+def greet_morning(ctx: TimeContext) -> tuple[TimeContext, Outcome]:
+    \"\"\"朝の挨拶\"\"\"
+    print("おはようございます！")
+    return ctx, Outcome.success("done")
+
+
+@node
+def greet_afternoon(ctx: TimeContext) -> tuple[TimeContext, Outcome]:
+    \"\"\"午後の挨拶\"\"\"
+    print("こんにちは！")
+    return ctx, Outcome.success("done")
+
+
+@node
+def greet_evening(ctx: TimeContext) -> tuple[TimeContext, Outcome]:
+    \"\"\"夜の挨拶\"\"\"
+    print("こんばんは！")
+    return ctx, Outcome.success("done")
+```
+
+### 4.3 コード生成と実行
+
+```bash
+# コード生成
+railway sync transition --entry greeting
+
+# 実行
+railway run greeting
+```
+
+出力例:
+
+```
+[check_time] 開始...
+[check_time] ✓ 完了 (success::morning)
+[greet_morning] 開始...
+おはようございます！
+[greet_morning] ✓ 完了 (success::done)
+ワークフロー完了: 2 ステップ
+```
+
+---
+
+## Step 5: エラーハンドリング（3分）
+
+### 5.1 失敗パスの追加
+
+遷移グラフに失敗パスを追加:
+
+```yaml
+transitions:
+  check_time:
+    success::morning: greet_morning
+    success::afternoon: greet_afternoon
+    success::evening: greet_evening
+    failure::error: exit::error
+```
+
+### 5.2 ノードでのエラーハンドリング
+
+```python
+@node
+def check_time() -> tuple[TimeContext, Outcome]:
+    \"\"\"時間帯を判定\"\"\"
+    try:
+        hour = datetime.now().hour
+        # ... 処理
+        return ctx, Outcome.success("morning")
+    except Exception:
+        return TimeContext(period="unknown"), Outcome.failure("error")
+```
+
+---
+
+## Step 6: ステップコールバック（3分）
+
+### 6.1 StepRecorder で実行履歴を記録
+
+```python
+from railway.core.dag import dag_runner, StepRecorder
+
+recorder = StepRecorder()
+
+result = dag_runner(
+    start=check_time,
+    transitions=TRANSITIONS,
+    on_step=recorder,
+)
+
+# 実行履歴を確認
+for step in recorder.get_history():
+    print(f"[{{step.node_name}}] -> {{step.state}}")
+```
+
+### 6.2 AuditLogger で監査ログ
+
+```python
+from railway.core.dag import AuditLogger
+
+audit = AuditLogger(workflow_id="incident-123")
+
+result = dag_runner(
+    start=check_time,
+    transitions=TRANSITIONS,
+    on_step=audit,
+)
+```
+
+---
+
+## Step 7: バージョン管理（3分）
+
+### 7.1 現状を確認
+
+```bash
+cat .railway/project.yaml
+```
+
+### 7.2 更新
+
+```bash
+# プレビュー
+railway update --dry-run
+
+# 実行
+railway update
+```
+
+### 7.3 バックアップから復元
+
+```bash
+railway backup list
+railway backup restore
+```
+
+---
+
+## ポイントまとめ
+
+1. **ノードは状態を返すだけ** - 遷移先はYAMLで定義
+2. **Outcome を使う** - `Outcome.success("done")` で簡潔に
+3. **Contract を使う** - 型安全なコンテキスト
+4. **YAMLを変更したら再sync** - `railway sync transition --entry <name>`
+
+---
+
+## 次のステップ
+
+### 学んだこと
+
+- dag_runner による条件分岐ワークフロー
+- Outcome クラスによる状態返却
+- 遷移グラフ（YAML）の定義
+- コード生成
+- ステップコールバック
+
+### さらに学ぶ
+
+- [TUTORIAL_linear.md](TUTORIAL_linear.md) - 線形パイプライン詳細チュートリアル
+- [docs/adr/002_execution_models.md](docs/adr/002_execution_models.md) - 実行モデルの詳細
+- `railway docs` で詳細を確認
+
+---
+
+## チャレンジ
+
+1. 週末と平日で挨拶を変える分岐を追加
+2. 複数の終了コード（Exit.GREEN, Exit.YELLOW）を使い分け
+3. CompositeCallback を使って複数のコールバックを組み合わせ
+
+---
+
+## トラブルシューティング
+
+### mypy で型チェックが効かない場合
+
+```bash
+uv sync --reinstall-package railway-framework
+rm -rf .mypy_cache/
+uv run mypy src/
+```
+
+### テストが失敗する場合
+
+```bash
+rm -rf .pytest_cache/ __pycache__/
+uv sync
+```
+'''
+    _write_file(project_path / "TUTORIAL.md", content)
+
+
+def _create_tutorial_linear_md(project_path: Path, project_name: str) -> None:
+    """Create TUTORIAL_linear.md file for typed_pipeline."""
+    content = f'''# {project_name} チュートリアル - 線形パイプライン
+
+このチュートリアルでは、`typed_pipeline` を使用した線形パイプラインの開発を学びます。
+
+条件分岐が必要な場合は [TUTORIAL.md](TUTORIAL.md) の dag_runner を使用してください。
+
+## 線形パイプラインとは
+
+処理が必ず順番に実行されるパイプラインです：
+
+```
+A → B → C → D
+```
+
+条件分岐はありません。ETL、データ変換に適しています。
+
+## 所要時間
+
+約10分
+
+## 前提条件
+
+- Python 3.10以上
+- uv インストール済み
+- VSCode推奨（IDE補完を体験するため）
+
+---
+
+## Step 1: プロジェクト初期化（1分）
+
+```bash
+railway init my_pipeline
+cd my_pipeline
+uv sync
+```
+
+---
+
+## Step 2: エントリーポイント作成（1分）
+
+```bash
+railway new entry my_pipeline --mode linear
+```
+
+以下のファイルが生成されます：
+
+- `src/my_pipeline.py` - エントリーポイント（typed_pipeline 使用）
+- `src/nodes/my_pipeline/step1.py` - ステップ1
+- `src/nodes/my_pipeline/step2.py` - ステップ2
+
+---
+
+## Step 3: 生成されるコード
+
+### エントリーポイント
+
+`src/my_pipeline.py`:
+
+```python
+from railway import entry_point, typed_pipeline
+from nodes.my_pipeline.step1 import step1
+from nodes.my_pipeline.step2 import step2
+
+
+@entry_point
+def main():
+    """パイプラインを実行"""
+    result = typed_pipeline(
+        step1,
+        step2,
+    )
+    print(f"完了: {{result}}")
+    return result
+```
+
+### ノード
+
+`src/nodes/my_pipeline/step1.py`:
+
+```python
+from railway import Contract, node
+
+
+class Step1Output(Contract):
+    """ステップ1の出力"""
+    data: str
+
+
+@node(output=Step1Output)
+def step1() -> Step1Output:
+    """ステップ1の処理"""
+    return Step1Output(data="processed")
+```
+
+---
+
+## Step 4: 実行（1分）
+
+```bash
+railway run my_pipeline
+```
+
+---
+
+## Step 5: Contract - データの「契約」を定義（3分）
+
+### 5.1 Contractを作成
 
 ```bash
 railway new contract UsersFetchResult
 ```
 
-### 2.2 ファイルを編集
+### 5.2 ファイルを編集
 
-`src/contracts/users_fetch_result.py` を以下の内容で**上書き**してください:
+`src/contracts/users_fetch_result.py`:
 
 ```python
-"""UsersFetchResult contract."""
-
 from railway import Contract
 
 
 class User(Contract):
-    """ユーザーエンティティ"""
     id: int
     name: str
-    email: str
 
 
 class UsersFetchResult(Contract):
-    """fetch_usersノードの出力契約"""
     users: list[User]
     total: int
 ```
-
-**ポイント:**
-- **Pydantic BaseModel** がベース（自動バリデーション）
-- フィールドに型を指定 → **IDE補完が効く**
-
----
-
-## Step 3: TDD - テストを先に書く（3分）
-
-Railwayでは**テストファースト**を推奨。まず失敗するテストを書きます。
-
-### 3.1 型付きノードを生成
-
-```bash
-railway new node fetch_users --output UsersFetchResult
-```
-
-`--output` オプションで出力型を指定すると、テストファイルも型付きで生成されます。
-
-### 3.2 テストを編集（Red Phase）
-
-`tests/nodes/test_fetch_users.py` を以下の内容で**上書き**してください:
-
-```python
-"""Tests for fetch_users node."""
-
-from contracts.users_fetch_result import UsersFetchResult
-from nodes.fetch_users import fetch_users
-
-
-class TestFetchUsers:
-    def test_returns_users_fetch_result(self):
-        """正しい型を返すこと"""
-        result = fetch_users()
-        assert isinstance(result, UsersFetchResult)
-
-    def test_returns_at_least_one_user(self):
-        """少なくとも1人のユーザーを返すこと"""
-        result = fetch_users()
-        assert result.total >= 1  # IDE補完が効く！
-        assert len(result.users) == result.total
-```
-
-**💡 ポイント: モックが不要！**
-
-```python
-# ❌ 従来: Contextのモックが必要
-def test_fetch_users():
-    ctx = MagicMock()
-    fetch_users(ctx)
-    ctx.__setitem__.assert_called_with(...)
-
-# ✅ Railway: 引数を渡して戻り値を確認するだけ
-def test_fetch_users():
-    result = fetch_users()
-    assert result.total >= 1
-```
-
-### 3.3 テスト実行（失敗を確認）
-
-```bash
-uv run pytest tests/nodes/test_fetch_users.py -v
-```
-
-🔴 **Red Phase!** テストが失敗することを確認しました。
-
----
-
-## Step 4: Node実装（3分）
-
-テストを通すための実装を書きます。
-
-### 4.1 ノードを実装（Green Phase）
-
-`src/nodes/fetch_users.py` を以下の内容で**上書き**してください:
-
-```python
-"""fetch_users node."""
-
-from railway import node
-from contracts.users_fetch_result import UsersFetchResult, User
-
-
-@node(output=UsersFetchResult)
-def fetch_users() -> UsersFetchResult:
-    """ユーザー一覧を取得する"""
-    users = [
-        User(id=1, name="Alice", email="alice@example.com"),
-        User(id=2, name="Bob", email="bob@example.com"),
-    ]
-    return UsersFetchResult(
-        users=users,
-        total=len(users),
-    )
-```
-
-### 4.2 テスト実行（成功を確認）
-
-```bash
-uv run pytest tests/nodes/test_fetch_users.py -v
-```
-
-🟢 **Green Phase!** テストが通りました。
-
-**ポイント:**
-- `@node(output=UsersFetchResult)` で出力型を宣言
-- 純粋関数：引数を受け取り、値を返すだけ
-- 型が保証される
-
----
-
-## Step 5: IDE補完を体験する（2分）
-
-Output Modelパターンの最大の利点を体験しましょう。
-
-### 5.1 別のノードを作成
-
-```bash
-railway new contract ReportResult
-railway new node generate_report --input users:UsersFetchResult --output ReportResult
-```
-
-### 5.2 ContractとNodeを編集
-
-`src/contracts/report_result.py`:
-
-```python
-"""ReportResult contract."""
-
-from datetime import datetime
-from railway import Contract
-
-
-class ReportResult(Contract):
-    """レポート生成結果"""
-    content: str
-    user_count: int
-    generated_at: datetime
-```
-
-### 5.3 VSCodeで補完を試す
-
-`src/nodes/generate_report.py` を開き、以下のように編集してみてください:
-
-```python
-"""generate_report node."""
-
-from datetime import datetime
-from railway import node
-from contracts.users_fetch_result import UsersFetchResult
-from contracts.report_result import ReportResult
-
-
-@node(
-    inputs={{"users": UsersFetchResult}},
-    output=ReportResult,
-)
-def generate_report(users: UsersFetchResult) -> ReportResult:
-    # ここで users. と入力して Ctrl+Space を押してください！
-    names = ", ".join(u.name for u in users.users)  # IDE補完が効く！
-    return ReportResult(
-        content=f"Users: {{names}}",
-        user_count=users.total,  # typo するとIDEが警告
-        generated_at=datetime.now(),
-    )
-```
-
-🎉 **IDE補完が効く！** `users.` と入力すると候補が表示されます。
 
 ---
 
 ## Step 6: typed_pipeline - 依存関係の自動解決（3分）
 
-複数のNodeを組み合わせてパイプラインを構築します。
-
-### 6.1 エントリポイントを作成
-
-```bash
-railway new entry user_report
-```
-
-`src/user_report.py` を以下の内容で**上書き**してください:
+### 6.1 複数のノードを組み合わせ
 
 ```python
-"""user_report entry point."""
-
 from railway import entry_point, typed_pipeline
 
 from nodes.fetch_users import fetch_users
@@ -420,34 +716,16 @@ from nodes.generate_report import generate_report
 
 @entry_point
 def main():
-    """ユーザーレポートを生成する"""
     result = typed_pipeline(
         fetch_users,      # UsersFetchResult を出力
         generate_report,  # UsersFetchResult を入力 → ReportResult を出力
     )
 
-    print(result.content)      # IDE補完が効く！
-    print(f"Count: {{result.user_count}}")
+    print(result.content)  # IDE補完が効く！
     return result
-
-
-if __name__ == "__main__":
-    main()
 ```
 
-### 6.2 実行
-
-```bash
-uv run railway run user_report
-```
-
-**期待される出力:**
-```
-Users: Alice, Bob
-Count: 2
-```
-
-**依存関係の自動解決:**
+### 6.2 依存関係の自動解決
 
 ```
 fetch_users ──────────────> generate_report
@@ -457,407 +735,56 @@ fetch_users ──────────────> generate_report
 
 フレームワークが**型を見て自動的に依存関係を解決**します。
 
-### 6.3 Nodeはパイプライン構成に依存しない
+---
 
-これがOutput Modelパターンの核心的な利点です:
+## typed_pipeline の特徴
 
-```python
-# 構成1: シンプル
-typed_pipeline(fetch_users, generate_report)
-
-# 構成2: 間にフィルター処理を追加
-typed_pipeline(fetch_users, filter_active_users, generate_report)
-
-# 構成3: データ加工を追加
-typed_pipeline(fetch_users, enrich_users, generate_report)
-
-# ↑ どの構成でも generate_report の実装は同じ！
-```
-
-**なぜこれが重要か:**
-
-| 従来 | Railway |
-|------|---------|
-| パイプライン変更時にNode修正が必要 | Node修正不要 |
-| 前後のNode実装を意識 | 入出力Contractだけを意識 |
-| 結合テストが必須 | 単体テストで十分 |
-
-`generate_report` は**「UsersFetchResultを受け取りReportResultを返す」**という契約だけを守ればよく、パイプラインの全体構成には一切依存しません。
+- **Contract 自動解決**: 次のノードに必要な Contract を自動で渡す
+- **シンプル**: 状態管理不要
+- **線形処理専用**: 条件分岐不可
+- **IDE補完**: Contract の型情報でIDE補完が効く
 
 ---
 
-## Step 7: 安全なリファクタリング（2分）
+## dag_runner との比較
 
-Output Modelパターンのもう一つの利点を体験します。
-
-### 7.1 フィールド名を変更したい
-
-`UsersFetchResult.total` を `count` に変更したいとします。
-
-### 7.2 従来の問題
-
-```python
-# ❌ 従来: 文字列なので grep で探すしかない
-data["total"]  # どこで使われてる？ 変更漏れがあっても実行時まで気づかない
-```
-
-### 7.3 Railwayでの安全な変更
-
-1. **Contract を変更:**
-   `src/contracts/users_fetch_result.py` の `total` を `count` に変更
-
-2. **IDEが全参照箇所をハイライト**
-
-3. **一括リネーム (F2キー)**
-
-4. **型チェックで確認:**
-   ```bash
-   uv run mypy src/
-   ```
-
-🎉 **変更漏れゼロ！** IDEと型チェッカーが守ってくれます。
+| 項目 | typed_pipeline | dag_runner |
+|------|----------------|------------|
+| 分岐 | 不可 | 可能 |
+| 遷移定義 | コード内（順番で定義） | YAML |
+| 戻り値 | Contract | tuple[Contract, Outcome] |
+| 用途 | ETL、データ変換 | 運用自動化 |
+| 複雑度 | シンプル | やや複雑 |
+| 柔軟性 | 低い | 高い |
 
 ---
 
-## Step 8: エラーハンドリング（実践）（5分）
+## いつ dag_runner に移行すべきか
 
-Railway Framework のエラーハンドリングを実際に体験します。
-多くのケースでは「何もしない」で十分ですが、高度な制御が必要な場合の選択肢を学びます。
+以下の場合は dag_runner への移行を検討してください：
 
-### 8.1 シナリオ: 不安定な外部APIとの連携
-
-外部APIが不安定で、時々接続エラーが発生する状況を想定します。
-
-まず、不安定なAPIをシミュレートするノードを作成:
-
-```bash
-railway new contract ExternalDataResult
-railway new node fetch_external_data --output ExternalDataResult
-```
-
-`src/contracts/external_data_result.py`:
-```python
-from railway import Contract
-
-class ExternalDataResult(Contract):
-    data: str
-    value: int
-```
-
-`src/nodes/fetch_external_data.py`:
-```python
-import random
-from railway import node
-from contracts.external_data_result import ExternalDataResult
-
-@node(output=ExternalDataResult)
-def fetch_external_data() -> ExternalDataResult:
-    \"\"\"不安定な外部APIをシミュレート\"\"\"
-    if random.random() < 0.5:
-        raise ConnectionError("Network timeout")
-    return ExternalDataResult(data="success", value=42)
-```
-
-### 8.2 レベル1: retry_on で自動リトライ
-
-一時的なエラーには自動リトライが有効です:
-
-```python
-@node(
-    output=ExternalDataResult,
-    retries=3,
-    retry_on=(ConnectionError,)
-)
-def fetch_with_retry() -> ExternalDataResult:
-    \"\"\"ConnectionError は3回までリトライ\"\"\"
-    if random.random() < 0.5:
-        raise ConnectionError("Network timeout")
-    return ExternalDataResult(data="success", value=42)
-```
-
-**体験**: 何度か実行して、ConnectionErrorが自動リトライされることを確認:
-```bash
-uv run python -c "from nodes.fetch_external_data import fetch_with_retry; print(fetch_with_retry())"
-```
-
-### 8.3 レベル2: デフォルト動作（例外伝播）
-
-何も指定しなければ、例外はそのまま伝播します:
-
-```python
-result = typed_pipeline(fetch_external_data, process_data)
-# 例外発生時: スタックトレース付きで伝播
-```
-
-**これで十分なケースが多いです。** スタックトレースが保持されるため、デバッグが容易です。
-
-### 8.4 レベル3: on_error でPipeline単位の制御
-
-複数のNodeを跨いだ高度な制御が必要な場合:
-
-`src/user_report.py` を編集して試してみましょう:
-
-```python
-from railway import entry_point, typed_pipeline
-
-def smart_error_handler(error: Exception, step_name: str):
-    \"\"\"例外タイプに応じて適切に処理\"\"\"
-    match error:
-        case ConnectionError():
-            print(f"⚠️ {{step_name}}: 接続エラー、フォールバック値を使用")
-            return ExternalDataResult(data="cached", value=0)
-        case _:
-            raise  # 他の例外は再送出
-
-@entry_point
-def main():
-    result = typed_pipeline(
-        fetch_external_data,
-        on_error=smart_error_handler
-    )
-    print(f"Result: {{result.data}}, Value: {{result.value}}")
-```
-
-### 8.5 on_step でデバッグ/監査
-
-各ステップの中間結果を取得できます:
-
-```python
-steps = []
-
-def capture_step(step_name: str, output):
-    steps.append({{"step": step_name, "output": output}})
-    print(f"[{{step_name}}] -> {{output}}")
-
-result = typed_pipeline(
-    fetch_users,
-    generate_report,
-    on_step=capture_step  # 各ステップの結果をキャプチャ
-)
-```
-
-### 8.6 恩恵のまとめ
-
-| レベル | いつ使う | 恩恵 |
-|--------|----------|------|
-| retry_on | 一時的エラー | 自動回復、コード簡潔 |
-| デフォルト伝播 | **多くのケース** | スタックトレース保持 |
-| on_error | 高度な制御 | Pipeline単位の柔軟な対応 |
-| on_step | デバッグ/監査 | 中間結果へのアクセス |
-
-**重要**: 多くのケースでは「何もしない」（デフォルト伝播）で十分です。
-高度な機能は必要な時だけ使いましょう。
-
----
-
-## Step 9: バージョン管理 - 安全なアップグレード体験（5分）
-
-Railway Framework は**プロジェクトのバージョンを追跡**し、安全なアップグレードを支援します。
-
-### 9.1 現状を確認
-
-プロジェクトのバージョン情報を確認します:
-
-```bash
-cat .railway/project.yaml
-```
-
-**出力例:**
-```yaml
-railway:
-  version: "{__version__}"
-  created_at: "2026-01-23T10:30:00+09:00"
-  updated_at: "2026-01-23T10:30:00+09:00"
-
-project:
-  name: "{project_name}"
-
-compatibility:
-  min_version: "{__version__}"
-```
-
-**ポイント:**
-- `railway init` 時に自動生成される
-- チーム全員で同じバージョン情報を共有（Git管理対象）
-
----
-
-### 9.2 バージョン不一致の警告
-
-フレームワークがアップグレードされた後に `railway new` を実行すると:
+- **条件分岐が必要**: 処理結果に応じて次のステップが変わる
+- **エラーパスが複数**: エラー種別に応じて異なる対応が必要
+- **複雑なワークフロー**: 複数の終了パスがある
 
 ```
-$ railway new node my_new_node
+# typed_pipeline: 線形フロー
+A → B → C → D
 
-⚠️  バージョン不一致を検出
-    プロジェクト: 0.10.0
-    現在:         0.11.0
-
-    [c] 続行 / [u] 'railway update' を実行 / [a] 中止
+# dag_runner: 条件分岐フロー
+    ┌→ B → D
+A → │
+    └→ C → E
 ```
-
-**なぜ重要か:**
-- 古いテンプレートと新しいテンプレートの混在を防ぐ
-- チーム内の不整合を防止
-
----
-
-### 9.3 railway update でマイグレーション
-
-プロジェクトを最新バージョンに更新:
-
-```bash
-# まず変更内容をプレビュー
-railway update --dry-run
-
-# 実際に更新
-railway update
-```
-
-**ポイント:**
-- `--dry-run` で事前確認
-- 更新前に自動バックアップ
-- ユーザーコード（`src/nodes/*`）は変更されない
-
----
-
-### 9.4 バックアップから復元
-
-問題が発生した場合は簡単に復元:
-
-```bash
-# 一覧表示
-railway backup list
-
-# 復元
-railway backup restore
-```
-
----
-
-### 9.5 恩恵のまとめ
-
-| 問題 | Railway の解決策 |
-|------|------------------|
-| バージョン不明 | `.railway/project.yaml` で明示 |
-| 手動マイグレーション | `railway update` で自動化 |
-| 失敗時のリカバリ | 自動バックアップ + 復元 |
-| 変更内容不明 | `--dry-run` で事前確認 |
-
-🎉 **これでバージョンアップも安心！**
-
----
-
-## よくある質問 (FAQ)
-
-### Q: Result型（Ok/Err）は提供しないの？
-
-Railway Framework は意図的にResult型を採用していません。
-
-**理由:**
-- Pythonエコシステム（requests, sqlalchemy等）は例外ベース
-- Result型だとすべてをラップする必要があり冗長
-- スタックトレースが失われデバッグが困難に
-
-代わりに、Python標準の例外機構 + on_error で十分な制御を提供します。
-
-### Q: on_error と try/except の使い分けは？
-
-| 状況 | 推奨 |
-|------|------|
-| 1つのNodeで完結 | Node内で try/except |
-| 複数Nodeを跨ぐ | on_error |
-| リトライで回復可能 | retry_on |
-| 特に制御不要 | **何もしない（例外伝播）** |
-
-### Q: inputs の明示的指定は必要？
-
-Contract型の引数は**自動推論**されるため、通常は不要です:
-
-```python
-# 自動推論される（推奨）
-@node(output=ReportResult)
-def generate_report(users: UsersFetchResult) -> ReportResult:
-    ...
-
-# 明示的に指定も可能（レガシー互換）
-@node(inputs={{"users": UsersFetchResult}}, output=ReportResult)
-def generate_report(users: UsersFetchResult) -> ReportResult:
-    ...
-```
-
-### Q: 既存プロジェクトにバージョン情報を追加するには？
-
-```bash
-railway update --init
-```
-
-これにより `.railway/project.yaml` が作成され、バージョン追跡が開始されます。
-
-### Q: バージョン不一致の警告を無視できる？
-
-`--force` オプションで警告をスキップできます:
-
-```bash
-railway new node my_node --force
-```
-
-ただし、チーム開発では推奨しません。`railway update` で先にプロジェクトを更新してください。
 
 ---
 
 ## 次のステップ
 
-おめでとうございます！🎉 Railwayの基本と応用を習得しました。
-
-### 学んだこと
-
-- Contract で型契約を定義
-- Node で純粋関数として処理を実装
-- TDD でテストファーストに開発
-- IDE補完の活用
-- typed_pipeline で依存関係を自動解決
-- 安全なリファクタリング
-- **3層エラーハンドリング** (retry_on, デフォルト伝播, on_error)
-- **on_step でデバッグ/監査**
-- **バージョン管理** (`railway update`, `railway backup`)
-
-### さらに学ぶ
-
-1. **設定管理**: `config/development.yaml` で環境別設定
-2. **非同期処理**: `typed_async_pipeline` で非同期対応
-3. **ドキュメント**: `railway docs` で詳細を確認
-
----
-
-## トラブルシューティング
-
-### mypy で型チェックが効かない場合
-
-mypyで「Skipping analyzing "railway"」と表示される場合:
-
-```bash
-# 1. パッケージを再インストール
-uv sync --reinstall-package railway-framework
-
-# 2. mypy キャッシュをクリア
-rm -rf .mypy_cache/
-
-# 3. 確認
-uv run mypy src/
-```
-
-### テストが失敗する場合
-
-```bash
-# pytest キャッシュをクリア
-rm -rf .pytest_cache/ __pycache__/
-
-# 依存関係を再同期
-uv sync
-```
+- [TUTORIAL.md](TUTORIAL.md) - DAGワークフローチュートリアル
+- [docs/adr/002_execution_models.md](docs/adr/002_execution_models.md) - 実行モデルの詳細
 '''
-    _write_file(project_path / "TUTORIAL.md", content)
+    _write_file(project_path / "TUTORIAL_linear.md", content)
 
 
 def _create_gitignore(project_path: Path) -> None:
@@ -891,8 +818,68 @@ htmlcov/
 
 # mypy
 .mypy_cache/
+
+# Railway generated code
+_railway/generated/*.py
+!_railway/generated/.gitkeep
 '''
     _write_file(project_path / ".gitignore", content)
+
+
+def _get_sample_transition_yaml() -> str:
+    """Get sample transition graph YAML content."""
+    return '''version: "1.0"
+entrypoint: hello
+description: "サンプルワークフロー"
+
+nodes:
+  greet:
+    module: nodes.greet
+    function: greet
+    description: "挨拶を出力"
+
+exits:
+  success:
+    code: 0
+    description: "正常終了"
+  error:
+    code: 1
+    description: "異常終了"
+
+start: greet
+
+transitions:
+  greet:
+    success::done: exit::success
+    failure::error: exit::error
+
+options:
+  max_iterations: 10
+'''
+
+
+def _create_dag_directories(project_path: Path) -> None:
+    """Create DAG workflow directories and files."""
+    # Create transition_graphs directory
+    graphs_dir = project_path / "transition_graphs"
+    graphs_dir.mkdir(parents=True, exist_ok=True)
+    (graphs_dir / ".gitkeep").write_text(
+        "# Transition graph YAML files\n"
+        "# File naming: {entrypoint}_{YYYYMMDDHHmmss}.yml\n"
+    )
+
+    # Create _railway/generated directory
+    generated_dir = project_path / "_railway" / "generated"
+    generated_dir.mkdir(parents=True, exist_ok=True)
+    (generated_dir / ".gitkeep").write_text(
+        "# Auto-generated transition code\n"
+        "# Do not edit manually - use `railway sync transition`\n"
+    )
+
+    # Create sample YAML with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    sample_yaml = _get_sample_transition_yaml()
+    (graphs_dir / f"hello_{timestamp}.yml").write_text(sample_yaml)
 
 
 def _create_py_typed(project_path: Path) -> None:
@@ -1040,6 +1027,7 @@ def _create_project_structure(
     _create_development_yaml(project_path, project_name)
     _create_settings_py(project_path)
     _create_tutorial_md(project_path, project_name)
+    _create_tutorial_linear_md(project_path, project_name)
     _create_gitignore(project_path)
     _create_init_files(project_path)
     _create_conftest_py(project_path)
@@ -1053,6 +1041,9 @@ def _create_project_structure(
     else:
         _create_simple_hello_entry(project_path)
 
+    # Create DAG workflow directories
+    _create_dag_directories(project_path)
+
     # Create .railway/project.yaml with version metadata
     metadata = create_metadata(project_name, __version__)
     save_metadata(project_path, metadata)
@@ -1065,6 +1056,10 @@ def _show_success_output(project_name: str) -> None:
     typer.echo(f"  {project_name}/")
     typer.echo("  ├── .railway/")
     typer.echo("  │   └── project.yaml")
+    typer.echo("  ├── _railway/")
+    typer.echo("  │   └── generated/")
+    typer.echo("  ├── transition_graphs/")
+    typer.echo("  │   └── hello_*.yml")
     typer.echo("  ├── src/")
     typer.echo("  ├── tests/")
     typer.echo("  ├── config/")

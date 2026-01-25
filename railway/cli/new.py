@@ -1,6 +1,7 @@
 """railway new command implementation."""
 
 import re
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Optional
@@ -14,6 +15,13 @@ class ComponentType(str, Enum):
     entry = "entry"
     node = "node"
     contract = "contract"
+
+
+class EntryMode(str, Enum):
+    """Entry point execution mode."""
+
+    dag = "dag"
+    linear = "linear"
 
 
 def _is_railway_project() -> bool:
@@ -247,7 +255,7 @@ class Test{class_name}:
 
 
 def _get_entry_template(name: str) -> str:
-    """Get basic entry point template."""
+    """Get basic entry point template (legacy - pipeline style)."""
     return f'''"""{name} entry point."""
 
 from railway import entry_point, node, pipeline
@@ -293,6 +301,179 @@ app = main._typer_app
 if __name__ == "__main__":
     main()
 '''
+
+
+def _get_dag_entry_template(name: str) -> str:
+    """Get dag_runner style entry point template."""
+    class_name = _to_pascal_case(name)
+    return f'''"""
+{name} エントリーポイント
+
+実行モード: dag_runner（条件分岐対応）
+"""
+from railway import entry_point
+from railway.core.dag.runner import dag_runner
+from railway.core.dag.callbacks import StepRecorder
+
+from _railway.generated.{name}_transitions import (
+    TRANSITION_TABLE,
+    GRAPH_METADATA,
+)
+from nodes.{name}.start import start
+
+
+@entry_point
+def main():
+    """
+    {name} ワークフローを実行する。
+
+    遷移ロジックは transition_graphs/{name}_*.yml で定義。
+    コード生成: railway sync transition --entry {name}
+    """
+    recorder = StepRecorder()
+
+    result = dag_runner(
+        start=start,
+        transitions=TRANSITION_TABLE,
+        max_iterations=GRAPH_METADATA.get("max_iterations", 100),
+        on_step=recorder,
+    )
+
+    if result.is_success:
+        print(f"✓ 完了: {{result.exit_code}}")
+    else:
+        print(f"✗ 失敗: {{result.exit_code}}")
+
+    return result
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def _get_dag_node_template(name: str) -> str:
+    """Get dag_runner style node template (returns Outcome)."""
+    class_name = _to_pascal_case(name)
+    return f'''"""
+{name} 開始ノード
+"""
+from railway import Contract, node
+from railway.core.dag.outcome import Outcome
+
+
+class {class_name}Context(Contract):
+    """ワークフローコンテキスト"""
+    initialized: bool = False
+
+
+@node
+def start() -> tuple[{class_name}Context, Outcome]:
+    """
+    ワークフロー開始ノード。
+
+    Returns:
+        (context, outcome): コンテキストと状態
+    """
+    ctx = {class_name}Context(initialized=True)
+    return ctx, Outcome.success("done")
+'''
+
+
+def _get_dag_yaml_template(name: str) -> str:
+    """Get transition graph YAML template."""
+    return f'''version: "1.0"
+entrypoint: {name}
+description: "{name} ワークフロー"
+
+nodes:
+  start:
+    module: nodes.{name}.start
+    function: start
+    description: "開始ノード"
+
+exits:
+  success:
+    code: 0
+    description: "正常終了"
+  error:
+    code: 1
+    description: "異常終了"
+
+start: start
+
+transitions:
+  start:
+    success::done: exit::success
+    failure::error: exit::error
+
+options:
+  max_iterations: 100
+'''
+
+
+def _get_linear_entry_template(name: str) -> str:
+    """Get typed_pipeline style entry point template."""
+    return f'''"""
+{name} エントリーポイント
+
+実行モード: typed_pipeline（線形パイプライン）
+"""
+from railway import entry_point, typed_pipeline
+
+from nodes.{name}.step1 import step1
+from nodes.{name}.step2 import step2
+
+
+@entry_point
+def main():
+    """
+    {name} パイプラインを実行する。
+
+    処理順序: step1 → step2
+    """
+    result = typed_pipeline(
+        step1,
+        step2,
+    )
+
+    print(f"完了: {{result}}")
+    return result
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def _get_linear_node_template(name: str, step_num: int) -> str:
+    """Get typed_pipeline style node template (returns Contract)."""
+    return f'''"""
+{name} ステップ{step_num}
+"""
+from railway import Contract, node
+
+
+class Step{step_num}Output(Contract):
+    """ステップ{step_num}の出力"""
+    value: str
+
+
+@node
+def step{step_num}() -> Step{step_num}Output:
+    """
+    ステップ{step_num}の処理。
+
+    Returns:
+        Step{step_num}Output: 処理結果
+    """
+    return Step{step_num}Output(value="processed")
+'''
+
+
+def _to_pascal_case(name: str) -> str:
+    """Convert snake_case to PascalCase."""
+    return "".join(word.capitalize() for word in name.split("_"))
 
 
 def _get_entry_example_template(name: str) -> str:
@@ -558,25 +739,89 @@ def _create_entry_test(name: str) -> None:
     _write_file(test_file, content)
 
 
-def _create_entry(name: str, example: bool, force: bool) -> None:
+def _create_entry(
+    name: str, example: bool, force: bool, mode: EntryMode = EntryMode.dag
+) -> None:
     """Create a new entry point."""
     file_path = Path.cwd() / "src" / f"{name}.py"
 
     if file_path.exists() and not force:
-        typer.echo(f"Error: {file_path} already exists. Use --force to overwrite.", err=True)
+        typer.echo(
+            f"Error: {file_path} already exists. Use --force to overwrite.", err=True
+        )
         raise typer.Exit(1)
 
-    content = _get_entry_example_template(name) if example else _get_entry_template(name)
-    _write_file(file_path, content)
+    if mode == EntryMode.dag:
+        _create_dag_entry(name)
+    else:
+        _create_linear_entry(name)
 
     # Create test file
     _create_entry_test(name)
 
-    typer.echo(f"Created entry point: src/{name}.py")
-    typer.echo(f"Created test: tests/test_{name}.py\n")
-    typer.echo("To run:")
-    typer.echo(f"  uv run railway run {name}")
-    typer.echo(f"  # or: uv run python -m {name}")
+
+def _create_dag_entry(name: str) -> None:
+    """Create dag_runner style entry point with nodes and YAML."""
+    cwd = Path.cwd()
+    src_dir = cwd / "src"
+    nodes_dir = src_dir / "nodes" / name
+    graphs_dir = cwd / "transition_graphs"
+
+    # Create directories
+    nodes_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create entry point file
+    entry_content = _get_dag_entry_template(name)
+    _write_file(src_dir / f"{name}.py", entry_content)
+
+    # Create start node
+    node_content = _get_dag_node_template(name)
+    (nodes_dir / "__init__.py").touch()
+    _write_file(nodes_dir / "start.py", node_content)
+
+    # Create transition YAML
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    yaml_content = _get_dag_yaml_template(name)
+    _write_file(graphs_dir / f"{name}_{timestamp}.yml", yaml_content)
+
+    typer.echo(f"✓ エントリーポイント '{name}' を作成しました（モード: dag）\n")
+    typer.echo(f"  作成: src/{name}.py")
+    typer.echo(f"  作成: src/nodes/{name}/start.py")
+    typer.echo(f"  作成: transition_graphs/{name}_{timestamp}.yml")
+    typer.echo("")
+    typer.echo("次のステップ:")
+    typer.echo(f"  1. transition_graphs/{name}_*.yml を編集")
+    typer.echo(f"  2. railway sync transition --entry {name}")
+    typer.echo(f"  3. railway run {name}")
+
+
+def _create_linear_entry(name: str) -> None:
+    """Create typed_pipeline style entry point with nodes."""
+    cwd = Path.cwd()
+    src_dir = cwd / "src"
+    nodes_dir = src_dir / "nodes" / name
+
+    # Create directories
+    nodes_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create entry point file
+    entry_content = _get_linear_entry_template(name)
+    _write_file(src_dir / f"{name}.py", entry_content)
+
+    # Create step nodes
+    (nodes_dir / "__init__.py").touch()
+    for i in [1, 2]:
+        node_content = _get_linear_node_template(name, i)
+        _write_file(nodes_dir / f"step{i}.py", node_content)
+
+    typer.echo(f"✓ エントリーポイント '{name}' を作成しました（モード: linear）\n")
+    typer.echo(f"  作成: src/{name}.py")
+    typer.echo(f"  作成: src/nodes/{name}/step1.py")
+    typer.echo(f"  作成: src/nodes/{name}/step2.py")
+    typer.echo("")
+    typer.echo("次のステップ:")
+    typer.echo(f"  1. src/nodes/{name}/ のノードを実装")
+    typer.echo(f"  2. railway run {name}")
 
 
 def _create_node_test(
@@ -695,6 +940,12 @@ def new(
     input_specs: Optional[list[str]] = typer.Option(
         None, "--input", help="Input spec 'param_name:TypeName' (repeatable)"
     ),
+    mode: EntryMode = typer.Option(
+        EntryMode.dag,
+        "--mode",
+        "-m",
+        help="Entry mode: dag (default, 条件分岐対応) or linear (線形パイプライン)",
+    ),
 ) -> None:
     """
     Create a new entry point, node, or contract.
@@ -704,7 +955,8 @@ def new(
     Contracts are type-safe data structures for node inputs/outputs.
 
     Examples:
-        railway new entry daily_report
+        railway new entry my_workflow              # dag_runner 型（デフォルト）
+        railway new entry my_workflow --mode linear  # typed_pipeline 型
         railway new node fetch_data
         railway new node process_data --example
         railway new contract UsersFetchResult
@@ -733,6 +985,6 @@ def new(
     if component_type == ComponentType.contract:
         _create_contract(name, entity, params, force)
     elif component_type == ComponentType.entry:
-        _create_entry(name, example, force)
+        _create_entry(name, example, force, mode)
     else:  # node
         _create_node(name, example, force, output, input_specs)
