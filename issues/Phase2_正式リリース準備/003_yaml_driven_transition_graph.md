@@ -1,0 +1,443 @@
+# YAML駆動の遷移グラフ定義とコード生成
+
+## ステータス
+
+- **優先度**: Critical (★★★★★)
+- **対象バージョン**: v0.10.2
+- **種別**: 設計決定 / 機能追加
+- **関連Issue**: 001_dag_pipeline_native_support.md, 002_dag_state_naming_convention.md
+
+## 設計原則
+
+### 核心的な考え方
+
+> 遷移情報はデータであり、実装に漏れ出すべきではない
+
+1. **ノードは状態を決定するだけ** - 遷移先を知らない（ステートレス）
+2. **状態と遷移先は1対1** - ある状態が決まれば遷移先は一意に決まる
+3. **遷移グラフはYAMLで宣言的に定義** - 隣接リスト形式
+4. **コード生成でブリッジ** - YAMLからフレームワーク用コードを自動生成
+
+### 従来アプローチの問題点
+
+```python
+# ❌ 問題: 遷移情報がPythonコードに埋め込まれている
+TRANSITION_MAP = {
+    NodeState.SUCCESS_GET_ALERT: check_session_exists,
+    NodeState.SUCCESS_SESSION_EXIST: check_session_status,
+    ...
+}
+```
+
+- 遷移ロジックがコードに分散
+- グラフ全体の俯瞰が困難
+- 変更時にPythonコードの修正が必要
+- テスト・検証が難しい
+
+## 提案アーキテクチャ
+
+```
+プロジェクト構造:
+├── src/
+│   ├── nodes/
+│   │   ├── fetch_alert.py        # ノード実装（状態を返すだけ）
+│   │   ├── check_session.py
+│   │   └── ...
+│   ├── contracts/
+│   │   └── workflow_context.py
+│   └── top2.py                   # エントリーポイント
+├── transition_graphs/            # ユーザーが作成・配置
+│   └── top2_20250125143052.yml   # 遷移グラフ定義
+└── _railway/                     # フレームワーク管理（ユーザーは触らない）
+    └── generated/
+        └── top2_transitions.py   # 自動生成される遷移コード
+```
+
+## 遷移グラフYAML仕様
+
+### ファイル配置
+
+- **ディレクトリ**: `transition_graphs/`
+- **ファイル名**: `{entrypoint_name}_%Y%m%d%H%M%S.yml`
+- **例**: `top2_20250125143052.yml`
+
+### YAML形式（隣接リスト）
+
+```yaml
+# transition_graphs/top2_20250125143052.yml
+
+version: "1.0"
+entrypoint: top2
+description: "セッション管理ワークフロー"
+
+# ノード定義
+# ※ pyproject.toml で src/ プレフィックスは解決済みのため省略可能
+nodes:
+  fetch_alert:
+    module: nodes.fetch_alert
+    function: fetch_alert
+    description: "PagerDuty APIからアラート情報を取得"
+
+  check_session_exists:
+    module: nodes.check_session_exists
+    function: check_session_exists
+    description: "セッションIDの存在確認"
+
+  check_session_status:
+    module: nodes.check_session_status
+    function: check_session_status
+    description: "セッションステータス判定"
+
+  check_follow_up:
+    module: nodes.check_follow_up
+    function: check_follow_up
+    description: "後続処理有無判定"
+
+  check_ctime:
+    module: nodes.check_ctime
+    function: check_ctime
+    description: "セッション継続時間判定"
+
+  kill_session:
+    module: nodes.kill_session
+    function: kill_session
+    description: "セッションkill実行"
+
+  resolve_incident:
+    module: nodes.resolve_incident
+    function: resolve_incident
+    description: "インシデント自動解決"
+
+# 終了コード定義
+exits:
+  green_timeout:
+    code: 0
+    description: "ACTIVEタイムアウトによる正常終了"
+
+  green_ctime_ok:
+    code: 0
+    description: "CTIME範囲内による正常終了"
+
+  green_resolved:
+    code: 0
+    description: "インシデント解決による正常終了"
+
+  red_error:
+    code: 1
+    description: "異常終了"
+
+# 開始ノード
+start: fetch_alert
+
+# 遷移定義（隣接リスト形式）
+transitions:
+  # fetch_alert の遷移
+  fetch_alert:
+    success::done: check_session_exists
+    failure::http: exit::red_error
+    failure::api: exit::red_error
+    failure::timeout: exit::red_error
+
+  # check_session_exists の遷移
+  check_session_exists:
+    success::exist: check_session_status
+    success::not_exist: resolve_incident
+    failure::ssh: exit::red_error
+    failure::sql: exit::red_error
+
+  # check_session_status の遷移
+  check_session_status:
+    success::inactive: check_follow_up
+    success::active_timeout: exit::green_timeout
+    failure::ssh: exit::red_error
+    failure::sql: exit::red_error
+
+  # check_follow_up の遷移
+  check_follow_up:
+    success::exist: kill_session
+    success::not_exist: check_session_exists  # 再確認ループ
+    failure::ssh: exit::red_error
+    failure::sql: exit::red_error
+
+  # check_ctime の遷移（再確認後に呼ばれる）
+  check_ctime:
+    success::within_limit: exit::green_ctime_ok
+    success::exceeded: kill_session
+    failure::data: exit::red_error
+
+  # kill_session の遷移
+  kill_session:
+    success::killed: resolve_incident
+    failure::permission: exit::red_error
+    failure::not_found: resolve_incident  # セッション消失は成功扱い
+
+  # resolve_incident の遷移
+  resolve_incident:
+    success::resolved: exit::green_resolved
+    failure::api: exit::red_error
+
+# オプション設定
+options:
+  max_iterations: 20
+  enable_loop_detection: true
+  strict_state_check: true  # 未定義状態でエラー
+```
+
+### 条件付き遷移（再確認ループの表現）
+
+```yaml
+# 同じノードへの遷移で条件が異なる場合
+transitions:
+  check_follow_up:
+    success::not_exist:
+      # 最初の check_session_exists 呼び出しと区別
+      target: check_session_exists
+      context:
+        recheck: true  # コンテキストにフラグを設定
+
+  # 再確認後の check_session_exists は別の遷移
+  check_session_exists:
+    success::exist:
+      # コンテキストの recheck フラグで分岐
+      when:
+        recheck: true
+      then: check_ctime
+      else: check_session_status
+```
+
+## コード生成
+
+### コマンド
+
+```bash
+# 指定エントリーポイントの遷移グラフを同期
+railway sync transition --entry top2
+
+# 全エントリーポイントを同期
+railway sync transition --all
+
+# ドライラン（生成内容のプレビュー）
+railway sync transition --entry top2 --dry-run
+
+# 検証のみ（YAMLの整合性チェック）
+railway sync transition --entry top2 --validate-only
+```
+
+### 生成されるコード
+
+```python
+# _railway/generated/top2_transitions.py
+# DO NOT EDIT - Generated by `railway sync transition`
+# Source: transition_graphs/top2_20250125143052.yml
+
+from typing import Callable, Any
+from enum import Enum
+
+# 状態Enum（YAMLから自動生成）
+class Top2State(str, Enum):
+    # fetch_alert
+    FETCH_ALERT_SUCCESS_DONE = "fetch_alert::success::done"
+    FETCH_ALERT_FAILURE_HTTP = "fetch_alert::failure::http"
+    FETCH_ALERT_FAILURE_API = "fetch_alert::failure::api"
+    FETCH_ALERT_FAILURE_TIMEOUT = "fetch_alert::failure::timeout"
+
+    # check_session_exists
+    CHECK_SESSION_EXISTS_SUCCESS_EXIST = "check_session_exists::success::exist"
+    CHECK_SESSION_EXISTS_SUCCESS_NOT_EXIST = "check_session_exists::success::not_exist"
+    CHECK_SESSION_EXISTS_FAILURE_SSH = "check_session_exists::failure::ssh"
+    CHECK_SESSION_EXISTS_FAILURE_SQL = "check_session_exists::failure::sql"
+
+    # ... 以下省略
+
+class Top2Exit(str, Enum):
+    GREEN_TIMEOUT = "exit::green_timeout"
+    GREEN_CTIME_OK = "exit::green_ctime_ok"
+    GREEN_RESOLVED = "exit::green_resolved"
+    RED_ERROR = "exit::red_error"
+
+# ノードインポート
+from nodes.fetch_alert import fetch_alert
+from nodes.check_session_exists import check_session_exists
+from nodes.check_session_status import check_session_status
+from nodes.check_follow_up import check_follow_up
+from nodes.check_ctime import check_ctime
+from nodes.kill_session import kill_session
+from nodes.resolve_incident import resolve_incident
+
+# 遷移テーブル
+TRANSITION_TABLE: dict[Top2State, Callable | Top2Exit] = {
+    Top2State.FETCH_ALERT_SUCCESS_DONE: check_session_exists,
+    Top2State.FETCH_ALERT_FAILURE_HTTP: Top2Exit.RED_ERROR,
+    Top2State.FETCH_ALERT_FAILURE_API: Top2Exit.RED_ERROR,
+    Top2State.FETCH_ALERT_FAILURE_TIMEOUT: Top2Exit.RED_ERROR,
+
+    Top2State.CHECK_SESSION_EXISTS_SUCCESS_EXIST: check_session_status,
+    Top2State.CHECK_SESSION_EXISTS_SUCCESS_NOT_EXIST: resolve_incident,
+    # ... 以下省略
+}
+
+# メタデータ
+GRAPH_METADATA = {
+    "version": "1.0",
+    "source_file": "transition_graphs/top2_20250125143052.yml",
+    "generated_at": "2025-01-25T14:30:52+09:00",
+    "start_node": "fetch_alert",
+    "max_iterations": 20,
+}
+
+def get_next_step(state: Top2State) -> Callable | Top2Exit:
+    """状態から次のステップを取得"""
+    if state not in TRANSITION_TABLE:
+        raise ValueError(f"Undefined state: {state}")
+    return TRANSITION_TABLE[state]
+```
+
+## ノード実装（ユーザーコード）
+
+```python
+# nodes/fetch_alert.py
+from railway import node
+from contracts.workflow_context import WorkflowContext
+
+# 生成された状態Enumをインポート（.railwayはプロジェクトルートに配置）
+from _railway.generated.top2_transitions import Top2State
+
+@node
+def fetch_alert(incident_id: str) -> tuple[WorkflowContext, Top2State]:
+    """
+    アラート情報を取得
+
+    Returns:
+        (コンテキスト, 状態) のタプル
+    """
+    try:
+        alert = pagerduty_api.get_alert(incident_id)
+        ctx = WorkflowContext(
+            incident_id=incident_id,
+            hostname=alert.hostname,
+        )
+        return ctx, Top2State.FETCH_ALERT_SUCCESS_DONE
+
+    except HTTPError:
+        return WorkflowContext(incident_id=incident_id), Top2State.FETCH_ALERT_FAILURE_HTTP
+
+    except APIError:
+        return WorkflowContext(incident_id=incident_id), Top2State.FETCH_ALERT_FAILURE_API
+```
+
+## エントリーポイント実装
+
+```python
+# top2.py
+from railway import entry_point, dag_runner
+from _railway.generated.top2_transitions import (
+    Top2State,
+    Top2Exit,
+    TRANSITION_TABLE,
+    GRAPH_METADATA,
+    get_next_step,
+)
+from nodes.fetch_alert import fetch_alert
+
+@entry_point
+def main(incident_id: str = "INC-12345"):
+    """セッション管理ワークフロー"""
+
+    # DAGランナーを使用（フレームワーク提供）
+    result = dag_runner(
+        start=lambda: fetch_alert(incident_id),
+        transitions=TRANSITION_TABLE,
+        max_iterations=GRAPH_METADATA["max_iterations"],
+    )
+
+    return result
+```
+
+## 検証機能
+
+### YAML検証
+
+`railway sync transition --validate-only` で実行される検証：
+
+1. **構文検証**: YAMLとしての正当性
+2. **スキーマ検証**: 必須フィールドの存在
+3. **参照整合性**: 遷移先ノードが定義されているか
+4. **到達可能性**: すべてのノードがstartから到達可能か
+5. **終了可能性**: すべてのパスが終了コードに到達するか
+6. **ループ検出**: 意図しない無限ループがないか
+7. **状態網羅性**: 各ノードの全状態に遷移先が定義されているか
+
+### 実行時検証
+
+```python
+# オプション: strict_state_check: true の場合
+# ノードが未定義の状態を返すとエラー
+```
+
+## ワークフロー
+
+```
+1. ユーザーが transition_graphs/{entry}_{timestamp}.yml を作成/編集
+
+2. `railway sync transition --entry {entry}` を実行
+
+3. フレームワークが検証を実行
+   - エラーがあれば報告して終了
+
+4. _railway/generated/{entry}_transitions.py を生成
+
+5. ユーザーはノード実装で生成されたStateEnumを使用
+
+6. エントリーポイントでdag_runnerを使用して実行
+```
+
+## バージョン管理
+
+- タイムスタンプ付きファイル名により履歴を保持
+- 最新のファイルが使用される
+- 古いファイルは手動で削除（または `railway clean transition` コマンド）
+
+```bash
+transition_graphs/
+├── top2_20250120100000.yml  # 古いバージョン
+├── top2_20250123150000.yml  # 古いバージョン
+└── top2_20250125143052.yml  # 最新（これが使用される）
+```
+
+## 実装計画
+
+### Phase 1: 基本機能
+
+1. [ ] YAML スキーマ定義
+2. [ ] YAML パーサー実装
+3. [ ] コード生成器実装
+4. [ ] `railway sync transition` コマンド実装
+5. [ ] 基本的な検証機能
+
+### Phase 2: 検証強化
+
+1. [ ] 到達可能性分析
+2. [ ] ループ検出
+3. [ ] 状態網羅性チェック
+4. [ ] Mermaid形式での可視化出力
+
+### Phase 3: ランタイム
+
+1. [ ] `dag_runner` 関数実装
+2. [ ] ステップコールバック（監査用）
+3. [ ] 実行トレース機能
+
+## 影響範囲
+
+### 新規追加
+
+- `railway/cli/sync.py` - syncコマンド
+- `railway/core/transition_parser.py` - YAMLパーサー
+- `railway/core/transition_codegen.py` - コード生成器
+- `railway/core/dag_runner.py` - DAG実行エンジン
+- `railway/core/graph_validator.py` - グラフ検証
+
+### 既存ファイルへの変更
+
+- `railway/cli/main.py` - syncコマンド追加
+- `railway/__init__.py` - dag_runnerエクスポート
