@@ -106,27 +106,38 @@ result = dag_runner(
 
 ### ユーザビリティ向上: Outcome クラス
 
-> **Note:** このセクションの機能は **Issue #15** で実装されます。
-> Issue #10 では State Enum を直接返す実装のみをサポートします。
+dag_runner は **2つの戻り値形式** をサポートします：
 
-ノードの戻り値を簡潔に記述するため、`Outcome` クラスと `@node` デコレータの自動マッピングを提供：
+#### パターン1: Outcome クラス（推奨、シンプル）
 
 ```python
-# Issue #15 で実装される機能のプレビュー
-from railway import node, Outcome
+from railway import node
+from railway.core.dag.outcome import Outcome
 
-@node(state_enum=MyWorkflowState)
+@node
 def fetch_data(ctx: InputContext) -> tuple[OutputContext, Outcome]:
     try:
         data = api.get("/data")
         return OutputContext(data=data), Outcome.success("done")
-        # => 自動的に MyWorkflowState.FETCH_DATA_SUCCESS_DONE に変換
     except HTTPError:
         return OutputContext(), Outcome.failure("http")
-        # => 自動的に MyWorkflowState.FETCH_DATA_FAILURE_HTTP に変換
 ```
 
-**Issue #10 での推奨パターン（State Enum 直接使用）:**
+dag_runner は Outcome から自動的に状態文字列を生成します：
+- `Outcome.success("done")` → `"fetch_data::success::done"`
+- `Outcome.failure("http")` → `"fetch_data::failure::http"`
+
+遷移テーブルのキーも **状態文字列** を使用：
+
+```python
+transitions = {
+    "fetch_data::success::done": process_data,
+    "fetch_data::failure::http": Exit.RED,
+    "process_data::success::complete": Exit.GREEN,
+}
+```
+
+#### パターン2: State Enum（型安全、生成コード使用）
 
 ```python
 from _railway.generated.my_workflow_transitions import MyWorkflowState
@@ -139,6 +150,24 @@ def fetch_data(ctx: InputContext) -> tuple[OutputContext, MyWorkflowState]:
     except HTTPError:
         return OutputContext(), MyWorkflowState.FETCH_DATA_FAILURE_HTTP
 ```
+
+遷移テーブルのキーは State Enum：
+
+```python
+transitions = {
+    MyWorkflowState.FETCH_DATA_SUCCESS_DONE: process_data,
+    MyWorkflowState.FETCH_DATA_FAILURE_HTTP: Exit.RED,
+}
+```
+
+#### 使い分け
+
+| パターン | 用途 | メリット |
+|----------|------|---------|
+| Outcome（パターン1） | シンプルなワークフロー | 記述が簡潔、import不要 |
+| State Enum（パターン2） | 複雑なワークフロー | 型安全、IDE補完 |
+
+**Note:** パターン1の詳細な実装は Issue #15 を参照。
 
 ---
 
@@ -423,6 +452,71 @@ class TestDagRunnerContractOnly:
         assert result.context.processed is True
 
 
+class TestDagRunnerWithOutcome:
+    """Test dag_runner with Outcome class (string keys)."""
+
+    def test_workflow_with_outcome(self):
+        """Should work with Outcome and string transition keys."""
+        from railway.core.dag.runner import dag_runner
+        from railway.core.dag.outcome import Outcome
+        from railway.core.dag.state import ExitOutcome
+
+        class WorkflowContext(Contract):
+            value: int
+
+        class Exit(ExitOutcome):
+            DONE = "exit::green::done"
+
+        def node_a() -> tuple[WorkflowContext, Outcome]:
+            return WorkflowContext(value=1), Outcome.success("done")
+
+        def node_b(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
+            return ctx.model_copy(update={"value": 2}), Outcome.success("complete")
+
+        # Transitions use string keys
+        transitions = {
+            "node_a::success::done": node_b,
+            "node_b::success::complete": Exit.DONE,
+        }
+
+        result = dag_runner(start=node_a, transitions=transitions)
+
+        assert result.is_success
+        assert result.context.value == 2
+
+    def test_mixed_outcome_and_enum(self):
+        """Should work with mixed Outcome and Enum keys."""
+        from railway.core.dag.runner import dag_runner
+        from railway.core.dag.outcome import Outcome
+        from railway.core.dag.state import NodeOutcome, ExitOutcome
+
+        class MixedContext(Contract):
+            step: int
+
+        class State(NodeOutcome):
+            B_SUCCESS = "node_b::success::done"
+
+        class Exit(ExitOutcome):
+            DONE = "exit::green::done"
+
+        def node_a() -> tuple[MixedContext, Outcome]:
+            return MixedContext(step=1), Outcome.success("done")
+
+        def node_b(ctx: MixedContext) -> tuple[MixedContext, State]:
+            return ctx.model_copy(update={"step": 2}), State.B_SUCCESS
+
+        # Mix string key and Enum key
+        transitions = {
+            "node_a::success::done": node_b,  # String key
+            State.B_SUCCESS: Exit.DONE,       # Enum key
+        }
+
+        result = dag_runner(start=node_a, transitions=transitions)
+
+        assert result.is_success
+        assert result.context.step == 2
+
+
 class TestDagRunnerAsync:
     """Test async dag_runner."""
 
@@ -554,11 +648,11 @@ class DagRunnerResult:
 
 
 def dag_runner(
-    start: Callable[[], tuple[Any, NodeOutcome]],
-    transitions: dict[NodeOutcome, Callable | ExitOutcome],
+    start: Callable[[], tuple[Any, NodeOutcome | Outcome]],
+    transitions: dict[NodeOutcome | str, Callable | ExitOutcome],
     max_iterations: int = 100,
     strict: bool = True,
-    on_step: Callable[[str, NodeOutcome, Any], None] | None = None,
+    on_step: Callable[[str, str, Any], None] | None = None,
 ) -> DagRunnerResult:
     """
     Execute a DAG workflow.
@@ -566,12 +660,16 @@ def dag_runner(
     The runner executes nodes in sequence, using the transition table
     to determine the next node based on each node's returned state.
 
+    Supports two return value formats:
+    - Outcome: Outcome.success("done") → "node_name::success::done"
+    - State Enum: MyState.NODE_SUCCESS_DONE
+
     Args:
-        start: Initial node function (returns (context, state))
-        transitions: Mapping of states to next nodes or exits
+        start: Initial node function (returns (context, state_or_outcome))
+        transitions: Mapping of states/strings to next nodes or exits
         max_iterations: Maximum number of node executions
         strict: Raise error on undefined states
-        on_step: Optional callback for each step (node_name, state, context)
+        on_step: Optional callback for each step (node_name, state_string, context)
 
     Returns:
         DagRunnerResult with exit code and final context
@@ -580,35 +678,42 @@ def dag_runner(
         MaxIterationsError: If max iterations exceeded
         UndefinedStateError: If strict and undefined state encountered
     """
+    from railway.core.dag.outcome import Outcome, is_outcome
+
     logger.debug(f"DAGワークフロー開始: max_iterations={max_iterations}")
 
     execution_path: list[str] = []
     iteration = 0
 
     # Execute start node
-    context, state = start()
-    node_name = state.node_name
+    context, state_or_outcome = start()
+
+    # Extract node name and state string
+    node_name = _extract_node_name(start, state_or_outcome)
+    state_string = _to_state_string(node_name, state_or_outcome)
+
     execution_path.append(node_name)
     iteration += 1
 
-    logger.debug(f"[{iteration}] {node_name} -> {state}")
+    logger.debug(f"[{iteration}] {node_name} -> {state_string}")
 
     if on_step:
-        on_step(node_name, state, context)
+        on_step(node_name, state_string, context)
 
     # Execution loop
+    current_node_func = start
     while iteration < max_iterations:
-        # Look up next step
-        next_step = transitions.get(state)
+        # Look up next step (try state_or_outcome first, then state_string)
+        next_step = _lookup_transition(transitions, state_or_outcome, state_string)
 
         if next_step is None:
             if strict:
                 raise UndefinedStateError(
-                    f"未定義の状態です: {state} "
+                    f"未定義の状態です: {state_string} "
                     f"(ノード: {node_name})"
                 )
             else:
-                logger.warning(f"未定義の状態: {state}")
+                logger.warning(f"未定義の状態: {state_string}")
                 break
 
         # Check if it's an exit
@@ -623,20 +728,67 @@ def dag_runner(
 
         # Execute next node
         iteration += 1
-        context, state = next_step(context)
-        node_name = state.node_name
+        current_node_func = next_step
+        context, state_or_outcome = next_step(context)
+
+        node_name = _extract_node_name(next_step, state_or_outcome)
+        state_string = _to_state_string(node_name, state_or_outcome)
+
         execution_path.append(node_name)
 
-        logger.debug(f"[{iteration}] {node_name} -> {state}")
+        logger.debug(f"[{iteration}] {node_name} -> {state_string}")
 
         if on_step:
-            on_step(node_name, state, context)
+            on_step(node_name, state_string, context)
 
     # Max iterations reached
     raise MaxIterationsError(
         f"最大イテレーション数 ({max_iterations}) に達しました。"
         f"実行パス: {' -> '.join(execution_path[-10:])}"
     )
+
+
+def _extract_node_name(func: Callable, state_or_outcome: Any) -> str:
+    """Extract node name from function or state."""
+    from railway.core.dag.outcome import is_outcome
+
+    if is_outcome(state_or_outcome):
+        # For Outcome, use function name
+        return getattr(func, "__name__", "unknown")
+    elif hasattr(state_or_outcome, "node_name"):
+        # For NodeOutcome Enum
+        return state_or_outcome.node_name
+    else:
+        return getattr(func, "__name__", "unknown")
+
+
+def _to_state_string(node_name: str, state_or_outcome: Any) -> str:
+    """Convert state or outcome to state string."""
+    from railway.core.dag.outcome import Outcome, is_outcome
+
+    if is_outcome(state_or_outcome):
+        return state_or_outcome.to_state_string(node_name)
+    elif hasattr(state_or_outcome, "value"):
+        return state_or_outcome.value
+    else:
+        return str(state_or_outcome)
+
+
+def _lookup_transition(
+    transitions: dict,
+    state_or_outcome: Any,
+    state_string: str,
+) -> Callable | ExitOutcome | None:
+    """Look up next step in transitions table."""
+    # Try direct lookup first (for Enum keys)
+    if state_or_outcome in transitions:
+        return transitions[state_or_outcome]
+
+    # Try state string lookup (for string keys)
+    if state_string in transitions:
+        return transitions[state_string]
+
+    return None
 
 
 async def async_dag_runner(
@@ -728,6 +880,8 @@ pytest tests/unit/core/dag/test_runner.py -v
 - [ ] `DagRunnerResult` が実行結果を保持
 - [ ] `async_dag_runner()` が非同期ノードをサポート
 - [ ] `on_step` コールバックが動作
+- [ ] **Outcome クラスをサポート**（状態文字列キーで遷移）
+- [ ] **State Enum と 状態文字列の両方をキーとしてサポート**
 - [ ] テストカバレッジ90%以上
 
 ---

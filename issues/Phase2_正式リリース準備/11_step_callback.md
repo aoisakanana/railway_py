@@ -2,7 +2,7 @@
 
 **Phase:** 2c
 **優先度:** 中
-**依存関係:** #10
+**依存関係:** #10, #15
 **見積もり:** 0.5日
 
 ---
@@ -18,42 +18,53 @@ DAGランナーの各ステップで呼び出されるコールバック機構�
 
 ### Step 1: Red（テストを書く）
 
+> **Note:** すべてのテストで Contract を使用。dict は非対応。
+> Outcome クラス（Issue #15）との統合パターンを示す。
+
 ```python
 # tests/unit/core/dag/test_callbacks.py
-"""Tests for step callbacks."""
+"""Tests for step callbacks with Contract-only context."""
 import pytest
+from railway import Contract
 
 
 class TestOnStepCallback:
-    """Test on_step callback functionality."""
+    """Test on_step callback functionality with Contract context."""
 
     def test_callback_called_for_each_step(self):
         """Should call callback for each node execution."""
         from railway.core.dag.runner import dag_runner
         from railway.core.dag.state import NodeOutcome, ExitOutcome
+        from railway.core.dag.outcome import Outcome
+        from railway.core.decorators import node
+
+        class StepContext(Contract):
+            step: int
 
         class State(NodeOutcome):
-            A = "a::success::done"
-            B = "b::success::done"
+            A_SUCCESS_DONE = "a::success::done"
+            B_SUCCESS_DONE = "b::success::done"
 
         class Exit(ExitOutcome):
             DONE = "exit::green::done"
 
-        def node_a() -> tuple[dict, State]:
-            return {"step": 1}, State.A
+        @node(state_enum=State)
+        def node_a() -> tuple[StepContext, Outcome]:
+            return StepContext(step=1), Outcome.success("done")
 
-        def node_b(ctx: dict) -> tuple[dict, State]:
-            return {**ctx, "step": 2}, State.B
+        @node(state_enum=State)
+        def node_b(ctx: StepContext) -> tuple[StepContext, Outcome]:
+            return StepContext(step=2), Outcome.success("done")
 
-        transitions = {State.A: node_b, State.B: Exit.DONE}
+        transitions = {State.A_SUCCESS_DONE: node_b, State.B_SUCCESS_DONE: Exit.DONE}
 
         callback_log = []
 
-        def on_step(node_name: str, state: NodeOutcome, context: dict):
+        def on_step(node_name: str, state: NodeOutcome, context: Contract):
             callback_log.append({
                 "node": node_name,
                 "state": state.value,
-                "context": context.copy(),
+                "context": context.model_dump(),
             })
 
         dag_runner(start=node_a, transitions=transitions, on_step=on_step)
@@ -66,22 +77,28 @@ class TestOnStepCallback:
         """Should pass current context to callback."""
         from railway.core.dag.runner import dag_runner
         from railway.core.dag.state import NodeOutcome, ExitOutcome
+        from railway.core.dag.outcome import Outcome
+        from railway.core.decorators import node
+
+        class KeyContext(Contract):
+            key: str
 
         class State(NodeOutcome):
-            A = "a::success::done"
+            A_SUCCESS_DONE = "a::success::done"
 
         class Exit(ExitOutcome):
             DONE = "exit::green::done"
 
-        def node_a() -> tuple[dict, State]:
-            return {"key": "value"}, State.A
+        @node(state_enum=State)
+        def node_a() -> tuple[KeyContext, Outcome]:
+            return KeyContext(key="value"), Outcome.success("done")
 
-        transitions = {State.A: Exit.DONE}
+        transitions = {State.A_SUCCESS_DONE: Exit.DONE}
 
         received_context = {}
 
-        def on_step(node_name, state, context):
-            received_context.update(context)
+        def on_step(node_name, state, context: Contract):
+            received_context.update(context.model_dump())
 
         dag_runner(start=node_a, transitions=transitions, on_step=on_step)
 
@@ -89,25 +106,34 @@ class TestOnStepCallback:
 
 
 class TestStepRecorder:
-    """Test built-in StepRecorder callback."""
+    """Test built-in StepRecorder callback with Contract context."""
 
     def test_records_execution_history(self):
         """Should record complete execution history."""
         from railway.core.dag.callbacks import StepRecorder
         from railway.core.dag.runner import dag_runner
         from railway.core.dag.state import NodeOutcome, ExitOutcome
+        from railway.core.dag.outcome import Outcome
+        from railway.core.decorators import node
+
+        class EmptyContext(Contract):
+            pass
 
         class State(NodeOutcome):
-            A = "a::success::done"
+            A_SUCCESS_DONE = "a::success::done"
 
         class Exit(ExitOutcome):
             DONE = "exit::green::done"
 
+        @node(state_enum=State)
+        def start() -> tuple[EmptyContext, Outcome]:
+            return EmptyContext(), Outcome.success("done")
+
         recorder = StepRecorder()
 
         dag_runner(
-            start=lambda: ({}, State.A),
-            transitions={State.A: Exit.DONE},
+            start=start,
+            transitions={State.A_SUCCESS_DONE: Exit.DONE},
             on_step=recorder,
         )
 
@@ -120,18 +146,27 @@ class TestStepRecorder:
         from railway.core.dag.callbacks import StepRecorder
         from railway.core.dag.runner import dag_runner
         from railway.core.dag.state import NodeOutcome, ExitOutcome
+        from railway.core.dag.outcome import Outcome
+        from railway.core.decorators import node
+
+        class EmptyContext(Contract):
+            pass
 
         class State(NodeOutcome):
-            A = "a::success::done"
+            A_SUCCESS_DONE = "a::success::done"
 
         class Exit(ExitOutcome):
             DONE = "exit::green::done"
 
+        @node(state_enum=State)
+        def start() -> tuple[EmptyContext, Outcome]:
+            return EmptyContext(), Outcome.success("done")
+
         recorder = StepRecorder()
 
         dag_runner(
-            start=lambda: ({}, State.A),
-            transitions={State.A: Exit.DONE},
+            start=start,
+            transitions={State.A_SUCCESS_DONE: Exit.DONE},
             on_step=recorder,
         )
 
@@ -143,18 +178,27 @@ class TestStepRecorder:
         from railway.core.dag.callbacks import StepRecorder
         from railway.core.dag.runner import dag_runner
         from railway.core.dag.state import NodeOutcome, ExitOutcome
+        from railway.core.dag.outcome import Outcome
+        from railway.core.decorators import node
+
+        class DataContext(Contract):
+            x: int
 
         class State(NodeOutcome):
-            A = "a::success::done"
+            A_SUCCESS_DONE = "a::success::done"
 
         class Exit(ExitOutcome):
             DONE = "exit::green::done"
 
+        @node(state_enum=State)
+        def start() -> tuple[DataContext, Outcome]:
+            return DataContext(x=1), Outcome.success("done")
+
         recorder = StepRecorder()
 
         dag_runner(
-            start=lambda: ({"x": 1}, State.A),
-            transitions={State.A: Exit.DONE},
+            start=start,
+            transitions={State.A_SUCCESS_DONE: Exit.DONE},
             on_step=recorder,
         )
 
@@ -171,20 +215,29 @@ class TestAuditLogger:
         from railway.core.dag.callbacks import AuditLogger
         from railway.core.dag.runner import dag_runner
         from railway.core.dag.state import NodeOutcome, ExitOutcome
+        from railway.core.dag.outcome import Outcome
+        from railway.core.decorators import node
         from unittest.mock import patch
 
+        class EmptyContext(Contract):
+            pass
+
         class State(NodeOutcome):
-            A = "a::success::done"
+            A_SUCCESS_DONE = "a::success::done"
 
         class Exit(ExitOutcome):
             DONE = "exit::green::done"
+
+        @node(state_enum=State)
+        def start() -> tuple[EmptyContext, Outcome]:
+            return EmptyContext(), Outcome.success("done")
 
         with patch("railway.core.dag.callbacks.logger") as mock_logger:
             audit = AuditLogger(workflow_id="test-123")
 
             dag_runner(
-                start=lambda: ({}, State.A),
-                transitions={State.A: Exit.DONE},
+                start=start,
+                transitions={State.A_SUCCESS_DONE: Exit.DONE},
                 on_step=audit,
             )
 

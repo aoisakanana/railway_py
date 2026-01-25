@@ -270,4 +270,4 @@ pytest tests/unit/cli/test_init_dag.py -v
 
 ## 次のIssue
 
-- #13: README.md 更新
+- #17: `railway new entry` コマンド変更
