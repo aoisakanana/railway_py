@@ -5,9 +5,11 @@
 - ファクトリメソッドで生成
 - 状態変更なし
 """
+import fnmatch
 import re
 from enum import Enum
-from typing import Any, Optional, Sequence
+from pathlib import Path
+from typing import Any, Callable, Optional, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -158,6 +160,36 @@ class CodeGuidance(BaseModel):
         return result
 
 
+class YamlTransform(BaseModel):
+    """YAML ファイルの構造変換定義（イミュータブル）。
+
+    YAML ファイルの構造を変換するための定義。
+    transform 関数は ConversionResult を返す純粋関数。
+
+    Attributes:
+        pattern: glob パターン（例: "transition_graphs/**/*.yml"）
+        transform: 変換関数 (dict -> ConversionResult)
+        description: 変換の説明
+    """
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    pattern: str
+    transform: Callable[[dict[str, Any]], Any]  # Returns ConversionResult
+    description: str
+
+    def matches(self, path: Path) -> bool:
+        """パスがパターンにマッチするかどうか。
+
+        Args:
+            path: チェックするパス
+
+        Returns:
+            マッチすれば True
+        """
+        return fnmatch.fnmatch(str(path), self.pattern)
+
+
 class MigrationDefinition(BaseModel):
     """マイグレーション定義（イミュータブル）。
 
@@ -170,13 +202,19 @@ class MigrationDefinition(BaseModel):
     description: str
     file_changes: tuple[FileChange, ...] = Field(default_factory=tuple)
     config_changes: tuple[ConfigChange, ...] = Field(default_factory=tuple)
+    yaml_transforms: tuple[YamlTransform, ...] = Field(default_factory=tuple)
     code_guidance: tuple[CodeGuidance, ...] = Field(default_factory=tuple)
+    post_migration_commands: tuple[str, ...] = Field(default_factory=tuple)
     warnings: tuple[str, ...] = Field(default_factory=tuple)
 
     @property
     def total_changes(self) -> int:
         """変更の合計数。"""
-        return len(self.file_changes) + len(self.config_changes)
+        return (
+            len(self.file_changes)
+            + len(self.config_changes)
+            + len(self.yaml_transforms)
+        )
 
     @property
     def has_breaking_changes(self) -> bool:

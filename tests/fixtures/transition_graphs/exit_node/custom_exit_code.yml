@@ -1,0 +1,36 @@
+version: "1.0"
+entrypoint: custom_exit_code_test
+description: "カスタム終了コードテスト"
+
+nodes:
+  start:
+    description: "開始"
+
+  exit:
+    success:
+      done:
+        description: "正常終了"
+        # exit_code 省略 → 0
+
+    failure:
+      error:
+        description: "異常終了"
+        # exit_code 省略 → 1
+
+    warning:
+      low_disk:
+        description: "ディスク容量警告"
+        exit_code: 2
+
+      high_memory:
+        description: "メモリ使用量警告"
+        exit_code: 3
+
+start: start
+
+transitions:
+  start:
+    success::done: exit.success.done
+    warning::low_disk: exit.warning.low_disk
+    warning::high_memory: exit.warning.high_memory
+    failure::error: exit.failure.error

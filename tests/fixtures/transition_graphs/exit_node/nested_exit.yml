@@ -1,0 +1,28 @@
+version: "1.0"
+entrypoint: nested_exit_test
+description: "ネストした終端ノードテスト"
+
+nodes:
+  process:
+    description: "処理ノード"
+
+  exit:
+    success:
+      done:
+        description: "正常終了"
+      skipped:
+        description: "スキップ終了"
+    failure:
+      timeout:
+        description: "タイムアウト"
+      validation:
+        description: "バリデーションエラー"
+
+start: process
+
+transitions:
+  process:
+    success::done: exit.success.done
+    success::skipped: exit.success.skipped
+    failure::timeout: exit.failure.timeout
+    failure::validation: exit.failure.validation

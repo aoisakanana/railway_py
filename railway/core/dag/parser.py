@@ -4,9 +4,15 @@ YAML parser for transition graphs.
 This module provides pure functions for parsing YAML content
 into TransitionGraph data structures. IO operations are separated
 at the boundary (load_transition_graph).
+
+New in v0.12.0:
+- Nested node parsing under nodes.exit
+- Automatic module/function resolution from YAML path
+- Exit code auto-detection (success=0, failure=1)
 """
 from __future__ import annotations
 
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +27,15 @@ from railway.core.dag.types import (
 )
 
 
+# Reserved keys that indicate a leaf node (not intermediate)
+_LEAF_KEYS: frozenset[str] = frozenset({
+    "description",
+    "module",
+    "function",
+    "exit_code",
+})
+
+
 class ParseError(Exception):
     """Error during YAML parsing."""
 
@@ -28,6 +43,131 @@ class ParseError(Exception):
 
 
 SUPPORTED_VERSIONS = ("1.0",)
+
+
+# =============================================================================
+# Exit Node Parsing (v0.12.0+)
+# =============================================================================
+
+
+def parse_nodes(data: dict[str, Any]) -> Sequence[NodeDefinition]:
+    """Parse nodes section with nested structure support (pure function).
+
+    Supports both flat nodes and nested exit nodes:
+    - Flat: {"start": {"description": "..."}}
+    - Nested: {"exit": {"success": {"done": {"description": "..."}}}}
+
+    Auto-resolution:
+    - module: from YAML path (e.g., "nodes.start")
+    - function: from key name (e.g., "start")
+    - exit_code: success=0, failure/others=1
+
+    Args:
+        data: YAML nodes section dictionary
+
+    Returns:
+        Immutable sequence of NodeDefinition
+
+    Example:
+        >>> nodes_data = {"start": {"description": "開始"}}
+        >>> result = parse_nodes(nodes_data)
+        >>> result[0].name
+        'start'
+    """
+    return tuple(_parse_nodes_recursive(data, "nodes"))
+
+
+def _parse_nodes_recursive(
+    data: dict[str, Any],
+    path_prefix: str,
+) -> Iterator[NodeDefinition]:
+    """Recursively parse node definitions (generator).
+
+    Lazy evaluation for memory efficiency.
+    Collect with tuple() for immutable sequence.
+    """
+    for key, value in data.items():
+        current_path = f"{path_prefix}.{key}"
+
+        if _is_leaf_node(value):
+            yield _parse_leaf_node(key, value, current_path)
+        else:
+            # Intermediate node - recurse
+            yield from _parse_nodes_recursive(value, current_path)
+
+
+def _is_leaf_node(value: dict[str, Any] | None) -> bool:
+    """Determine if a node value is a leaf node (pure function).
+
+    Leaf node conditions:
+    1. None or empty dict
+    2. Not a dict
+    3. Contains only reserved keys (no child nodes)
+
+    Args:
+        value: Node value from YAML
+
+    Returns:
+        True if this is a leaf node
+    """
+    if value is None:
+        return True
+    if not isinstance(value, dict):
+        return True
+    if len(value) == 0:
+        return True
+
+    # Check for non-reserved keys (child nodes)
+    non_reserved_keys = set(value.keys()) - _LEAF_KEYS
+    return len(non_reserved_keys) == 0
+
+
+def _parse_leaf_node(
+    key: str,
+    data: dict[str, Any] | None,
+    yaml_path: str,
+) -> NodeDefinition:
+    """Parse a leaf node definition (pure function).
+
+    Auto-resolution:
+    - module: explicit value or yaml_path
+    - function: explicit value or key
+    """
+    data = data or {}
+
+    # Auto-resolve with explicit override
+    module = data.get("module") or yaml_path
+    function = data.get("function") or key
+
+    # Exit node detection (nodes.exit.* path)
+    is_exit = yaml_path.startswith("nodes.exit.")
+
+    # Exit code resolution
+    exit_code = _resolve_exit_code(yaml_path, data) if is_exit else None
+
+    return NodeDefinition(
+        name=yaml_path.removeprefix("nodes."),
+        module=module,
+        function=function,
+        description=data.get("description", ""),
+        is_exit=is_exit,
+        exit_code=exit_code,
+    )
+
+
+def _resolve_exit_code(yaml_path: str, data: dict[str, Any]) -> int:
+    """Resolve exit code for exit nodes (pure function).
+
+    Priority:
+    1. Explicit exit_code in data
+    2. exit.success.* → 0
+    3. Others (failure, warning, etc.) → 1
+    """
+    if "exit_code" in data:
+        return int(data["exit_code"])
+    if ".success." in yaml_path:
+        return 0
+    return 1  # failure, warning, and others default to 1
 
 
 def parse_transition_graph(yaml_content: str) -> TransitionGraph:
@@ -93,17 +233,14 @@ def _build_graph(data: dict[str, Any]) -> TransitionGraph:
     _require_field(data, "start")
     _require_field(data, "transitions")
 
-    # Parse nodes
+    # Parse nodes (v0.12.0: use new nested parser with auto-resolution)
     nodes_data = data.get("nodes", {})
     if not isinstance(nodes_data, dict):
         nodes_data = {}
 
-    nodes = tuple(
-        _parse_node_definition(name, node_data)
-        for name, node_data in nodes_data.items()
-    )
+    nodes = parse_nodes(nodes_data)
 
-    # Parse exits
+    # Parse exits (legacy format, kept for backward compatibility)
     exits_data = data.get("exits", {})
     if not isinstance(exits_data, dict):
         exits_data = {}
@@ -130,7 +267,7 @@ def _build_graph(data: dict[str, Any]) -> TransitionGraph:
         version=str(data["version"]),
         entrypoint=str(data["entrypoint"]),
         description=str(data.get("description", "")),
-        nodes=nodes,
+        nodes=tuple(nodes),  # Ensure tuple for immutability
         exits=exits,
         transitions=tuple(all_transitions),
         start_node=str(data["start"]),

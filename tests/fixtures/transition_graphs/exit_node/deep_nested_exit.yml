@@ -1,0 +1,42 @@
+version: "1.0"
+entrypoint: deep_nested_exit_test
+description: "深いネストの終端ノードテスト"
+
+nodes:
+  start:
+    description: "開始"
+
+  exit:
+    success:
+      done:
+        description: "正常終了"
+
+    failure:
+      ssh:
+        handshake:
+          description: "SSHハンドシェイク失敗"
+        authentication:
+          description: "SSH認証失敗"
+        unknown_host:
+          description: "不明なホスト"
+      api:
+        request:
+          bad_format:
+            description: "リクエスト形式エラー"
+          dns:
+            description: "DNS解決失敗"
+        response:
+          timeout:
+            description: "レスポンスタイムアウト"
+          parse_error:
+            description: "レスポンスパースエラー"
+
+start: start
+
+transitions:
+  start:
+    success::done: exit.success.done
+    failure::ssh_handshake: exit.failure.ssh.handshake
+    failure::ssh_auth: exit.failure.ssh.authentication
+    failure::api_dns: exit.failure.api.request.dns
+    failure::api_timeout: exit.failure.api.response.timeout

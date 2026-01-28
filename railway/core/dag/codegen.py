@@ -3,17 +3,58 @@ Code generator for transition graphs.
 
 Generates Python code from TransitionGraph data structures.
 All generation functions are pure - they take data and return strings.
+
+New in v0.12.0:
+- Exit node support (EXIT_CODES mapping)
+- Aliased imports for exit nodes
+- _node_name attribute assignments
 """
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Sequence
 
-from railway.core.dag.types import TransitionGraph
+from railway.core.dag.types import NodeDefinition, TransitionGraph
+
+
+# =============================================================================
+# Helper Functions (Pure)
+# =============================================================================
+
+
+def _find_node_by_name(
+    nodes: Sequence[NodeDefinition],
+    name: str,
+) -> NodeDefinition | None:
+    """Find a node by name (pure function).
+
+    Args:
+        nodes: Sequence of NodeDefinition
+        name: Node name to find
+
+    Returns:
+        NodeDefinition if found, None otherwise
+    """
+    return next((n for n in nodes if n.name == name), None)
+
+
+def _node_to_alias(node: NodeDefinition) -> str:
+    """Generate alias from node name (pure function).
+
+    Exit nodes may have conflicting function names (e.g., multiple 'done'),
+    so we use the full node path as alias.
+
+    Example: "exit.success.done" → "_exit_success_done"
+
+    Note:
+        Underscore prefix avoids collision with regular nodes.
+        Convention: regular node names don't start with "_exit_".
+    """
+    return "_" + node.name.replace(".", "_")
 
 
 def generate_transition_code(graph: TransitionGraph, source_file: str) -> str:
-    """
-    Generate complete transition code file.
+    """Generate complete transition code file.
 
     This is the main entry point for code generation.
     Returns a complete, valid Python file as a string.
@@ -41,15 +82,23 @@ def generate_transition_code(graph: TransitionGraph, source_file: str) -> str:
         _generate_framework_imports(),
         generate_imports(graph),
         "",
+        generate_node_name_assignments(graph),
+        "",
+        generate_start_node_constant(graph),
+        "",
         generate_state_enum(graph),
         "",
         generate_exit_enum(graph),
+        "",
+        generate_exit_codes(graph),
         "",
         generate_transition_table(graph),
         "",
         generate_metadata(graph, source_file),
         "",
         _generate_helper_functions(class_name, start_function),
+        "",
+        generate_run_helper(),
     ]
 
     return "\n".join(parts)
@@ -69,15 +118,17 @@ def _generate_header(source_file: str) -> str:
 
 def _generate_framework_imports() -> str:
     """Generate framework imports."""
-    return """from typing import Callable
+    return """from typing import Any, Callable
+
+from railway.core.dag.runner import dag_runner, async_dag_runner, DagRunnerResult, Exit
 from railway.core.dag.state import NodeOutcome, ExitOutcome
-from railway.core.dag.runner import Exit
 """
 
 
 def generate_imports(graph: TransitionGraph) -> str:
-    """
-    Generate import statements for all nodes.
+    """Generate import statements for all nodes (including exit nodes).
+
+    Exit nodes use aliased imports to avoid function name conflicts.
 
     Args:
         graph: Transition graph
@@ -87,7 +138,153 @@ def generate_imports(graph: TransitionGraph) -> str:
     """
     lines = ["# Node imports"]
     for node in graph.nodes:
-        lines.append(f"from {node.module} import {node.function}")
+        if not node.has_handler:
+            continue
+
+        if node.is_exit:
+            # Exit nodes use alias (e.g., done as _exit_success_done)
+            alias = _node_to_alias(node)
+            lines.append(f"from {node.module} import {node.function} as {alias}")
+        else:
+            # Regular nodes
+            lines.append(f"from {node.module} import {node.function}")
+
+    return "\n".join(lines)
+
+
+def generate_start_node_constant(graph: TransitionGraph) -> str:
+    """Generate START_NODE constant (pure function).
+
+    Args:
+        graph: Transition graph
+
+    Returns:
+        START_NODE constant definition
+    """
+    start_node = _find_node_by_name(graph.nodes, graph.start_node)
+    if start_node is None:
+        return "# START_NODE: not found"
+
+    return f"# Start node (from YAML: start: {graph.start_node})\nSTART_NODE = {start_node.function}"
+
+
+def generate_run_helper() -> str:
+    """Generate run() and run_async() helper functions (pure function).
+
+    Returns:
+        Helper function definitions
+    """
+    return '''
+def run(
+    initial_context: Any,
+    *,
+    on_step: Callable[[str, str, Any], None] | None = None,
+    strict: bool = True,
+    max_iterations: int = 100,
+) -> DagRunnerResult:
+    """Execute this workflow (synchronous).
+
+    Automatically starts from YAML's start node and uses
+    TRANSITION_TABLE and EXIT_CODES.
+
+    Args:
+        initial_context: Initial context to pass to start node
+        on_step: Callback called for each step
+        strict: Raise error on undefined states (default: True)
+        max_iterations: Maximum iterations (default: 100)
+
+    Returns:
+        DagRunnerResult: Execution result
+    """
+    return dag_runner(
+        start=lambda: START_NODE(initial_context),
+        transitions=TRANSITION_TABLE,
+        exit_codes=EXIT_CODES,
+        on_step=on_step,
+        strict=strict,
+        max_iterations=max_iterations,
+    )
+
+
+async def run_async(
+    initial_context: Any,
+    *,
+    on_step: Callable[[str, str, Any], None] | None = None,
+    strict: bool = True,
+    max_iterations: int = 100,
+) -> DagRunnerResult:
+    """Execute this workflow (asynchronous).
+
+    For workflows using async nodes.
+
+    Args:
+        initial_context: Initial context to pass to start node
+        on_step: Callback called for each step
+        strict: Raise error on undefined states (default: True)
+        max_iterations: Maximum iterations (default: 100)
+
+    Returns:
+        DagRunnerResult: Execution result
+    """
+    return await async_dag_runner(
+        start=lambda: START_NODE(initial_context),
+        transitions=TRANSITION_TABLE,
+        exit_codes=EXIT_CODES,
+        on_step=on_step,
+        strict=strict,
+        max_iterations=max_iterations,
+    )
+'''
+
+
+def generate_exit_codes(graph: TransitionGraph) -> str:
+    """Generate EXIT_CODES mapping for exit nodes (pure function).
+
+    Args:
+        graph: Transition graph
+
+    Returns:
+        EXIT_CODES dict definition as string
+    """
+    exit_nodes = tuple(
+        n for n in graph.nodes
+        if n.is_exit and n.exit_code is not None
+    )
+
+    if not exit_nodes:
+        return "EXIT_CODES: dict[str, int] = {}"
+
+    entries = [f'    "{node.name}": {node.exit_code},' for node in exit_nodes]
+    return "\n".join([
+        "EXIT_CODES: dict[str, int] = {",
+        *entries,
+        "}",
+    ])
+
+
+def generate_node_name_assignments(graph: TransitionGraph) -> str:
+    """Generate _node_name attribute assignments for all nodes (pure function).
+
+    dag_runner needs _node_name to identify nodes during execution.
+
+    Args:
+        graph: Transition graph
+
+    Returns:
+        Assignment statements as string
+    """
+    lines = ["# Node name attributes (for dag_runner)"]
+
+    for node in graph.nodes:
+        if not node.has_handler:
+            continue
+
+        if node.is_exit:
+            alias = _node_to_alias(node)
+            lines.append(f'{alias}._node_name = "{node.name}"')
+        else:
+            lines.append(f'{node.function}._node_name = "{node.name}"')
+
     return "\n".join(lines)
 
 
@@ -152,10 +349,10 @@ def generate_exit_enum(graph: TransitionGraph) -> str:
 
 
 def generate_transition_table(graph: TransitionGraph) -> str:
-    """
-    Generate transition table mapping state strings to next steps.
+    """Generate transition table mapping state strings to next steps.
 
     Uses string keys for simplicity - matches Outcome-based API.
+    Supports both legacy (exit::) and new (exit.) formats.
 
     Args:
         graph: Transition graph
@@ -171,8 +368,20 @@ def generate_transition_table(graph: TransitionGraph) -> str:
         # State string key: "node_name::outcome_type::detail"
         state_key = f"{transition.from_node}::{transition.from_state}"
 
-        if transition.is_exit:
-            # Exit: "exit::color::name"
+        target = transition.to_target
+
+        # New format: exit.* targets (v0.12.0+)
+        if target.startswith("exit."):
+            target_node = _find_node_by_name(graph.nodes, target)
+            if target_node and target_node.has_handler:
+                # Exit node with handler - use alias
+                alias = _node_to_alias(target_node)
+                lines.append(f'    "{state_key}": {alias},')
+            # Exit nodes without handler are handled by EXIT_CODES in dag_runner
+            continue
+
+        # Legacy format: exit::name
+        if target.startswith("exit::"):
             exit_name = transition.exit_name
             exit_def = graph.get_exit(exit_name) if exit_name else None
             if exit_def:
@@ -180,14 +389,15 @@ def generate_transition_table(graph: TransitionGraph) -> str:
             else:
                 color = "red"  # default to error
             target_ref = f'Exit.code("{color}", "{exit_name}")'
-        else:
-            # Find the node to get function name
-            target_node = graph.get_node(transition.to_target)
-            if target_node:
-                target_ref = target_node.function
-            else:
-                target_ref = f'"# ERROR: unknown node {transition.to_target}"'
+            lines.append(f'    "{state_key}": {target_ref},')
+            continue
 
+        # Regular node target
+        target_node = graph.get_node(target)
+        if target_node:
+            target_ref = target_node.function
+        else:
+            target_ref = f'"# ERROR: unknown node {target}"'
         lines.append(f'    "{state_key}": {target_ref},')
 
     lines.append("}")

@@ -676,6 +676,94 @@ railway new node my_node --force
 
 ---
 
+## Step 10: DAGワークフローと終端ノード（5分）
+
+条件分岐が必要なワークフローには `dag_runner` を使用します。
+終端ノードを使うと、ワークフロー終了時に処理を実行できます。
+
+### 10.1 DAGワークフローの作成
+
+```bash
+railway new entry alert_workflow
+```
+
+### 10.2 遷移グラフを定義
+
+`transition_graphs/alert_workflow_*.yml` を編集:
+
+```yaml
+version: "1.0"
+entrypoint: alert_workflow
+description: "アラート処理ワークフロー"
+
+nodes:
+  check_severity:
+    description: "重要度をチェック"
+
+  escalate:
+    description: "エスカレーション"
+
+  # 終端ノード（nodes.exit 配下）
+  exit:
+    success:
+      done:
+        description: "正常終了（Slack通知）"
+    failure:
+      timeout:
+        description: "タイムアウト"
+
+start: check_severity
+
+transitions:
+  check_severity:
+    success::critical: escalate
+    success::normal: exit.success.done
+
+  escalate:
+    success::done: exit.success.done
+    failure::timeout: exit.failure.timeout
+```
+
+### 10.3 終端ノードを実装
+
+`src/nodes/exit/success/done.py`:
+
+```python
+from railway import node
+
+@node
+def done(ctx):
+    """終端ノードは Context のみを返す（Outcome 不要）。"""
+    print(f"[完了] ワークフロー正常終了")
+    # Slack通知などの終了処理を記述
+    return {"status": "completed", "original": ctx}
+```
+
+**ポイント:**
+- 終端ノードは **Context のみを返す**（Outcome 不要）
+- 通常のノードと同じ書き方で実装
+- module/function は省略可能（自動解決）
+
+### 10.4 コード生成と実行
+
+```bash
+railway sync transition --entry alert_workflow
+railway run alert_workflow
+```
+
+### 10.5 終端ノードの利点
+
+| 項目 | 説明 |
+|------|------|
+| **一貫性** | 通常のノードと同じ書き方 |
+| **テスト可能性** | 純粋関数としてテスト可能 |
+| **表現力** | 詳細な終了状態を表現（done, skipped, timeout など） |
+| **自動解決** | module/function は省略可能 |
+
+🎉 **コールバックの概念を知らなくても、終了処理を実装できます！**
+
+---
+
 ## 次のステップ
 
 おめでとうございます！🎉 Railwayの基本と応用を習得しました。
@@ -691,6 +779,8 @@ railway new node my_node --force
 - **3層エラーハンドリング** (retry_on, デフォルト伝播, on_error)
 - **on_step でデバッグ/監査**
 - **バージョン管理** (`railway update`, `railway backup`)
+- **DAGワークフロー** (dag_runner, 条件分岐)
+- **終端ノード** (nodes.exit, 終了時処理)
 
 ### さらに学ぶ
 

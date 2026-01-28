@@ -117,11 +117,32 @@ Phase 2 の正式リリース準備タスクの進捗を記録します。
 
 ---
 
+## 未着手のIssue（Phase2_正式リリース準備/ 直下）
+
+### Issue #24: exits 構造の統一（nodes と同じ形式に拡張）
+
+`exits` に `module`, `function` を追加し、exit時に関数を実行できるようにする。
+
+### Issue #25: dag_runner での exit ノード実行
+
+dag_runner が exit に到達した際、exit handler 関数を実行する。
+
+**依存関係:** Issue #24
+
+### Issue #26: exit handler ドキュメント追加
+
+exit handler 機能のドキュメントを追加。
+
+**依存関係:** Issue #24, #25
+
+---
+
 ## 次のアクション
 
 - [ ] バージョン番号の更新検討（v0.11.3）
 - [ ] 変更内容のgit commit
 - [ ] PyPIへのリリース準備
+- [ ] Issue #24-26 の実装（exit handler 対応）
 
 ---
 

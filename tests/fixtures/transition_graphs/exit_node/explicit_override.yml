@@ -1,0 +1,23 @@
+version: "1.0"
+entrypoint: explicit_override_test
+description: "明示的な module/function 指定テスト"
+
+nodes:
+  # module のみ明示
+  process:
+    module: custom.module.path
+    description: "カスタムモジュール"
+
+  exit:
+    success:
+      # function を明示（キー名と異なる）
+      session_check:
+        module: nodes.exit.handlers
+        function: notify_and_exit
+        description: "セッションチェック後終了"
+
+start: process
+
+transitions:
+  process:
+    success::done: exit.success.session_check

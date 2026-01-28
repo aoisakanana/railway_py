@@ -1,0 +1,57 @@
+version: "1.0"
+entrypoint: multiple_exits_test
+description: "複数終端ノードテスト"
+
+nodes:
+  fetch_data:
+    description: "データ取得"
+
+  validate:
+    description: "検証"
+
+  transform:
+    description: "変換"
+
+  save:
+    description: "保存"
+
+  exit:
+    success:
+      complete:
+        description: "完全成功"
+      partial:
+        description: "部分成功"
+      dry_run:
+        description: "ドライラン完了"
+
+    failure:
+      fetch:
+        description: "取得失敗"
+      validation:
+        description: "検証失敗"
+      transform:
+        description: "変換失敗"
+      save:
+        description: "保存失敗"
+
+start: fetch_data
+
+transitions:
+  fetch_data:
+    success::done: validate
+    failure::error: exit.failure.fetch
+
+  validate:
+    success::done: transform
+    success::skip: exit.success.dry_run
+    failure::error: exit.failure.validation
+
+  transform:
+    success::done: save
+    success::partial: save
+    failure::error: exit.failure.transform
+
+  save:
+    success::done: exit.success.complete
+    success::partial: exit.success.partial
+    failure::error: exit.failure.save

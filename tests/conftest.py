@@ -14,6 +14,47 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures" / "transition_graphs"
 
 
 @pytest.fixture
+def exit_node_fixtures() -> Path:
+    """終端ノードテスト用フィクスチャディレクトリ。
+
+    用途:
+    - Issue #23-#30 の TDD テスト
+    - 終端ノード（nodes.exit 配下）の各種パターン
+    """
+    return FIXTURES_DIR / "exit_node"
+
+
+@pytest.fixture
+def invalid_fixtures() -> Path:
+    """無効な YAML テスト用フィクスチャディレクトリ。
+
+    用途:
+    - バリデータのエラーケーステスト
+    - パーサーの異常系テスト
+    """
+    return FIXTURES_DIR / "invalid"
+
+
+def load_fixture(fixture_dir: Path, name: str) -> Path:
+    """フィクスチャファイルのパスを取得（純粋関数）。
+
+    Args:
+        fixture_dir: フィクスチャディレクトリ
+        name: ファイル名
+
+    Returns:
+        フィクスチャファイルのパス
+
+    Raises:
+        FileNotFoundError: ファイルが存在しない場合
+    """
+    path = fixture_dir / name
+    if not path.exists():
+        raise FileNotFoundError(f"Fixture not found: {path}")
+    return path
+
+
+@pytest.fixture
 def simple_yaml() -> Path:
     """最小構成YAML（1ノード、2終了）
 
@@ -38,7 +79,7 @@ def branching_yaml() -> Path:
 
 
 @pytest.fixture
-def top2_yaml() -> Path:
+def test_entry_yaml() -> Path:
     """事例1完全版YAML（8ノード、4終了）
 
     用途:
@@ -46,7 +87,7 @@ def top2_yaml() -> Path:
     - 複雑な遷移パターンの検証
     - E2Eテストのベースライン
     """
-    return FIXTURES_DIR / "top2_20250125000000.yml"
+    return FIXTURES_DIR / "test_entry_20250125000000.yml"
 
 
 @pytest.fixture

@@ -12,20 +12,39 @@ from datetime import datetime
 
 @dataclass(frozen=True)
 class NodeDefinition:
-    """
-    Definition of a node in the transition graph.
+    """Definition of a node in the transition graph (with exit node support).
 
     Attributes:
-        name: Unique identifier for the node
+        name: Unique identifier (e.g., "start", "exit.success.done")
         module: Python module path (e.g., "nodes.fetch_alert")
         function: Function name to import from module
         description: Human-readable description
+        is_exit: Whether this is an exit node
+        exit_code: Exit code for exit nodes (None for regular nodes)
+
+    Note:
+        Exit nodes are under nodes.exit in YAML (e.g., exit.success.done).
+        Exit code defaults are set by the parser:
+        - exit.success.* → 0
+        - exit.failure.* → 1
+        - Custom values can be specified with exit_code field
     """
 
     name: str
     module: str
     function: str
     description: str
+    is_exit: bool = False
+    exit_code: int | None = None
+
+    @property
+    def has_handler(self) -> bool:
+        """Check if this node has an executable handler function.
+
+        A handler exists when both module and function are non-empty.
+        Exit nodes can also have handlers for cleanup/notification.
+        """
+        return bool(self.module and self.function)
 
 
 @dataclass(frozen=True)
@@ -61,8 +80,13 @@ class StateTransition:
 
     @property
     def is_exit(self) -> bool:
-        """Check if this transition leads to an exit."""
-        return self.to_target.startswith("exit::")
+        """Check if this transition leads to an exit.
+
+        Supports both formats:
+        - Legacy: exit::green_success (v0.11.x)
+        - New: exit.success.done (v0.12.0+)
+        """
+        return self.to_target.startswith("exit::") or self.to_target.startswith("exit.")
 
     @property
     def exit_name(self) -> str | None:

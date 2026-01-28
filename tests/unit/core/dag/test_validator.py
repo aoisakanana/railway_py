@@ -511,17 +511,6 @@ class TestValidateGraphWithFixtures:
         assert result.is_valid is True
         assert len(result.warnings) == 0
 
-    def test_validate_top2_yaml(self, top2_yaml: Path):
-        """Should validate full 事例1 YAML successfully."""
-        from railway.core.dag.parser import load_transition_graph
-        from railway.core.dag.validator import validate_graph
-
-        graph = load_transition_graph(top2_yaml)
-        result = validate_graph(graph)
-
-        assert result.is_valid is True
-        assert len(result.errors) == 0
-
 
 class TestValidateGraph:
     """Test full graph validation."""

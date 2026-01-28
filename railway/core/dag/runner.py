@@ -112,12 +112,12 @@ def _get_node_name(func: Callable) -> str:
 def dag_runner(
     start: Callable[[], tuple[Any, Outcome]],
     transitions: dict[str, Callable | str],
+    exit_codes: dict[str, int] | None = None,
     max_iterations: int = 100,
     strict: bool = True,
     on_step: Callable[[str, str, Any], None] | None = None,
 ) -> DagRunnerResult:
-    """
-    Execute a DAG workflow.
+    """Execute a DAG workflow.
 
     The runner executes nodes in sequence, using the transition table
     to determine the next node based on each node's returned state.
@@ -129,6 +129,7 @@ def dag_runner(
     Args:
         start: Initial node function (returns (context, Outcome))
         transitions: Mapping of state strings to next nodes or exit codes
+        exit_codes: Mapping of exit node names to exit codes (v0.12.0+)
         max_iterations: Maximum number of node executions
         strict: Raise error on undefined states
         on_step: Optional callback for each step (node_name, state_string, context)
@@ -150,6 +151,7 @@ def dag_runner(
     """
     logger.debug(f"DAGワークフロー開始: max_iterations={max_iterations}")
 
+    exit_codes = exit_codes or {}
     execution_path: list[str] = []
     iteration = 0
 
@@ -198,8 +200,33 @@ def dag_runner(
 
         # Execute next node
         iteration += 1
+        next_node_name = _get_node_name(next_step)
+
+        # Check if it's an exit node (v0.12.0+)
+        if next_node_name in exit_codes:
+            # Exit node returns Context only (no Outcome)
+            final_context = next_step(context)
+            execution_path.append(next_node_name)
+
+            exit_code_value = exit_codes[next_node_name]
+            color = "green" if exit_code_value == 0 else "red"
+            exit_state = f"exit::{color}::{next_node_name}"
+
+            logger.debug(f"DAGワークフロー終了（終端ノード）: {exit_state}")
+
+            if on_step:
+                on_step(next_node_name, exit_state, final_context)
+
+            return DagRunnerResult(
+                exit_code=exit_state,
+                context=final_context,
+                iterations=iteration,
+                execution_path=tuple(execution_path),
+            )
+
+        # Regular node returns (context, Outcome)
         context, outcome = next_step(context)
-        node_name = _get_node_name(next_step)
+        node_name = next_node_name
         state_string = outcome.to_state_string(node_name)
 
         execution_path.append(node_name)
@@ -219,18 +246,19 @@ def dag_runner(
 async def async_dag_runner(
     start: Callable[[], tuple[Any, Outcome]],
     transitions: dict[str, Callable | str],
+    exit_codes: dict[str, int] | None = None,
     max_iterations: int = 100,
     strict: bool = True,
     on_step: Callable[[str, str, Any], None] | None = None,
 ) -> DagRunnerResult:
-    """
-    Execute a DAG workflow with async support.
+    """Execute a DAG workflow with async support.
 
     Same as dag_runner but awaits async nodes.
 
     Args:
         start: Initial node function (sync or async)
         transitions: Mapping of state strings to next nodes or exit codes
+        exit_codes: Mapping of exit node names to exit codes (v0.12.0+)
         max_iterations: Maximum number of node executions
         strict: Raise error on undefined states
         on_step: Optional callback for each step
@@ -244,6 +272,7 @@ async def async_dag_runner(
     """
     logger.debug(f"非同期DAGワークフロー開始: max_iterations={max_iterations}")
 
+    exit_codes = exit_codes or {}
     execution_path: list[str] = []
     iteration = 0
 
@@ -275,7 +304,7 @@ async def async_dag_runner(
                 execution_path=tuple(execution_path),
             )
 
-        # Check if it's an exit
+        # Check if it's an exit (legacy format)
         if isinstance(next_step, str) and next_step.startswith("exit::"):
             return DagRunnerResult(
                 exit_code=next_step,
@@ -285,13 +314,39 @@ async def async_dag_runner(
             )
 
         iteration += 1
+        next_node_name = _get_node_name(next_step)
 
+        # Check if it's an exit node (v0.12.0+)
+        if next_node_name in exit_codes:
+            # Exit node returns Context only (no Outcome)
+            if asyncio.iscoroutinefunction(next_step):
+                final_context = await next_step(context)
+            else:
+                final_context = next_step(context)
+
+            execution_path.append(next_node_name)
+
+            exit_code_value = exit_codes[next_node_name]
+            color = "green" if exit_code_value == 0 else "red"
+            exit_state = f"exit::{color}::{next_node_name}"
+
+            if on_step:
+                on_step(next_node_name, exit_state, final_context)
+
+            return DagRunnerResult(
+                exit_code=exit_state,
+                context=final_context,
+                iterations=iteration,
+                execution_path=tuple(execution_path),
+            )
+
+        # Regular node returns (context, Outcome)
         if asyncio.iscoroutinefunction(next_step):
             context, outcome = await next_step(context)
         else:
             context, outcome = next_step(context)
 
-        node_name = _get_node_name(next_step)
+        node_name = next_node_name
         state_string = outcome.to_state_string(node_name)
         execution_path.append(node_name)
 
