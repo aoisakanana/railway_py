@@ -5,7 +5,7 @@ TDD Red Phase: 失敗するテストを先に作成。
 Issue #40: 終端ノード例外伝播テスト追加
 ADR-004 の仕様「終端ノードで発生した例外はそのまま伝播する」を検証。
 
-v0.13.0 破壊的変更:
+v0.12.3 破壊的変更:
 - 終端ノードは ExitContract サブクラスを返す必要がある
 - dict, None 等を返すと ExitNodeTypeError
 """
@@ -65,7 +65,7 @@ class TestDagRunnerExitContract:
         assert "exit.success.done" in result.execution_path
 
     def test_context_only_raises_exit_node_type_error(self) -> None:
-        """v0.13.0: Context のみ返す終端ノードは ExitNodeTypeError。"""
+        """v0.12.3: Context のみ返す終端ノードは ExitNodeTypeError。"""
 
         @node
         def start() -> tuple[StartContext, Outcome]:
@@ -85,7 +85,7 @@ class TestDagRunnerExitContract:
         assert "dict" in str(exc_info.value)
 
     def test_none_return_raises_exit_node_type_error(self) -> None:
-        """v0.13.0: None を返す終端ノードは ExitNodeTypeError。"""
+        """v0.12.3: None を返す終端ノードは ExitNodeTypeError。"""
 
         @node
         def start() -> tuple[StartContext, Outcome]:

@@ -1,6 +1,6 @@
-"""Tests for dag_runner exit node execution (v0.13.0 ExitContract 強制).
+"""Tests for dag_runner exit node execution (v0.12.3 ExitContract 強制).
 
-v0.13.0 破壊的変更:
+v0.12.3 破壊的変更:
 - 終端ノードは ExitContract サブクラスを返す必要がある
 - dict, None 等を返すと ExitNodeTypeError
 """
@@ -204,7 +204,7 @@ class TestDagRunnerExitNode:
         assert "exit.success.done" in result.execution_path
 
     def test_exit_node_returning_dict_raises_error(self) -> None:
-        """v0.13.0: 終端ノードが dict を返すと ExitNodeTypeError。"""
+        """v0.12.3: 終端ノードが dict を返すと ExitNodeTypeError。"""
 
         def start():
             return {}, Outcome.success("done")

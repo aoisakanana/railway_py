@@ -1,6 +1,6 @@
 """DAG ランナー関連のエラー定義（Issue #46）。
 
-v0.13.0 で導入された型安全性強制のためのカスタム例外。
+v0.12.3 で導入された型安全性強制のためのカスタム例外。
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ class LegacyExitFormatError(ValueError):
     def __init__(self, legacy_format: str) -> None:
         self.legacy_format = legacy_format
         message = (
-            f"レガシー exit 形式 '{legacy_format}' は v0.13.0 で廃止されました。"
+            f"レガシー exit 形式 '{legacy_format}' は v0.12.3 で廃止されました。"
             " 終端ノード関数を使用してください。"
             "\n\nヒント: `railway update` を実行してマイグレーションしてください。"
         )

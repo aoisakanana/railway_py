@@ -3,7 +3,7 @@
 **優先度**: P1
 **依存**: #45
 **ブロック**: #47 (TUTORIAL.md 更新)
-**バージョン**: v0.13.0（破壊的変更）
+**バージョン**: v0.12.3（破壊的変更）
 
 ---
 
@@ -24,7 +24,7 @@ v0.12.3 (#44, #45)
     - スケルトン生成で正しい形式を提供
     - 警告で問題を通知
     ↓ 開発者が修正
-v0.13.0 (#46)
+v0.12.3 (#46)
     - DefaultExitContract 削除
     - 不正な返り値は TypeError
 ```
@@ -328,7 +328,7 @@ class LegacyExitFormatError(ValueError):
     def __init__(self, legacy_format: str) -> None:
         self.legacy_format = legacy_format
         message = (
-            f"レガシー exit 形式 '{legacy_format}' は v0.13.0 で廃止されました。"
+            f"レガシー exit 形式 '{legacy_format}' は v0.12.3 で廃止されました。"
             " 終端ノード関数を使用してください。"
             "\n\nヒント: `railway update` を実行してマイグレーションしてください。"
         )
@@ -348,7 +348,7 @@ from railway.core.dag.errors import ExitNodeTypeError, LegacyExitFormatError
 # else:
 #     return DefaultExitContract(context=result, ...)
 
-# After (v0.13.0):
+# After (v0.12.3):
 def _execute_exit_node(
     exit_node: Callable,
     context: Any,
@@ -415,7 +415,7 @@ def _resolve_next_step(
 #     """デフォルト終端 Contract（後方互換・ハンドラなし用）。
 #
 #     Note:
-#         v0.13.0 で削除。終端ノードは必ず ExitContract サブクラスを返す必要がある。
+#         v0.12.3 で削除。終端ノードは必ず ExitContract サブクラスを返す必要がある。
 #     """
 #     context: Any = None
 ```
@@ -466,7 +466,7 @@ ExitNodeTypeError: 終端ノード 'exit.success.done' は ExitContract を返�
 ### LegacyExitFormatError
 
 ```
-LegacyExitFormatError: レガシー exit 形式 'exit::green::done' は v0.13.0 で廃止されました。
+LegacyExitFormatError: レガシー exit 形式 'exit::green::done' は v0.12.3 で廃止されました。
 終端ノード関数を使用してください。
 
 ヒント: `railway update` を実行してマイグレーションしてください。

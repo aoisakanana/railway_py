@@ -1,8 +1,8 @@
-"""E2E tests for exit node workflow (v0.13.0 ExitContract 強制).
+"""E2E tests for exit node workflow (v0.12.3 ExitContract 強制).
 
 Tests the complete flow: YAML -> parse -> codegen -> dag_runner -> exit node execution.
 
-v0.13.0 破壊的変更:
+v0.12.3 破壊的変更:
 - 終端ノードは ExitContract サブクラスを返す必要がある
 - dict, None 等を返すと ExitNodeTypeError
 """
@@ -37,7 +37,7 @@ class TestExitNodeE2EWorkflow:
 
         # 3. コード生成
         code = generate_transition_code(graph, str(yaml_path))
-        # v0.13.0: EXIT_CODES は廃止（ExitContract が exit_code を直接定義）
+        # v0.12.3: EXIT_CODES は廃止（ExitContract が exit_code を直接定義）
         assert "exit.success.done" in code
         assert "EXIT_CODES" not in code
 
@@ -113,7 +113,7 @@ class TestExitNodeE2EWorkflow:
 
 
 class TestExitNodeE2ERuntime:
-    """終端ノード E2E ランタイムテスト（v0.13.0 ExitContract 強制）。"""
+    """終端ノード E2E ランタイムテスト（v0.12.3 ExitContract 強制）。"""
 
     def test_exit_node_execution_with_mock_nodes(self) -> None:
         """モックノードを使った終端ノード実行。
@@ -246,7 +246,7 @@ class TestExitNodeE2ERuntime:
 
         # exit ノード
         assert step_history[1]["node"] == "exit.success.done"
-        # v0.13.0 では exit:: 形式で状態が返される
+        # v0.12.3 では exit:: 形式で状態が返される
         assert "exit" in step_history[1]["state"]
 
 
@@ -346,7 +346,7 @@ class TestExitNodeE2EValidation:
 
 
 class TestRunHelperE2E:
-    """run() ヘルパー関数の E2E テスト（v0.13.0 ExitContract 強制）。"""
+    """run() ヘルパー関数の E2E テスト（v0.12.3 ExitContract 強制）。"""
 
     def test_run_helper_executes_workflow(self) -> None:
         """run() ヘルパーでワークフローを実行。

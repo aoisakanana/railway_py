@@ -27,7 +27,7 @@ def escalate(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
 def log_only(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
     return ctx.model_copy(update={"handled": True}), Outcome.success("done")
 
-# 終端ノード: ExitContract を返す（v0.13.0+）
+# 終端ノード: ExitContract を返す（v0.12.3+）
 class AlertResult(ExitContract):
     exit_state: str = "success.done"
     handled: bool
@@ -291,7 +291,7 @@ Railway Framework は2つの実行モデルを提供します：
 from railway import ExitContract
 from railway.core.dag import dag_runner, Outcome
 
-# 終端ノードを定義（v0.13.0+: ExitContract を返す）
+# 終端ノードを定義（v0.12.3+: ExitContract を返す）
 class WorkflowResult(ExitContract):
     exit_state: str = "success.done"
 
@@ -500,7 +500,7 @@ transitions:
     failure::timeout: exit.failure.timeout
 ```
 
-**実装例（v0.13.0+）:**
+**実装例（v0.12.3+）:**
 
 ```python
 # src/nodes/exit/success/done.py - ExitContract サブクラスを返す

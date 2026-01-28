@@ -1,8 +1,8 @@
-"""EXIT_CODES 廃止テスト (v0.13.0)。
+"""EXIT_CODES 廃止テスト (v0.12.3)。
 
 TDD Red Phase: EXIT_CODES が生成されないことを確認。
 
-v0.13.0 では終端ノードが ExitContract を直接返すため、
+v0.12.3 では終端ノードが ExitContract を直接返すため、
 EXIT_CODES マッピングは不要になった。
 """
 

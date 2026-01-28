@@ -3,7 +3,7 @@
 **優先度**: P1
 **依存**: #46
 **ブロック**: なし
-**バージョン**: v0.13.0
+**バージョン**: v0.12.3
 
 ---
 
@@ -14,7 +14,7 @@ TUTORIAL.md に終端ノードの実装例を追記し、ユーザーが型安�
 ## 背景
 
 #44-#46 で終端ノードの型安全性を強制したが、ユーザー向けドキュメントが更新されていないと：
-- 既存ユーザーが v0.13.0 への移行方法を理解できない
+- 既存ユーザーが v0.12.3 への移行方法を理解できない
 - 新規ユーザーが正しい実装方法を学べない
 
 **ドキュメントの役割**:
@@ -141,7 +141,7 @@ result.iterations       # 3
 
 ### v0.12.x からの移行
 
-v0.12.x で `dict` や `None` を返していた場合、v0.13.0 で `ExitNodeTypeError` が発生します。
+v0.12.x で `dict` や `None` を返していた場合、v0.12.3 で `ExitNodeTypeError` が発生します。
 
 **移行手順**:
 
@@ -152,10 +152,10 @@ v0.12.x で `dict` や `None` を返していた場合、v0.13.0 で `ExitNodeTy
 **Before (v0.12.x)**:
 ```python
 def done(ctx):
-    return {"status": "ok"}  # ← TypeError in v0.13.0
+    return {"status": "ok"}  # ← TypeError in v0.12.3
 ```
 
-**After (v0.13.0)**:
+**After (v0.12.3)**:
 ```python
 class DoneResult(ExitContract):
     exit_state: str = "success.done"

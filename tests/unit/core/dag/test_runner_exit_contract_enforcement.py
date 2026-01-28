@@ -2,7 +2,7 @@
 
 TDD Red Phase: 失敗するテストを先に作成。
 
-v0.13.0 破壊的変更:
+v0.12.3 破壊的変更:
 - 終端ノードは ExitContract サブクラスを返す必要がある
 - dict, None 等を返すと ExitNodeTypeError
 - レガシー形式 "exit::green::done" は LegacyExitFormatError

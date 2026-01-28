@@ -1,4 +1,4 @@
-"""Tests for step callbacks with Contract + Outcome (v0.13.0 ExitContract 強制)."""
+"""Tests for step callbacks with Contract + Outcome (v0.12.3 ExitContract 強制)."""
 import pytest
 
 from railway import Contract, ExitContract

@@ -9,7 +9,7 @@ New in v0.12.0:
 - Aliased imports for exit nodes
 - _node_name attribute assignments
 
-v0.13.0:
+v0.12.3:
 - EXIT_CODES removed (ExitContract defines exit_code directly)
 """
 from __future__ import annotations

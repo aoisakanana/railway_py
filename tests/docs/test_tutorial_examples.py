@@ -170,9 +170,9 @@ class TestTutorialMigrationExamples:
     """v0.12.x からの移行例のテスト。"""
 
     def test_v013_exit_contract_pattern(self) -> None:
-        """v0.13.0 の ExitContract パターンが動作する。"""
+        """v0.12.3 の ExitContract パターンが動作する。"""
 
-        # v0.13.0 の正しいパターン
+        # v0.12.3 の正しいパターン
         class DoneResult(ExitContract):
             exit_state: str = "success.done"
             status: str

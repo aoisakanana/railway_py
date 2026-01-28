@@ -17,7 +17,7 @@
   - 関連テスト更新（287 DAGテスト + 13 E2Eテスト）
 - [x] Issue #47: TUTORIAL.md 更新 (2026-01-29)
   - `tests/docs/test_tutorial_examples.py` 追加（8テスト）
-  - Step 10 を v0.13.0 ExitContract パターンに更新
+  - Step 10 を v0.12.3 ExitContract パターンに更新
   - v0.12.x からの移行手順を追加
   - dag_runner 返り値の説明を追加
   - 全1074テスト通過
@@ -50,7 +50,7 @@
 - Issue #44: 終端ノードスケルトン自動生成
 - Issue #45: 終端ノード返り値型チェック
 
-### v0.13.0 (破壊的変更)
+### v0.12.3 (破壊的変更)
 
 - Issue #46: DefaultExitContract 削除
 - Issue #47: TUTORIAL.md 更新
@@ -64,7 +64,7 @@
           ↓
 #45 (型チェック警告)
           ↓
-#46 (削除・強制) ← v0.13.0
+#46 (削除・強制) ← v0.12.3
           ↓
 #47 (TUTORIAL.md 更新)
 ```

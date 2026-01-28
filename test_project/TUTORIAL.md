@@ -727,7 +727,7 @@ transitions:
 
 ### 10.3 終端ノードを実装
 
-**v0.13.0 では終端ノードは `ExitContract` サブクラスを返す必要があります。**
+**v0.12.3 では終端ノードは `ExitContract` サブクラスを返す必要があります。**
 
 `src/nodes/exit/success/done.py`:
 
@@ -836,7 +836,7 @@ railway run alert_workflow
 
 ### 10.8 v0.12.x からの移行
 
-v0.12.x で `dict` や `None` を返していた場合、v0.13.0 で `ExitNodeTypeError` が発生します。
+v0.12.x で `dict` や `None` を返していた場合、v0.12.3 で `ExitNodeTypeError` が発生します。
 
 **移行手順:**
 
@@ -847,10 +847,10 @@ v0.12.x で `dict` や `None` を返していた場合、v0.13.0 で `ExitNodeTy
 **Before (v0.12.x):**
 ```python
 def done(ctx):
-    return {"status": "ok"}  # ← ExitNodeTypeError in v0.13.0
+    return {"status": "ok"}  # ← ExitNodeTypeError in v0.12.3
 ```
 
-**After (v0.13.0):**
+**After (v0.12.3):**
 ```python
 from railway import ExitContract
 
