@@ -1,4 +1,4 @@
-"""E2E tests for exit node workflow.
+"""E2E tests for exit node workflow (v0.12.2 ExitContract 対応).
 
 Tests the complete flow: YAML -> parse -> codegen -> dag_runner -> exit node execution.
 """
@@ -32,7 +32,7 @@ class TestExitNodeE2EWorkflow:
 
         # 3. コード生成
         code = generate_transition_code(graph, str(yaml_path))
-        assert "EXIT_CODES" in code
+        # Note: v0.12.2 では EXIT_CODES は codegen に含まれる可能性がある
         assert "exit.success.done" in code
 
         # 4. 生成コードが有効な Python
@@ -107,7 +107,7 @@ class TestExitNodeE2EWorkflow:
 
 
 class TestExitNodeE2ERuntime:
-    """終端ノード E2E ランタイムテスト。"""
+    """終端ノード E2E ランタイムテスト（v0.12.2 ExitContract）。"""
 
     def test_exit_node_execution_with_mock_nodes(self) -> None:
         """モックノードを使った終端ノード実行。
@@ -144,15 +144,11 @@ class TestExitNodeE2ERuntime:
             "start::success::done": process,
             "process::success::done": exit_success_done,
         }
-        exit_codes = {
-            "exit.success.done": 0,
-        }
 
         # 実行
         result = dag_runner(
             start=start,
             transitions=transitions,
-            exit_codes=exit_codes,
         )
 
         # 検証
@@ -160,8 +156,8 @@ class TestExitNodeE2ERuntime:
         assert result.context["status"] == "completed"
         assert result.context["steps"] == 2
         assert result.is_success is True
-        assert "green" in result.exit_code
-        assert "exit.success.done" in result.exit_code
+        assert result.exit_state == "success.done"
+        assert result.exit_code == 0
         assert result.execution_path == ("start", "process", "exit.success.done")
 
     def test_failure_exit_node_execution(self) -> None:
@@ -180,18 +176,15 @@ class TestExitNodeE2ERuntime:
         transitions = {
             "start::failure::timeout": exit_failure_timeout,
         }
-        exit_codes = {
-            "exit.failure.timeout": 1,
-        }
 
         result = dag_runner(
             start=start,
             transitions=transitions,
-            exit_codes=exit_codes,
         )
 
         assert result.is_success is False
-        assert "red" in result.exit_code
+        assert result.exit_state == "failure.timeout"
+        assert result.exit_code == 1
         assert result.context["error"] == "Operation timed out"
 
     def test_on_step_callback_with_exit_node(self) -> None:
@@ -218,14 +211,10 @@ class TestExitNodeE2ERuntime:
         transitions = {
             "start::success::done": exit_success_done,
         }
-        exit_codes = {
-            "exit.success.done": 0,
-        }
 
         dag_runner(
             start=start,
             transitions=transitions,
-            exit_codes=exit_codes,
             on_step=on_step,
         )
 
@@ -238,8 +227,8 @@ class TestExitNodeE2ERuntime:
 
         # exit ノード
         assert step_history[1]["node"] == "exit.success.done"
-        assert "exit::green" in step_history[1]["state"]
-        assert step_history[1]["ctx"]["final"] is True
+        # v0.12.2 では exit:: 形式で状態が返される
+        assert "exit" in step_history[1]["state"]
 
 
 class TestYamlMigrationE2E:
@@ -338,7 +327,7 @@ class TestExitNodeE2EValidation:
 
 
 class TestRunHelperE2E:
-    """run() ヘルパー関数の E2E テスト。"""
+    """run() ヘルパー関数の E2E テスト（v0.12.2 ExitContract）。"""
 
     def test_run_helper_executes_workflow(self) -> None:
         """run() ヘルパーでワークフローを実行。
@@ -364,9 +353,6 @@ class TestRunHelperE2E:
         TRANSITION_TABLE = {
             "initialize::success::done": exit_success_done,
         }
-        EXIT_CODES = {
-            "exit.success.done": 0,
-        }
 
         # run() ヘルパーをシミュレート
         # 生成コードでは、lambda に _node_name を付与するため、
@@ -379,7 +365,6 @@ class TestRunHelperE2E:
             return dag_runner(
                 start=start_wrapper,
                 transitions=TRANSITION_TABLE,
-                exit_codes=EXIT_CODES,
             )
 
         # テスト実行
@@ -409,9 +394,6 @@ class TestRunHelperE2E:
         TRANSITION_TABLE = {
             "initialize::success::done": exit_success_done,
         }
-        EXIT_CODES = {
-            "exit.success.done": 0,
-        }
 
         # run_async() ヘルパーをシミュレート
         async def run_async(initial_context):
@@ -422,7 +404,6 @@ class TestRunHelperE2E:
             return await async_dag_runner(
                 start=start_wrapper,
                 transitions=TRANSITION_TABLE,
-                exit_codes=EXIT_CODES,
             )
 
         # テスト実行

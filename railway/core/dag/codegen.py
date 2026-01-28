@@ -120,8 +120,9 @@ def _generate_framework_imports() -> str:
     """Generate framework imports."""
     return """from typing import Any, Callable
 
-from railway.core.dag.runner import dag_runner, async_dag_runner, DagRunnerResult, Exit
-from railway.core.dag.state import NodeOutcome, ExitOutcome
+from railway import ExitContract
+from railway.core.dag.runner import dag_runner, async_dag_runner
+from railway.core.dag.state import NodeOutcome
 """
 
 
@@ -181,11 +182,10 @@ def run(
     on_step: Callable[[str, str, Any], None] | None = None,
     strict: bool = True,
     max_iterations: int = 100,
-) -> DagRunnerResult:
+) -> ExitContract:
     """Execute this workflow (synchronous).
 
-    Automatically starts from YAML's start node and uses
-    TRANSITION_TABLE and EXIT_CODES.
+    Automatically starts from YAML's start node and uses TRANSITION_TABLE.
 
     Args:
         initial_context: Initial context to pass to start node
@@ -194,12 +194,14 @@ def run(
         max_iterations: Maximum iterations (default: 100)
 
     Returns:
-        DagRunnerResult: Execution result
+        ExitContract: Execution result with exit_code, exit_state, context
     """
+    def start_wrapper():
+        return START_NODE(initial_context)
+    start_wrapper._node_name = START_NODE._node_name
     return dag_runner(
-        start=lambda: START_NODE(initial_context),
+        start=start_wrapper,
         transitions=TRANSITION_TABLE,
-        exit_codes=EXIT_CODES,
         on_step=on_step,
         strict=strict,
         max_iterations=max_iterations,
@@ -212,7 +214,7 @@ async def run_async(
     on_step: Callable[[str, str, Any], None] | None = None,
     strict: bool = True,
     max_iterations: int = 100,
-) -> DagRunnerResult:
+) -> ExitContract:
     """Execute this workflow (asynchronous).
 
     For workflows using async nodes.
@@ -224,12 +226,14 @@ async def run_async(
         max_iterations: Maximum iterations (default: 100)
 
     Returns:
-        DagRunnerResult: Execution result
+        ExitContract: Execution result with exit_code, exit_state, context
     """
+    async def start_wrapper():
+        return await START_NODE(initial_context)
+    start_wrapper._node_name = START_NODE._node_name
     return await async_dag_runner(
-        start=lambda: START_NODE(initial_context),
+        start=start_wrapper,
         transitions=TRANSITION_TABLE,
-        exit_codes=EXIT_CODES,
         on_step=on_step,
         strict=strict,
         max_iterations=max_iterations,
@@ -322,28 +326,26 @@ def generate_state_enum(graph: TransitionGraph) -> str:
 
 def generate_exit_enum(graph: TransitionGraph) -> str:
     """
-    Generate exit enum from graph exits.
+    Generate exit codes as constants (v0.12.2: simplified, no ExitOutcome).
 
     Args:
         graph: Transition graph
 
     Returns:
-        Exit enum class definition as string
+        Exit constants definition as string
     """
     class_name = _to_class_name(graph.entrypoint)
     lines = [
-        f"class {class_name}Exit(ExitOutcome):",
-        '    """Auto-generated exit enum for this workflow."""',
+        f"# {class_name} exit codes (legacy format, for reference only)",
     ]
 
     for exit_def in graph.exits:
-        enum_name = _to_exit_enum_name(exit_def.name)
+        const_name = _to_exit_enum_name(exit_def.name)
         color = "green" if exit_def.code == 0 else "red"
-        value = f"exit::{color}::{exit_def.name}"
-        lines.append(f'    {enum_name} = "{value}"  # code={exit_def.code}')
+        lines.append(f'{const_name} = "exit::{color}::{exit_def.name}"  # code={exit_def.code}')
 
-    if len(lines) == 2:
-        lines.append("    pass  # No exits defined")
+    if len(lines) == 1:
+        lines.append("# No legacy exits defined")
 
     return "\n".join(lines)
 
@@ -380,7 +382,7 @@ def generate_transition_table(graph: TransitionGraph) -> str:
             # Exit nodes without handler are handled by EXIT_CODES in dag_runner
             continue
 
-        # Legacy format: exit::name
+        # Legacy format: exit::name (generate as string for runner to handle)
         if target.startswith("exit::"):
             exit_name = transition.exit_name
             exit_def = graph.get_exit(exit_name) if exit_name else None
@@ -388,8 +390,8 @@ def generate_transition_table(graph: TransitionGraph) -> str:
                 color = "green" if exit_def.code == 0 else "red"
             else:
                 color = "red"  # default to error
-            target_ref = f'Exit.code("{color}", "{exit_name}")'
-            lines.append(f'    "{state_key}": {target_ref},')
+            # Generate as string literal - dag_runner handles "exit::..." strings
+            lines.append(f'    "{state_key}": "exit::{color}::{exit_name}",')
             continue
 
         # Regular node target
@@ -439,10 +441,9 @@ def _generate_helper_functions(class_name: str, start_function: str) -> str:
         start_function: Name of the start node function
     """
     state_class = f"{class_name}State"
-    exit_class = f"{class_name}Exit"
 
     return f'''
-def get_next_step(state: {state_class}) -> Callable | {exit_class}:
+def get_next_step(state: {state_class}) -> Callable | str:
     """
     Get the next step for a given state.
 
@@ -450,7 +451,7 @@ def get_next_step(state: {state_class}) -> Callable | {exit_class}:
         state: Current state from node execution
 
     Returns:
-        Next node function or exit code
+        Next node function or exit string
 
     Raises:
         KeyError: If state is not in transition table

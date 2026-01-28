@@ -74,10 +74,10 @@ class TestGenerateStateEnum:
 
 
 class TestGenerateExitEnum:
-    """Test exit enum generation."""
+    """Test exit enum generation (v0.12.2: constants instead of class)."""
 
     def test_generate_exit_enum_code(self):
-        """Should generate valid exit enum code."""
+        """Should generate valid exit constants (no longer ExitOutcome class)."""
         from railway.core.dag.codegen import generate_exit_enum
         from railway.core.dag.types import (
             ExitDefinition,
@@ -105,10 +105,11 @@ class TestGenerateExitEnum:
         # Should be valid Python
         ast.parse(code)
 
-        assert "class MyWorkflowExit" in code
-        assert "ExitOutcome" in code
+        # v0.12.2: Exit codes are constants, not class
         assert "GREEN_RESOLVED" in code
         assert "RED_ERROR" in code
+        assert "exit::green" in code
+        assert "exit::red" in code
 
 
 class TestGenerateTransitionTable:
@@ -265,12 +266,13 @@ class TestGenerateFullCode:
         assert "DO NOT EDIT" in code
         assert "Generated" in code
 
-        # Should import from railway
-        assert "from railway.core.dag.state import NodeOutcome, ExitOutcome" in code
+        # Should import from railway (v0.12.2: no ExitOutcome)
+        assert "from railway.core.dag.state import NodeOutcome" in code
+        assert "from railway import ExitContract" in code
 
-        # Should have all components
+        # Should have all components (v0.12.2: no Exit class)
         assert "class MyWorkflowState" in code
-        assert "class MyWorkflowExit" in code
+        assert "# MyWorkflow exit codes" in code
         assert "TRANSITION_TABLE" in code
         assert "GRAPH_METADATA" in code
         assert "def get_next_step" in code
@@ -318,9 +320,9 @@ class TestCodegenWithFixtures:
         # Should be valid Python
         ast.parse(code)
 
-        # Should have correct class names
+        # Should have correct class names (v0.12.2: no Exit class)
         assert "class SimpleState(NodeOutcome)" in code
-        assert "class SimpleExit(ExitOutcome)" in code
+        assert "# Simple exit codes" in code
 
     def test_generate_from_branching_yaml(self, branching_yaml: Path):
         """Should generate code from branching test YAML."""

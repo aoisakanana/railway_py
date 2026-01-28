@@ -1,4 +1,7 @@
-"""Tests for NodeOutcome base class."""
+"""Tests for NodeOutcome base class (v0.12.2: simplified).
+
+v0.12.2: Removed tests for deleted ExitOutcome, make_state, make_exit, parse_state, parse_exit.
+"""
 from enum import Enum
 
 import pytest
@@ -89,109 +92,11 @@ class TestNodeOutcome:
         assert MyState.A == MyState.A
 
 
-class TestExitOutcome:
-    """Test ExitOutcome base class."""
+class TestStateFormatError:
+    """Test StateFormatError exception."""
 
-    def test_create_exit_enum(self):
-        """Should create an Enum subclass of ExitOutcome."""
-        from railway.core.dag.state import ExitOutcome
+    def test_state_format_error_is_value_error(self):
+        """StateFormatError should be a ValueError."""
+        from railway.core.dag.state import StateFormatError
 
-        class MyExit(ExitOutcome):
-            SUCCESS = "exit::green::resolved"
-            ERROR = "exit::red::error"
-
-        assert issubclass(MyExit, Enum)
-        assert MyExit.SUCCESS.value == "exit::green::resolved"
-
-    def test_exit_color(self):
-        """Should extract exit color."""
-        from railway.core.dag.state import ExitOutcome
-
-        class MyExit(ExitOutcome):
-            GREEN = "exit::green::done"
-            RED = "exit::red::failed"
-
-        assert MyExit.GREEN.color == "green"
-        assert MyExit.RED.color == "red"
-
-    def test_exit_is_success(self):
-        """Should determine if exit is successful."""
-        from railway.core.dag.state import ExitOutcome
-
-        class MyExit(ExitOutcome):
-            GREEN = "exit::green::done"
-            RED = "exit::red::failed"
-
-        assert MyExit.GREEN.is_success is True
-        assert MyExit.RED.is_success is False
-
-    def test_exit_name(self):
-        """Should extract exit name."""
-        from railway.core.dag.state import ExitOutcome
-
-        class MyExit(ExitOutcome):
-            RESOLVED = "exit::green::resolved"
-
-        assert MyExit.RESOLVED.exit_name == "resolved"
-
-
-class TestStateHelpers:
-    """Test helper functions for state creation."""
-
-    def test_make_success_state(self):
-        """Should create a success state string."""
-        from railway.core.dag.state import make_state
-
-        state = make_state("fetch_data", "success", "done")
-        assert state == "fetch_data::success::done"
-
-    def test_make_failure_state(self):
-        """Should create a failure state string."""
-        from railway.core.dag.state import make_state
-
-        state = make_state("fetch_data", "failure", "http_error")
-        assert state == "fetch_data::failure::http_error"
-
-    def test_make_exit_state(self):
-        """Should create an exit state string."""
-        from railway.core.dag.state import make_exit
-
-        exit_state = make_exit("green", "resolved")
-        assert exit_state == "exit::green::resolved"
-
-    def test_parse_state(self):
-        """Should parse a state string into components."""
-        from railway.core.dag.state import parse_state
-
-        node, outcome, detail = parse_state("fetch_data::success::done")
-        assert node == "fetch_data"
-        assert outcome == "success"
-        assert detail == "done"
-
-    def test_parse_state_invalid(self):
-        """Should raise error for invalid state format."""
-        from railway.core.dag.state import StateFormatError, parse_state
-
-        with pytest.raises(StateFormatError):
-            parse_state("invalid_format")
-
-        with pytest.raises(StateFormatError):
-            parse_state("only::two")
-
-    def test_parse_exit(self):
-        """Should parse an exit state string."""
-        from railway.core.dag.state import parse_exit
-
-        color, name = parse_exit("exit::green::resolved")
-        assert color == "green"
-        assert name == "resolved"
-
-    def test_parse_exit_invalid(self):
-        """Should raise error for invalid exit format."""
-        from railway.core.dag.state import StateFormatError, parse_exit
-
-        with pytest.raises(StateFormatError):
-            parse_exit("not_exit::green::done")
-
-        with pytest.raises(StateFormatError):
-            parse_exit("exit::only")
+        assert issubclass(StateFormatError, ValueError)

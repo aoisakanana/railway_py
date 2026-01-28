@@ -5,12 +5,14 @@ A Railway Oriented Programming framework that provides:
 - @entry_point decorator for CLI entry points
 - pipeline() function for chaining operations
 - Contract base class for type-safe data exchange
+- ExitContract for type-safe workflow termination
 """
 
 from importlib.metadata import version
 
 from railway.core.contract import Contract, Params, Tagged, validate_contract
 from railway.core.decorators import entry_point, node, Retry
+from railway.core.exit_contract import DefaultExitContract, ExitContract
 from railway.core.pipeline import async_pipeline, pipeline
 from railway.core.registry import get_contract, register_contract
 from railway.core.resolver import (
@@ -43,4 +45,7 @@ __all__ = [
     "validate_contract",
     "register_contract",
     "get_contract",
+    # ExitContract (for DAG workflow termination)
+    "ExitContract",
+    "DefaultExitContract",
 ]

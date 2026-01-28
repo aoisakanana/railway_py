@@ -1,7 +1,7 @@
-"""Tests for DAG runner with Contract + Outcome (string keys only)."""
+"""Tests for DAG runner with Contract + Outcome (v0.12.2 ExitContract 対応)."""
 import pytest
 
-from railway import Contract
+from railway import Contract, ExitContract, DefaultExitContract
 from railway.core.dag.outcome import Outcome
 
 
@@ -10,7 +10,7 @@ class TestDagRunner:
 
     def test_simple_workflow(self):
         """Should execute a simple linear workflow."""
-        from railway.core.dag.runner import Exit, dag_runner
+        from railway.core.dag.runner import dag_runner
 
         class WorkflowContext(Contract):
             value: int
@@ -22,10 +22,15 @@ class TestDagRunner:
             # Contract はイミュータブル、model_copy で新規生成
             return ctx.model_copy(update={"value": 2}), Outcome.success("done")
 
+        def exit_success_done(ctx: WorkflowContext) -> WorkflowContext:
+            return ctx
+
+        exit_success_done._node_name = "exit.success.done"
+
         # 文字列キーのみ（シンプル！）
         transitions = {
             "node_a::success::done": node_b,
-            "node_b::success::done": Exit.GREEN,
+            "node_b::success::done": exit_success_done,
         }
 
         result = dag_runner(
@@ -33,13 +38,14 @@ class TestDagRunner:
             transitions=transitions,
         )
 
-        assert result.exit_code == Exit.GREEN
+        assert result.exit_state == "success.done"
+        assert result.is_success is True
         assert result.context.value == 2
-        assert result.iterations == 2
+        assert result.iterations == 3  # node_a + node_b + exit
 
     def test_branching_workflow(self):
         """Should handle conditional branching."""
-        from railway.core.dag.runner import Exit, dag_runner
+        from railway.core.dag.runner import dag_runner
 
         class BranchContext(Contract):
             path: str
@@ -58,11 +64,21 @@ class TestDagRunner:
             call_log.append("path_b")
             return ctx, Outcome.success("done")
 
+        def exit_success_done_a(ctx: BranchContext) -> BranchContext:
+            return ctx
+
+        exit_success_done_a._node_name = "exit.success.done_a"
+
+        def exit_success_done_b(ctx: BranchContext) -> BranchContext:
+            return ctx
+
+        exit_success_done_b._node_name = "exit.success.done_b"
+
         transitions = {
             "check_true::success::true": path_a,
             "check_true::success::false": path_b,
-            "path_a::success::done": Exit.code("green", "done_a"),
-            "path_b::success::done": Exit.code("green", "done_b"),
+            "path_a::success::done": exit_success_done_a,
+            "path_b::success::done": exit_success_done_b,
         }
 
         # Test true branch
@@ -72,12 +88,12 @@ class TestDagRunner:
             transitions=transitions,
         )
 
-        assert result.exit_code == "exit::green::done_a"
+        assert result.exit_state == "success.done_a"
         assert call_log == ["check_true", "path_a"]
 
     def test_false_branch(self):
         """Should handle false branch correctly."""
-        from railway.core.dag.runner import Exit, dag_runner
+        from railway.core.dag.runner import dag_runner
 
         class BranchContext(Contract):
             path: str
@@ -96,11 +112,21 @@ class TestDagRunner:
             call_log.append("path_b")
             return ctx, Outcome.success("done")
 
+        def exit_success_done_a(ctx: BranchContext) -> BranchContext:
+            return ctx
+
+        exit_success_done_a._node_name = "exit.success.done_a"
+
+        def exit_success_done_b(ctx: BranchContext) -> BranchContext:
+            return ctx
+
+        exit_success_done_b._node_name = "exit.success.done_b"
+
         transitions = {
             "check_false::success::true": path_a,
             "check_false::success::false": path_b,
-            "path_a::success::done": Exit.code("green", "done_a"),
-            "path_b::success::done": Exit.code("green", "done_b"),
+            "path_a::success::done": exit_success_done_a,
+            "path_b::success::done": exit_success_done_b,
         }
 
         # Test false branch
@@ -110,7 +136,7 @@ class TestDagRunner:
             transitions=transitions,
         )
 
-        assert result.exit_code == "exit::green::done_b"
+        assert result.exit_state == "success.done_b"
         assert call_log == ["check_false", "path_b"]
 
     def test_max_iterations_limit(self):
@@ -175,19 +201,20 @@ class TestDagRunner:
             "node::success::known": lambda x: (x, Outcome.success("done")),
         }
 
-        # Should not raise, but result won't have exit code
+        # Should not raise, but result won't have proper exit
         result = dag_runner(
             start=node,
             transitions=transitions,
             strict=False,
         )
 
-        # Result should exist but without proper exit
+        # Result should exist but with failure state
         assert result.iterations == 1
+        assert result.exit_state == "failure.undefined"
 
     def test_passes_context_between_nodes(self):
         """Should pass context from one node to the next."""
-        from railway.core.dag.runner import Exit, dag_runner
+        from railway.core.dag.runner import dag_runner
 
         class ChainContext(Contract):
             from_a: bool = False
@@ -200,9 +227,14 @@ class TestDagRunner:
             assert ctx.from_a is True
             return ctx.model_copy(update={"from_b": True}), Outcome.success("done")
 
+        def exit_success_done(ctx: ChainContext) -> ChainContext:
+            return ctx
+
+        exit_success_done._node_name = "exit.success.done"
+
         transitions = {
             "node_a::success::done": node_b,
-            "node_b::success::done": Exit.GREEN,
+            "node_b::success::done": exit_success_done,
         }
 
         result = dag_runner(start=node_a, transitions=transitions)
@@ -212,7 +244,7 @@ class TestDagRunner:
 
     def test_on_step_callback(self):
         """Should call on_step callback for each step."""
-        from railway.core.dag.runner import Exit, dag_runner
+        from railway.core.dag.runner import dag_runner
 
         class StepContext(Contract):
             value: int
@@ -228,138 +260,121 @@ class TestDagRunner:
         def node_b(ctx: StepContext) -> tuple[StepContext, Outcome]:
             return ctx.model_copy(update={"value": 2}), Outcome.success("done")
 
+        def exit_success_done(ctx: StepContext) -> StepContext:
+            return ctx
+
+        exit_success_done._node_name = "exit.success.done"
+
         transitions = {
             "node_a::success::done": node_b,
-            "node_b::success::done": Exit.GREEN,
+            "node_b::success::done": exit_success_done,
         }
 
         dag_runner(start=node_a, transitions=transitions, on_step=step_callback)
 
-        assert len(steps) == 2
+        assert len(steps) == 3  # node_a + node_b + exit
         assert steps[0] == ("node_a", "node_a::success::done")
         assert steps[1] == ("node_b", "node_b::success::done")
 
 
-class TestDagRunnerResult:
-    """Test DagRunnerResult data type."""
+class TestExitContractResult:
+    """Test ExitContract result from dag_runner."""
 
-    def test_result_properties(self):
-        """Should have expected properties."""
-        from railway.core.dag.runner import DagRunnerResult, Exit
+    def test_exit_contract_is_success(self):
+        """Should return ExitContract with is_success for success.* state."""
+        result = DefaultExitContract(
+            exit_state="success.done",
+            context={"key": "value"},
+        )
+        assert result.is_success is True
+        assert result.exit_code == 0
 
-        class ResultContext(Contract):
-            key: str
+    def test_exit_contract_is_failure(self):
+        """Should return ExitContract with is_failure for failure.* state."""
+        result = DefaultExitContract(
+            exit_state="failure.error",
+            context={"key": "value"},
+        )
+        assert result.is_success is False
+        assert result.exit_code == 1
 
-        result = DagRunnerResult(
-            exit_code=Exit.GREEN,
-            context=ResultContext(key="value"),
-            iterations=3,
-            execution_path=("node_a", "node_b", "node_c"),
+    def test_exit_contract_is_immutable(self):
+        """ExitContract should be immutable."""
+        result = DefaultExitContract(
+            exit_state="success.done",
+            context={"key": "value"},
         )
 
-        assert result.exit_code == Exit.GREEN
-        assert result.context.key == "value"
-        assert result.iterations == 3
-        assert len(result.execution_path) == 3
+        from pydantic import ValidationError
 
-    def test_result_is_success_green(self):
-        """Should return True for green exit."""
-        from railway.core.dag.runner import DagRunnerResult, Exit
+        with pytest.raises(ValidationError):
+            result.exit_state = "changed"  # type: ignore[misc]
+
+
+class TestLegacyExitFormat:
+    """Test backward compatibility with legacy exit:: format."""
+
+    def test_legacy_exit_green(self):
+        """Should handle legacy exit::green::done format."""
+        from railway.core.dag.runner import dag_runner
 
         class EmptyContext(Contract):
             pass
 
-        success_result = DagRunnerResult(
-            exit_code=Exit.GREEN,
-            context=EmptyContext(),
-            iterations=1,
-            execution_path=(),
-        )
-        assert success_result.is_success is True
+        def start() -> tuple[EmptyContext, Outcome]:
+            return EmptyContext(), Outcome.success("done")
 
-    def test_result_is_success_yellow(self):
-        """Should return True for yellow exit (warning is still success)."""
-        from railway.core.dag.runner import DagRunnerResult, Exit
+        # Legacy format uses string exit
+        transitions = {
+            "start::success::done": "exit::green::done",
+        }
 
-        class EmptyContext(Contract):
-            pass
+        result = dag_runner(start=start, transitions=transitions)
 
-        warning_result = DagRunnerResult(
-            exit_code=Exit.YELLOW,
-            context=EmptyContext(),
-            iterations=1,
-            execution_path=(),
-        )
-        # yellowも成功扱い（警告付き成功）
-        assert warning_result.is_success is True
+        # Converts to success.done
+        assert result.exit_state == "success.done"
+        assert result.is_success is True
 
-    def test_result_is_success_red(self):
-        """Should return False for red exit."""
-        from railway.core.dag.runner import DagRunnerResult, Exit
+    def test_legacy_exit_red(self):
+        """Should handle legacy exit::red::error format."""
+        from railway.core.dag.runner import dag_runner
 
         class EmptyContext(Contract):
             pass
 
-        failure_result = DagRunnerResult(
-            exit_code=Exit.RED,
-            context=EmptyContext(),
-            iterations=1,
-            execution_path=(),
-        )
-        assert failure_result.is_success is False
+        def start() -> tuple[EmptyContext, Outcome]:
+            return EmptyContext(), Outcome.failure("error")
 
-    def test_result_is_immutable(self):
-        """DagRunnerResult should be immutable."""
-        from railway.core.dag.runner import DagRunnerResult, Exit
+        # Legacy format
+        transitions = {
+            "start::failure::error": "exit::red::error",
+        }
+
+        result = dag_runner(start=start, transitions=transitions)
+
+        # Converts to failure.error
+        assert result.exit_state == "failure.error"
+        assert result.is_failure is True
+
+    def test_legacy_exit_yellow(self):
+        """Should handle legacy exit::yellow::warning format (warning is success)."""
+        from railway.core.dag.runner import dag_runner
 
         class EmptyContext(Contract):
             pass
 
-        result = DagRunnerResult(
-            exit_code=Exit.GREEN,
-            context=EmptyContext(),
-            iterations=1,
-            execution_path=(),
-        )
+        def start() -> tuple[EmptyContext, Outcome]:
+            return EmptyContext(), Outcome.success("warn")
 
-        with pytest.raises((AttributeError, TypeError)):
-            result.iterations = 99
+        transitions = {
+            "start::success::warn": "exit::yellow::warning",
+        }
 
+        result = dag_runner(start=start, transitions=transitions)
 
-class TestExit:
-    """Test Exit constant class."""
-
-    def test_exit_green(self):
-        """Should have green exit constant."""
-        from railway.core.dag.runner import Exit
-
-        assert Exit.GREEN == "exit::green::done"
-
-    def test_exit_yellow(self):
-        """Should have yellow exit constant."""
-        from railway.core.dag.runner import Exit
-
-        assert Exit.YELLOW == "exit::yellow::warning"
-
-    def test_exit_red(self):
-        """Should have red exit constant."""
-        from railway.core.dag.runner import Exit
-
-        assert Exit.RED == "exit::red::error"
-
-    def test_exit_code_custom(self):
-        """Should generate custom exit codes."""
-        from railway.core.dag.runner import Exit
-
-        custom = Exit.code("blue", "custom_detail")
-        assert custom == "exit::blue::custom_detail"
-
-    def test_exit_code_default_detail(self):
-        """Should use default detail when not specified."""
-        from railway.core.dag.runner import Exit
-
-        custom = Exit.code("purple")
-        assert custom == "exit::purple::done"
+        # Yellow is treated as success category
+        assert result.exit_state == "success.warning"
+        assert result.is_success is True
 
 
 class TestDagRunnerWithOutcome:
@@ -367,7 +382,7 @@ class TestDagRunnerWithOutcome:
 
     def test_workflow_with_outcome(self):
         """Should work with Outcome and string transition keys."""
-        from railway.core.dag.runner import Exit, dag_runner
+        from railway.core.dag.runner import dag_runner
 
         class WorkflowContext(Contract):
             value: int
@@ -378,9 +393,14 @@ class TestDagRunnerWithOutcome:
         def node_b(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
             return ctx.model_copy(update={"value": 2}), Outcome.success("complete")
 
+        def exit_success_done(ctx: WorkflowContext) -> WorkflowContext:
+            return ctx
+
+        exit_success_done._node_name = "exit.success.done"
+
         transitions = {
             "node_a::success::done": node_b,
-            "node_b::success::complete": Exit.GREEN,
+            "node_b::success::complete": exit_success_done,
         }
 
         result = dag_runner(start=node_a, transitions=transitions)
@@ -390,7 +410,7 @@ class TestDagRunnerWithOutcome:
 
     def test_failure_path(self):
         """Should handle failure outcomes correctly."""
-        from railway.core.dag.runner import Exit, dag_runner
+        from railway.core.dag.runner import dag_runner
 
         class FailContext(Contract):
             error_type: str = ""
@@ -401,15 +421,25 @@ class TestDagRunnerWithOutcome:
         def handle_error(ctx: FailContext) -> tuple[FailContext, Outcome]:
             return ctx, Outcome.success("handled")
 
+        def exit_success_done(ctx: FailContext) -> FailContext:
+            return ctx
+
+        exit_success_done._node_name = "exit.success.done"
+
+        def exit_warning_handled(ctx: FailContext) -> FailContext:
+            return ctx
+
+        exit_warning_handled._node_name = "exit.success.handled"
+
         transitions = {
-            "check::success::done": Exit.GREEN,
+            "check::success::done": exit_success_done,
             "check::failure::validation": handle_error,
-            "handle_error::success::handled": Exit.YELLOW,
+            "handle_error::success::handled": exit_warning_handled,
         }
 
         result = dag_runner(start=check, transitions=transitions)
 
-        assert result.exit_code == Exit.YELLOW
+        assert result.exit_state == "success.handled"
         assert result.context.error_type == "validation"
 
 
@@ -419,7 +449,7 @@ class TestDagRunnerAsync:
     @pytest.mark.asyncio
     async def test_async_workflow(self):
         """Should execute async nodes."""
-        from railway.core.dag.runner import Exit, async_dag_runner
+        from railway.core.dag.runner import async_dag_runner
 
         class AsyncContext(Contract):
             is_async: bool
@@ -427,8 +457,13 @@ class TestDagRunnerAsync:
         async def async_node() -> tuple[AsyncContext, Outcome]:
             return AsyncContext(is_async=True), Outcome.success("done")
 
+        def exit_success_done(ctx: AsyncContext) -> AsyncContext:
+            return ctx
+
+        exit_success_done._node_name = "exit.success.done"
+
         transitions = {
-            "async_node::success::done": Exit.GREEN,
+            "async_node::success::done": exit_success_done,
         }
 
         result = await async_dag_runner(
@@ -442,7 +477,7 @@ class TestDagRunnerAsync:
     @pytest.mark.asyncio
     async def test_async_mixed_workflow(self):
         """Should handle mixed sync/async nodes."""
-        from railway.core.dag.runner import Exit, async_dag_runner
+        from railway.core.dag.runner import async_dag_runner
 
         class MixedContext(Contract):
             sync_called: bool = False
@@ -454,9 +489,14 @@ class TestDagRunnerAsync:
         async def async_node(ctx: MixedContext) -> tuple[MixedContext, Outcome]:
             return ctx.model_copy(update={"async_called": True}), Outcome.success("done")
 
+        def exit_success_done(ctx: MixedContext) -> MixedContext:
+            return ctx
+
+        exit_success_done._node_name = "exit.success.done"
+
         transitions = {
             "sync_node::success::done": async_node,
-            "async_node::success::done": Exit.GREEN,
+            "async_node::success::done": exit_success_done,
         }
 
         result = await async_dag_runner(start=sync_node, transitions=transitions)

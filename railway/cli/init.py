@@ -651,7 +651,7 @@ def process(ctx: ProcessContext) -> tuple[ProcessContext, Outcome]:
 ## チャレンジ
 
 1. 週末と平日で挨拶を変える分岐を追加
-2. 複数の終了コード（Exit.GREEN, Exit.YELLOW）を使い分け
+2. 複数の終端ノード（exit.success.done, exit.failure.error）を使い分け
 3. CompositeCallback を使って複数のコールバックを組み合わせ
 
 ---

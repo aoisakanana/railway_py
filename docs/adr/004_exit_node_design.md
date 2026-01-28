@@ -3,6 +3,8 @@
 ## ステータス
 承認済み (2026-01-28)
 
+> **Note**: v0.12.2 で API 簡素化を実施。詳細は [ADR-005](005_exit_contract_simplification.md) を参照。
+
 ## コンテキスト
 
 DAGワークフローにおいて、終了時に処理（通知、ログ出力、クリーンアップなど）を実行したいケースがある。
@@ -179,7 +181,12 @@ final_context = exit_node(context)
 
 ### 実装への影響
 
-- `NodeDefinition` に `is_exit`, `exit_code` フィールド追加
+> **v0.12.2 更新**: 以下の項目は [ADR-005](005_exit_contract_simplification.md) で簡素化されました。
+> - ~~`NodeDefinition.exit_code`~~ → 削除（`ExitContract` で定義）
+> - ~~`EXIT_CODES` マッピング~~ → 削除（`ExitContract.exit_code` で定義）
+> - ~~`exit_codes` パラメータ~~ → 削除
+
+- `NodeDefinition` に `is_exit` フィールド追加
 - `StateTransition.is_exit` が新形式（`exit.` プレフィックス）をチェック
 - YAMLパーサーがネスト構造を再帰的にパース
 - module/function の自動解決ロジック追加
@@ -187,9 +194,8 @@ final_context = exit_node(context)
 - `codegen` が以下を生成:
   - 終端ノードの import 文（エイリアス付き）
   - `_node_name` 属性の自動設定コード
-  - `EXIT_CODES` マッピング
   - `run()` / `run_async()` ヘルパー関数
-- `dag_runner` が `exit_codes` パラメータを受け取り、終端ノードを実行
+- `dag_runner` が終端ノードを実行し、`ExitContract` を返す
 
 ### run() ヘルパー
 
@@ -263,6 +269,7 @@ except Exception as e:
 
 ## 参考資料
 
+- ADR-005: ExitContract による dag_runner API 簡素化（v0.12.2）
 - Issue #23: テスト用 YAML フィクスチャ
 - Issue #24: NodeDefinition の終端ノード対応
 - Issue #25: パーサーのネスト構造対応（自動解決含む）

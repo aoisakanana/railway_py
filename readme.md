@@ -7,7 +7,7 @@
 ```python
 # DAGワークフロー: 条件分岐対応
 from railway import Contract, node, entry_point
-from railway.core.dag import dag_runner, Exit, Outcome
+from railway.core.dag import dag_runner, Outcome
 
 class AlertContext(Contract):
     severity: str
@@ -27,11 +27,17 @@ def escalate(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
 def log_only(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
     return ctx.model_copy(update={"handled": True}), Outcome.success("done")
 
+# 終端ノード: Context のみ返す（Outcome 不要）
+def exit_success_done(ctx: AlertContext) -> AlertContext:
+    return ctx
+
+exit_success_done._node_name = "exit.success.done"
+
 TRANSITIONS = {
     "check_severity::success::critical": escalate,
     "check_severity::success::normal": log_only,
-    "escalate::success::done": Exit.GREEN,
-    "log_only::success::done": Exit.GREEN,
+    "escalate::success::done": exit_success_done,
+    "log_only::success::done": exit_success_done,
 }
 
 @entry_point
@@ -40,6 +46,7 @@ def main():
         start=lambda: (AlertContext(severity="critical"), Outcome.success("start")),
         transitions=TRANSITIONS,
     )
+    # result は ExitContract: exit_code, exit_state, is_success 等を持つ
     return result.context
 ```
 
@@ -277,13 +284,18 @@ Railway Framework は2つの実行モデルを提供します：
 条件分岐がある複雑なワークフローに適しています：
 
 ```python
-from railway.core.dag import dag_runner, Exit, Outcome
+from railway.core.dag import dag_runner, Outcome
+
+# 終端ノードを定義
+def exit_success_done(ctx):
+    return ctx
+exit_success_done._node_name = "exit.success.done"
 
 TRANSITIONS = {
     "check::success::critical": escalate,
     "check::success::normal": log_only,
-    "escalate::success::done": Exit.GREEN,
-    "log_only::success::done": Exit.GREEN,
+    "escalate::success::done": exit_success_done,
+    "log_only::success::done": exit_success_done,
 }
 
 result = dag_runner(
@@ -291,6 +303,7 @@ result = dag_runner(
     transitions=TRANSITIONS,
 )
 
+# result は ExitContract: is_success, exit_code, exit_state を持つ
 if result.is_success:
     print("Workflow completed successfully")
 ```
@@ -422,25 +435,31 @@ def check_host(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
     return ctx, Outcome.failure("not_found")
 ```
 
-### Exit（終了コード）
+### ExitContract（実行結果）
 
-ワークフローの終了状態を表します：
+`dag_runner()` は `ExitContract` を返します。終了状態とメタデータを含みます：
 
 ```python
-from railway.core.dag import Exit
+from railway import ExitContract
 
-TRANSITIONS = {
-    "final_step::success::done": Exit.GREEN,    # 正常終了
-    "final_step::failure::error": Exit.RED,     # エラー終了
-    "warning_step::success::warn": Exit.YELLOW, # 警告終了
-}
+result = dag_runner(start=..., transitions=...)
+
+# 基本プロパティ
+result.is_success    # True if exit_code == 0
+result.is_failure    # True if exit_code != 0
+result.exit_code     # 0 (success.* ) or 1 (failure.*)
+result.exit_state    # "success.done", "failure.timeout" など
+result.context       # 終端ノードが返したコンテキスト
+
+# メタデータ
+result.execution_path  # ("start", "process", "exit.success.done")
+result.iterations      # 実行したノード数
 ```
 
-| Exit | 意味 | exit_code |
-|------|------|-----------|
-| `Exit.GREEN` | 正常終了 | `exit::green::done` |
-| `Exit.YELLOW` | 警告終了 | `exit::yellow::warning` |
-| `Exit.RED` | エラー終了 | `exit::red::error` |
+| exit_state パターン | exit_code | is_success |
+|---------------------|-----------|------------|
+| `success.*` | 0 | `True` |
+| `failure.*`, その他 | 1 | `False` |
 
 ### 終端ノード（Exit Node）
 
@@ -472,21 +491,31 @@ transitions:
     failure::timeout: exit.failure.timeout
 ```
 
-**実装例:**
+**実装例（基本）:**
 
 ```python
-# src/nodes/exit/success/done.py
-from railway import Contract, node
-
-class FinalSummary(Contract):
-    status: str
-    processed_count: int
-
-@node
-def done(ctx: WorkflowContext) -> FinalSummary:
+# src/nodes/exit/success/done.py - Context を返す（推奨）
+def done(ctx: WorkflowContext) -> dict:
     """終端ノードは Context のみを返す（Outcome 不要）。"""
     send_slack_notification(f"処理完了: {ctx.count}件")
-    return FinalSummary(
+    return {"status": "completed", "count": ctx.count}
+```
+
+**実装例（カスタム ExitContract）:**
+
+```python
+# src/nodes/exit/success/done.py - ExitContract サブクラスを返す
+from railway import ExitContract
+
+class DoneResult(ExitContract):
+    """正常終了時の詳細結果。"""
+    status: str
+    processed_count: int
+    exit_state: str = "success.done"  # 明示的に指定
+
+def done(ctx: WorkflowContext) -> DoneResult:
+    """ExitContract を返すと exit_code が自動導出される。"""
+    return DoneResult(
         status="completed",
         processed_count=ctx.count,
     )
