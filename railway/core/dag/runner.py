@@ -7,7 +7,7 @@ routing between nodes based on their returned states.
 Note: This runner ONLY supports Contract context and string keys.
       dict context is NOT supported.
 
-v0.13.0: 型安全性強制
+v0.12.3: 型安全性強制
 - 終端ノードは ExitContract サブクラスを返す必要がある
 - dict, None 等を返すと ExitNodeTypeError
 - レガシー形式 "exit::green::done" は LegacyExitFormatError
@@ -227,8 +227,8 @@ def dag_runner(
     Raises:
         MaxIterationsError: If max iterations exceeded
         UndefinedStateError: If strict and undefined state encountered
-        ExitNodeTypeError: If exit node returns non-ExitContract (v0.13.0+)
-        LegacyExitFormatError: If legacy "exit::..." format is used (v0.13.0+)
+        ExitNodeTypeError: If exit node returns non-ExitContract (v0.12.3+)
+        LegacyExitFormatError: If legacy "exit::..." format is used (v0.12.3+)
 
     Example:
         transitions = {
@@ -272,7 +272,7 @@ def dag_runner(
                     f"未定義の状態です: {state_string} (ノード: {node_name})"
                 )
 
-        # Check for legacy exit format (v0.13.0: raise error)
+        # Check for legacy exit format (v0.12.3: raise error)
         _check_legacy_exit_format(next_step, state_string)
 
         # Execute next node
@@ -340,8 +340,8 @@ async def async_dag_runner(
     Raises:
         MaxIterationsError: If max iterations exceeded
         UndefinedStateError: If strict and undefined state encountered
-        ExitNodeTypeError: If exit node returns non-ExitContract (v0.13.0+)
-        LegacyExitFormatError: If legacy "exit::..." format is used (v0.13.0+)
+        ExitNodeTypeError: If exit node returns non-ExitContract (v0.12.3+)
+        LegacyExitFormatError: If legacy "exit::..." format is used (v0.12.3+)
     """
     logger.debug(f"非同期DAGワークフロー開始: max_iterations={max_iterations}")
 
@@ -375,7 +375,7 @@ async def async_dag_runner(
                 f"未定義の状態です: {state_string} (ノード: {node_name})"
             )
 
-        # Check for legacy exit format (v0.13.0: raise error)
+        # Check for legacy exit format (v0.12.3: raise error)
         _check_legacy_exit_format(next_step, state_string)
 
         iteration += 1

@@ -134,7 +134,7 @@ def done(ctx: WorkflowContext) -> FinalSummary:
 ```
 
 遷移先がないため、`Outcome` を返す必要がありません。
-v0.13.0 以降、`ExitContract` サブクラス以外を返すと `ExitNodeTypeError` が発生します。
+v0.12.3 以降、`ExitContract` サブクラス以外を返すと `ExitNodeTypeError` が発生します。
 
 ### 深いネスト
 

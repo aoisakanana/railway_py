@@ -198,10 +198,10 @@ class TestDagRunner:
             )
 
     def test_undefined_state_non_strict(self):
-        """v0.13.0: strict=False でも UndefinedStateError が発生する。
+        """v0.12.3: strict=False でも UndefinedStateError が発生する。
 
         Note:
-            v0.13.0 で strict=False の動作が変更され、
+            v0.12.3 で strict=False の動作が変更され、
             未定義状態では常に UndefinedStateError が発生する。
         """
         from railway.core.dag.runner import UndefinedStateError, dag_runner
@@ -216,7 +216,7 @@ class TestDagRunner:
             "node::success::known": lambda x: (x, Outcome.success("done")),
         }
 
-        # v0.13.0: strict=False でも例外が発生
+        # v0.12.3: strict=False でも例外が発生
         with pytest.raises(UndefinedStateError):
             dag_runner(
                 start=node,
@@ -329,10 +329,10 @@ class TestExitContractResult:
 
 
 class TestLegacyExitFormat:
-    """v0.13.0: レガシー exit:: 形式は拒否される。"""
+    """v0.12.3: レガシー exit:: 形式は拒否される。"""
 
     def test_legacy_exit_green_raises_error(self):
-        """v0.13.0: レガシー形式 exit::green::done は LegacyExitFormatError。"""
+        """v0.12.3: レガシー形式 exit::green::done は LegacyExitFormatError。"""
         from railway.core.dag.errors import LegacyExitFormatError
         from railway.core.dag.runner import dag_runner
 
@@ -353,7 +353,7 @@ class TestLegacyExitFormat:
         assert "exit::green::done" in str(exc_info.value)
 
     def test_legacy_exit_red_raises_error(self):
-        """v0.13.0: レガシー形式 exit::red::error は LegacyExitFormatError。"""
+        """v0.12.3: レガシー形式 exit::red::error は LegacyExitFormatError。"""
         from railway.core.dag.errors import LegacyExitFormatError
         from railway.core.dag.runner import dag_runner
 
@@ -372,7 +372,7 @@ class TestLegacyExitFormat:
             dag_runner(start=start, transitions=transitions)
 
     def test_legacy_exit_yellow_raises_error(self):
-        """v0.13.0: レガシー形式 exit::yellow::warning は LegacyExitFormatError。"""
+        """v0.12.3: レガシー形式 exit::yellow::warning は LegacyExitFormatError。"""
         from railway.core.dag.errors import LegacyExitFormatError
         from railway.core.dag.runner import dag_runner
 

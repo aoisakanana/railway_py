@@ -117,7 +117,7 @@ def done(ctx: WorkflowContext) -> DoneResult:
 1. 終端ノードを検出（`exit.` または `_exit_` プレフィックス）
 2. 終端ノードを実行
 3. 結果が `ExitContract` なら `execution_path` と `iterations` を追加して返す
-4. 結果が `ExitContract` でなければ `ExitNodeTypeError`（v0.13.0 で後方互換廃止）
+4. 結果が `ExitContract` でなければ `ExitNodeTypeError`（v0.12.3 で後方互換廃止）
 
 ### 3. 削除する抽象化
 
@@ -179,22 +179,22 @@ result = dag_runner(...)
 
 ### 後方互換性（v0.12.2）
 
-> **注意**: v0.13.0 で後方互換性は廃止されました。下記のセクションを参照してください。
+> **注意**: v0.12.3 で後方互換性は廃止されました。下記のセクションを参照してください。
 
 ~~- 終端ノードが `ExitContract` 以外を返す場合、`DefaultExitContract` でラップ~~
 ~~- `exit_state` は終端ノード名から自動導出~~
 
-### v0.13.0 破壊的変更
+### v0.12.3 破壊的変更
 
-v0.13.0 で型安全性を強制するため、以下の破壊的変更が導入されました：
+v0.12.3 で型安全性を強制するため、以下の破壊的変更が導入されました：
 
-| 変更 | v0.12.2 | v0.13.0 |
+| 変更 | v0.12.2 | v0.12.3 |
 |------|---------|---------|
 | `DefaultExitContract` | フォールバックとして使用 | **削除** |
 | 非 `ExitContract` 戻り値 | ラップして返す | **`ExitNodeTypeError`** |
 | レガシー `exit::` 形式 | サポート（警告なし） | **`LegacyExitFormatError`** |
 
-**v0.13.0 での終端ノード要件:**
+**v0.12.3 での終端ノード要件:**
 
 ```python
 # 正しい: ExitContract サブクラスを返す
@@ -218,20 +218,20 @@ def done_bad(ctx: WorkflowContext) -> dict:
 
 **追加:**
 - `ExitContract` 基底クラス（`railway/core/exit_contract.py`）
-- `ExitNodeTypeError` エラークラス（v0.13.0）
-- `LegacyExitFormatError` エラークラス（v0.13.0）
+- `ExitNodeTypeError` エラークラス（v0.12.3）
+- `LegacyExitFormatError` エラークラス（v0.12.3）
 - `_is_exit_node()` 純粋関数
 - `_derive_exit_state()` 純粋関数
-- `_execute_exit_node()` 純粋関数（v0.13.0）
-- `_check_legacy_exit_format()` 純粋関数（v0.13.0）
+- `_execute_exit_node()` 純粋関数（v0.12.3）
+- `_check_legacy_exit_format()` 純粋関数（v0.12.3）
 
 **削除:**
 - `Exit` クラス
 - `DagRunnerResult` クラス
-- `DefaultExitContract` クラス（v0.13.0 で削除）
+- `DefaultExitContract` クラス（v0.12.3 で削除）
 - `exit_codes` パラメータ
 - `EXIT_CODES` 生成（codegen）
-- `generate_exit_codes()` 関数（v0.13.0 で削除）
+- `generate_exit_codes()` 関数（v0.12.3 で削除）
 - `ExitOutcome` クラス
 - `NodeDefinition.exit_code` 属性
 
