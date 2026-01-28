@@ -12,7 +12,7 @@ from importlib.metadata import version
 
 from railway.core.contract import Contract, Params, Tagged, validate_contract
 from railway.core.decorators import entry_point, node, Retry
-from railway.core.exit_contract import DefaultExitContract, ExitContract
+from railway.core.exit_contract import ExitContract
 from railway.core.pipeline import async_pipeline, pipeline
 from railway.core.registry import get_contract, register_contract
 from railway.core.resolver import (
@@ -47,5 +47,4 @@ __all__ = [
     "get_contract",
     # ExitContract (for DAG workflow termination)
     "ExitContract",
-    "DefaultExitContract",
 ]

@@ -1,7 +1,7 @@
-"""Tests for step callbacks with Contract + Outcome (v0.12.2 ExitContract 対応)."""
+"""Tests for step callbacks with Contract + Outcome (v0.13.0 ExitContract 強制)."""
 import pytest
 
-from railway import Contract
+from railway import Contract, ExitContract
 from railway.core.dag.outcome import Outcome
 
 
@@ -16,6 +16,10 @@ class TestOnStepCallback:
         class StepContext(Contract):
             step: int
 
+        class StepResult(ExitContract):
+            exit_state: str = "success.done"
+            step: int
+
         @node
         def node_a() -> tuple[StepContext, Outcome]:
             return StepContext(step=1), Outcome.success("done")
@@ -24,8 +28,8 @@ class TestOnStepCallback:
         def node_b(ctx: StepContext) -> tuple[StepContext, Outcome]:
             return StepContext(step=2), Outcome.success("done")
 
-        def exit_success_done(ctx: StepContext) -> StepContext:
-            return ctx
+        def exit_success_done(ctx: StepContext) -> StepResult:
+            return StepResult(step=ctx.step)
 
         exit_success_done._node_name = "exit.success.done"
 
@@ -60,12 +64,16 @@ class TestOnStepCallback:
         class KeyContext(Contract):
             key: str
 
+        class KeyResult(ExitContract):
+            exit_state: str = "success.done"
+            key: str
+
         @node
         def node_a() -> tuple[KeyContext, Outcome]:
             return KeyContext(key="value"), Outcome.success("done")
 
-        def exit_success_done(ctx: KeyContext) -> KeyContext:
-            return ctx
+        def exit_success_done(ctx: KeyContext) -> KeyResult:
+            return KeyResult(key=ctx.key)
 
         exit_success_done._node_name = "exit.success.done"
 
@@ -94,12 +102,15 @@ class TestStepRecorder:
         class EmptyContext(Contract):
             pass
 
+        class DoneResult(ExitContract):
+            exit_state: str = "success.done"
+
         @node
         def start() -> tuple[EmptyContext, Outcome]:
             return EmptyContext(), Outcome.success("done")
 
-        def exit_success_done(ctx: EmptyContext) -> EmptyContext:
-            return ctx
+        def exit_success_done(ctx: EmptyContext) -> DoneResult:
+            return DoneResult()
 
         exit_success_done._node_name = "exit.success.done"
 
@@ -124,12 +135,15 @@ class TestStepRecorder:
         class EmptyContext(Contract):
             pass
 
+        class DoneResult(ExitContract):
+            exit_state: str = "success.done"
+
         @node
         def start() -> tuple[EmptyContext, Outcome]:
             return EmptyContext(), Outcome.success("done")
 
-        def exit_success_done(ctx: EmptyContext) -> EmptyContext:
-            return ctx
+        def exit_success_done(ctx: EmptyContext) -> DoneResult:
+            return DoneResult()
 
         exit_success_done._node_name = "exit.success.done"
 
@@ -153,12 +167,16 @@ class TestStepRecorder:
         class DataContext(Contract):
             x: int
 
+        class DataResult(ExitContract):
+            exit_state: str = "success.done"
+            x: int
+
         @node
         def start() -> tuple[DataContext, Outcome]:
             return DataContext(x=1), Outcome.success("done")
 
-        def exit_success_done(ctx: DataContext) -> DataContext:
-            return ctx
+        def exit_success_done(ctx: DataContext) -> DataResult:
+            return DataResult(x=ctx.x)
 
         exit_success_done._node_name = "exit.success.done"
 
@@ -183,12 +201,15 @@ class TestStepRecorder:
         class EmptyContext(Contract):
             pass
 
+        class DoneResult(ExitContract):
+            exit_state: str = "success.done"
+
         @node
         def start() -> tuple[EmptyContext, Outcome]:
             return EmptyContext(), Outcome.success("done")
 
-        def exit_success_done(ctx: EmptyContext) -> EmptyContext:
-            return ctx
+        def exit_success_done(ctx: EmptyContext) -> DoneResult:
+            return DoneResult()
 
         exit_success_done._node_name = "exit.success.done"
 
@@ -261,12 +282,15 @@ class TestAuditLogger:
         class EmptyContext(Contract):
             pass
 
+        class DoneResult(ExitContract):
+            exit_state: str = "success.done"
+
         @node
         def start() -> tuple[EmptyContext, Outcome]:
             return EmptyContext(), Outcome.success("done")
 
-        def exit_success_done(ctx: EmptyContext) -> EmptyContext:
-            return ctx
+        def exit_success_done(ctx: EmptyContext) -> DoneResult:
+            return DoneResult()
 
         exit_success_done._node_name = "exit.success.done"
 
@@ -301,12 +325,15 @@ class TestCompositeCallback:
         class EmptyContext(Contract):
             pass
 
+        class DoneResult(ExitContract):
+            exit_state: str = "success.done"
+
         @node
         def start() -> tuple[EmptyContext, Outcome]:
             return EmptyContext(), Outcome.success("done")
 
-        def exit_success_done(ctx: EmptyContext) -> EmptyContext:
-            return ctx
+        def exit_success_done(ctx: EmptyContext) -> DoneResult:
+            return DoneResult()
 
         exit_success_done._node_name = "exit.success.done"
 
@@ -332,12 +359,15 @@ class TestCompositeCallback:
         class EmptyContext(Contract):
             pass
 
+        class DoneResult(ExitContract):
+            exit_state: str = "success.done"
+
         @node
         def start() -> tuple[EmptyContext, Outcome]:
             return EmptyContext(), Outcome.success("done")
 
-        def exit_success_done(ctx: EmptyContext) -> EmptyContext:
-            return ctx
+        def exit_success_done(ctx: EmptyContext) -> DoneResult:
+            return DoneResult()
 
         exit_success_done._node_name = "exit.success.done"
 

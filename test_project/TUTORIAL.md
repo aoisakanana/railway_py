@@ -10,6 +10,7 @@ Railway Framework の**型安全なパイプライン**を体験しましょう�
 - TDDワークフロー
 - typed_pipeline による依存関係の自動解決
 - バージョン管理と安全なアップグレード
+- 終端ノード（ExitContract）による型安全な終了処理
 
 ## 所要時間
 
@@ -726,41 +727,142 @@ transitions:
 
 ### 10.3 終端ノードを実装
 
+**v0.13.0 では終端ノードは `ExitContract` サブクラスを返す必要があります。**
+
 `src/nodes/exit/success/done.py`:
 
 ```python
-from railway import node
+from railway import ExitContract, node
 
-@node
-def done(ctx):
-    """終端ノードは Context のみを返す（Outcome 不要）。"""
+
+class SuccessDoneResult(ExitContract):
+    """正常終了時の結果。"""
+    exit_state: str = "success.done"
+    processed_count: int
+    summary: str
+
+
+@node(name="exit.success.done")
+def done(ctx) -> SuccessDoneResult:
+    """終端ノードは ExitContract を返す（Outcome 不要）。"""
     print(f"[完了] ワークフロー正常終了")
     # Slack通知などの終了処理を記述
-    return {"status": "completed", "original": ctx}
+    return SuccessDoneResult(
+        processed_count=ctx.get("count", 0),
+        summary="All items processed successfully",
+    )
+```
+
+`src/nodes/exit/failure/timeout.py`:
+
+```python
+from railway import ExitContract, node
+
+
+class TimeoutResult(ExitContract):
+    """タイムアウト時の結果。"""
+    exit_state: str = "failure.timeout"
+    error_message: str
+    retry_count: int
+
+
+@node(name="exit.failure.timeout")
+def timeout(ctx) -> TimeoutResult:
+    """タイムアウト終端ノード。"""
+    return TimeoutResult(
+        error_message="API request timed out",
+        retry_count=ctx.get("retries", 0),
+    )
 ```
 
 **ポイント:**
-- 終端ノードは **Context のみを返す**（Outcome 不要）
-- 通常のノードと同じ書き方で実装
-- module/function は省略可能（自動解決）
+- 終端ノードは **ExitContract サブクラスを返す**（Outcome 不要）
+- `exit_state` で終了状態を指定（`success.*` → exit_code=0, それ以外 → 1）
+- カスタムフィールドで任意のデータを返せる
 
-### 10.4 コード生成と実行
+### 10.4 スケルトン自動生成
+
+`railway sync transition` を実行すると、未実装の終端ノードにスケルトンが自動生成されます:
+
+```bash
+$ railway sync transition --entry alert_workflow
+
+生成: src/nodes/exit/success/done.py
+生成: src/nodes/exit/failure/timeout.py
+```
+
+生成されたファイルを編集して、TODO コメントを実装してください。
+
+### 10.5 dag_runner の返り値
+
+`dag_runner()` は終端ノードが返した `ExitContract` を返します:
+
+```python
+from railway.core.dag import dag_runner
+
+result = dag_runner(start=start, transitions=TRANSITIONS)
+
+# 基本プロパティ
+result.is_success       # True if exit_code == 0
+result.exit_code        # 0 (success.*) or 1 (failure.*)
+result.exit_state       # "success.done" など
+
+# カスタムフィールド（ExitContract サブクラスの場合）
+result.processed_count  # 42
+result.summary          # "All items processed successfully"
+
+# メタデータ
+result.execution_path   # ("start", "process", "exit.success.done")
+result.iterations       # 3
+```
+
+### 10.6 コード生成と実行
 
 ```bash
 railway sync transition --entry alert_workflow
 railway run alert_workflow
 ```
 
-### 10.5 終端ノードの利点
+### 10.7 終端ノードの利点
 
 | 項目 | 説明 |
 |------|------|
+| **型安全性** | ExitContract で戻り値の型が保証される |
+| **IDE補完** | カスタムフィールドに補完が効く |
 | **一貫性** | 通常のノードと同じ書き方 |
 | **テスト可能性** | 純粋関数としてテスト可能 |
 | **表現力** | 詳細な終了状態を表現（done, skipped, timeout など） |
 | **自動解決** | module/function は省略可能 |
 
-🎉 **コールバックの概念を知らなくても、終了処理を実装できます！**
+### 10.8 v0.12.x からの移行
+
+v0.12.x で `dict` や `None` を返していた場合、v0.13.0 で `ExitNodeTypeError` が発生します。
+
+**移行手順:**
+
+1. `railway sync transition` でスケルトン生成
+2. 警告に従ってコード修正
+3. `ExitContract` サブクラスを返すように変更
+
+**Before (v0.12.x):**
+```python
+def done(ctx):
+    return {"status": "ok"}  # ← ExitNodeTypeError in v0.13.0
+```
+
+**After (v0.13.0):**
+```python
+from railway import ExitContract
+
+class DoneResult(ExitContract):
+    exit_state: str = "success.done"
+    status: str
+
+def done(ctx) -> DoneResult:
+    return DoneResult(status="ok")
+```
+
+🎉 **コールバックの概念を知らなくても、型安全な終了処理を実装できます！**
 
 ---
 
@@ -780,7 +882,8 @@ railway run alert_workflow
 - **on_step でデバッグ/監査**
 - **バージョン管理** (`railway update`, `railway backup`)
 - **DAGワークフロー** (dag_runner, 条件分岐)
-- **終端ノード** (nodes.exit, 終了時処理)
+- **終端ノード** (ExitContract, 型安全な終了処理)
+- **v0.12.x からの移行** (ExitNodeTypeError 対応)
 
 ### さらに学ぶ
 

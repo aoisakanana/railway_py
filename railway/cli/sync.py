@@ -3,18 +3,141 @@ Sync command for transition graph code generation.
 
 This module is the IO boundary - it handles file operations
 and delegates to pure functions for parsing, validation, and generation.
+
+Issue #44: Exit node skeleton generation support added.
 """
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 import typer
 
-from railway.core.dag.codegen import generate_transition_code
+from railway.core.dag.codegen import generate_transition_code, generate_exit_node_skeleton
 from railway.core.dag.parser import ParseError, load_transition_graph
+from railway.core.dag.types import TransitionGraph, NodeDefinition
 from railway.core.dag.validator import validate_graph
+
+
+# =============================================================================
+# Issue #44: Exit Node Skeleton Generation
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class SyncResult:
+    """終端ノード同期の結果（イミュータブル）。
+
+    Attributes:
+        generated: 生成されたファイルパス
+        skipped: スキップされたファイルパス（既存）
+        warnings: 警告メッセージ
+
+    Note:
+        dataclass を採用した理由:
+        - 内部処理用でユーザーに直接公開されない
+        - シリアライズ不要
+        - ValidationResult 等の既存内部型と一貫性がある
+        - BaseModel より軽量
+    """
+
+    generated: tuple[Path, ...]
+    skipped: tuple[Path, ...]
+    warnings: tuple[str, ...] = ()
+
+
+def sync_exit_nodes(graph: TransitionGraph, project_root: Path) -> SyncResult:
+    """未実装の終端ノードにスケルトンを生成（副作用あり）。
+
+    Args:
+        graph: 遷移グラフ
+        project_root: プロジェクトルート
+
+    Returns:
+        SyncResult: 同期結果
+
+    Note:
+        この関数は以下の副作用を持つ：
+        - ファイル書き込み
+        - ディレクトリ作成
+    """
+    generated: list[Path] = []
+    skipped: list[Path] = []
+
+    for node_def in graph.nodes:
+        if not node_def.is_exit:
+            continue
+
+        file_path = _calculate_exit_node_file_path(node_def, project_root)
+
+        if file_path.exists():
+            skipped.append(file_path)
+            continue
+
+        # 純粋関数でコード生成
+        code = generate_exit_node_skeleton(node_def)
+
+        # 副作用: ファイル書き込み
+        _write_skeleton_file(file_path, code)
+        generated.append(file_path)
+
+    return SyncResult(
+        generated=tuple(generated),
+        skipped=tuple(skipped),
+    )
+
+
+def _calculate_exit_node_file_path(node: NodeDefinition, project_root: Path) -> Path:
+    """ノード定義からファイルパスを計算（純粋関数）。
+
+    Args:
+        node: ノード定義
+        project_root: プロジェクトルート
+
+    Returns:
+        ファイルパス
+
+    Examples:
+        >>> _calculate_exit_node_file_path(NodeDefinition(module="nodes.exit.success.done", ...), Path("/project"))
+        Path("/project/src/nodes/exit/success/done.py")
+    """
+    module_path = node.module.replace(".", "/") + ".py"
+    return project_root / "src" / module_path
+
+
+def _write_skeleton_file(file_path: Path, content: str) -> None:
+    """スケルトンファイルを書き込み（副作用あり）。
+
+    Args:
+        file_path: 書き込み先パス
+        content: ファイル内容
+    """
+    _ensure_package_directory(file_path.parent)
+    file_path.write_text(content)
+
+
+def _ensure_package_directory(directory: Path) -> None:
+    """ディレクトリを作成し、__init__.py も生成する（副作用あり）。
+
+    Args:
+        directory: 作成するディレクトリ
+
+    Note:
+        src ディレクトリ自体には __init__.py を作成しない。
+        src/nodes/ 以下の階層にのみ作成する。
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+
+    # src ディレクトリまでの各階層に __init__.py を作成
+    # ただし src 自体には作成しない
+    current = directory
+    while current.name and current.name != "src":
+        init_file = current / "__init__.py"
+        if not init_file.exists():
+            init_file.write_text('"""Auto-generated package."""\n')
+        current = current.parent
 
 app = typer.Typer(help="同期コマンド")
 
