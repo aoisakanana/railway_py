@@ -1,0 +1,18 @@
+version: "1.0"
+entrypoint: invalid_exit_path_test
+description: "不正な終端パステスト"
+
+nodes:
+  start:
+    description: "開始"
+
+  exit:
+    success:
+      done:
+        description: "正常終了"
+
+start: start
+
+transitions:
+  start:
+    success::done: exit.success.nonexistent

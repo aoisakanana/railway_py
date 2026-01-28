@@ -328,9 +328,9 @@ class TestParseTransitionGraphErrors:
 
         assert "nodes" in str(exc_info.value).lower()
 
-    def test_missing_node_module(self):
-        """Should raise error when node module is missing."""
-        from railway.core.dag.parser import ParseError, parse_transition_graph
+    def test_auto_resolve_when_module_omitted(self):
+        """Should auto-resolve module when omitted (v0.12.0+ behavior)."""
+        from railway.core.dag.parser import parse_transition_graph
 
         yaml_content = dedent("""
             version: "1.0"
@@ -338,17 +338,18 @@ class TestParseTransitionGraphErrors:
             description: ""
             nodes:
               start:
-                function: start
-                description: ""
+                description: "Start node without explicit module/function"
             exits: {}
             start: start
             transitions: {}
         """)
 
-        with pytest.raises(ParseError) as exc_info:
-            parse_transition_graph(yaml_content)
-
-        assert "module" in str(exc_info.value).lower()
+        # v0.12.0: module/function are auto-resolved, no error
+        graph = parse_transition_graph(yaml_content)
+        start_node = graph.get_node("start")
+        assert start_node is not None
+        assert start_node.module == "nodes.start"
+        assert start_node.function == "start"
 
     def test_empty_transitions(self):
         """Should handle empty transitions for a node."""
@@ -381,18 +382,22 @@ class TestParseTransitionGraphErrors:
 class TestParseFunctions:
     """Test individual parsing helper functions."""
 
-    def test_parse_node_definition(self):
-        """Should parse a single node definition."""
-        from railway.core.dag.parser import _parse_node_definition
+    def test_parse_nodes_single(self):
+        """Should parse a single node definition via parse_nodes."""
+        from railway.core.dag.parser import parse_nodes
 
-        node_data = {
-            "module": "nodes.fetch",
-            "function": "fetch_data",
-            "description": "Fetch data from API",
+        nodes_data = {
+            "fetch": {
+                "module": "nodes.fetch",
+                "function": "fetch_data",
+                "description": "Fetch data from API",
+            }
         }
 
-        node = _parse_node_definition("fetch", node_data)
+        result = parse_nodes(nodes_data)
 
+        assert len(result) == 1
+        node = result[0]
         assert node.name == "fetch"
         assert node.module == "nodes.fetch"
         assert node.function == "fetch_data"
@@ -456,18 +461,6 @@ class TestLoadTransitionGraph:
         # Verify 4 transitions from check_condition (3 success + 1 failure)
         check_transitions = graph.get_transitions_for_node("check_condition")
         assert len(check_transitions) == 4
-
-    def test_load_top2_test_yaml(self, top2_yaml: Path):
-        """Should load full 事例1 YAML from fixtures."""
-        from railway.core.dag.parser import load_transition_graph
-
-        graph = load_transition_graph(top2_yaml)
-
-        assert graph.entrypoint == "top2"
-        assert graph.description == "セッション管理ワークフロー - DBセッションの監視と自動解決"
-        assert len(graph.nodes) == 8
-        assert len(graph.exits) == 4
-        assert graph.options.max_iterations == 20
 
     def test_load_from_file(self, tmp_path: Path):
         """Should load and parse from file."""

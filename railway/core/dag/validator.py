@@ -111,14 +111,32 @@ def validate_start_node_exists(graph: TransitionGraph) -> ValidationResult:
 
 
 def validate_transition_targets(graph: TransitionGraph) -> ValidationResult:
-    """Validate that all transition targets exist."""
+    """Validate that all transition targets exist.
+
+    Supports both formats:
+    - Legacy (v0.11.x): exit::name → check exits section
+    - New (v0.12.0+): exit.success.done → check nodes section
+    """
     errors: list[ValidationError] = []
 
     node_names = {node.name for node in graph.nodes}
     exit_names = {exit_def.name for exit_def in graph.exits}
 
     for transition in graph.transitions:
-        if transition.is_exit:
+        target = transition.to_target
+
+        # New format: exit.* targets are in nodes
+        if target.startswith("exit."):
+            if target not in node_names:
+                errors.append(
+                    ValidationError(
+                        "E003",
+                        f"遷移先ノード '{target}' が定義されていません "
+                        f"(ノード '{transition.from_node}' の状態 '{transition.from_state}')",
+                    )
+                )
+        # Legacy format: exit::name
+        elif target.startswith("exit::"):
             exit_name = transition.exit_name
             if exit_name and exit_name not in exit_names:
                 errors.append(
@@ -128,12 +146,13 @@ def validate_transition_targets(graph: TransitionGraph) -> ValidationResult:
                         f"(ノード '{transition.from_node}' の状態 '{transition.from_state}')",
                     )
                 )
+        # Regular node target
         else:
-            if transition.to_target not in node_names:
+            if target not in node_names:
                 errors.append(
                     ValidationError(
                         "E003",
-                        f"遷移先ノード '{transition.to_target}' が定義されていません "
+                        f"遷移先ノード '{target}' が定義されていません "
                         f"(ノード '{transition.from_node}' の状態 '{transition.from_state}')",
                     )
                 )
@@ -164,7 +183,11 @@ def validate_reachability(graph: TransitionGraph) -> ValidationResult:
 
 
 def _find_reachable_nodes(graph: TransitionGraph) -> set[str]:
-    """Find all nodes reachable from the start node using BFS."""
+    """Find all nodes reachable from the start node using BFS.
+
+    Includes exit nodes (v0.12.0+) in the reachable set.
+    """
+    node_names = {node.name for node in graph.nodes}
     reachable: set[str] = set()
     queue = [graph.start_node]
 
@@ -175,18 +198,38 @@ def _find_reachable_nodes(graph: TransitionGraph) -> set[str]:
         reachable.add(current)
 
         for transition in graph.get_transitions_for_node(current):
-            if not transition.is_exit:
-                queue.append(transition.to_target)
+            target = transition.to_target
+            # New format: exit.* targets are nodes (add to reachable)
+            if target.startswith("exit.") and target in node_names:
+                if target not in reachable:
+                    reachable.add(target)
+                # Exit nodes have no outgoing transitions, so don't add to queue
+            # Legacy format: exit::name (skip, not in nodes)
+            elif target.startswith("exit::"):
+                pass
+            # Regular node
+            elif target in node_names:
+                queue.append(target)
 
     return reachable
 
 
 def validate_termination(graph: TransitionGraph) -> ValidationResult:
-    """Validate that all reachable nodes have paths to exit."""
+    """Validate that all reachable nodes have paths to exit.
+
+    Exit nodes (is_exit=True) are excluded - they don't need transitions.
+    """
     errors: list[ValidationError] = []
     reachable = _find_reachable_nodes(graph)
 
+    # Collect exit node names
+    exit_node_names = frozenset(n.name for n in graph.nodes if n.is_exit)
+
     for node_name in reachable:
+        # Exit nodes don't need outgoing transitions
+        if node_name in exit_node_names:
+            continue
+
         transitions = graph.get_transitions_for_node(node_name)
         if not transitions:
             errors.append(
@@ -224,26 +267,39 @@ def validate_no_duplicate_states(graph: TransitionGraph) -> ValidationResult:
 
 
 def validate_no_infinite_loop(graph: TransitionGraph) -> ValidationResult:
-    """
-    Validate that all nodes can eventually reach an exit.
+    """Validate that all nodes can eventually reach an exit.
 
     Detects cycles that have no path to any exit (infinite loops).
+    Supports both legacy (exit::) and new (exit.) formats.
     """
-    # Find nodes that can reach exit by traversing backwards from exit transitions
+    # Collect exit node names (v0.12.0+)
+    exit_node_names = frozenset(n.name for n in graph.nodes if n.is_exit)
+
+    # Find nodes that can reach exit by traversing backwards
     can_reach_exit: set[str] = set()
     queue: list[str] = []
 
     # First, collect nodes that directly transition to exit
     for transition in graph.transitions:
-        if transition.is_exit:
+        target = transition.to_target
+
+        # New format: transition to exit.* nodes
+        if target.startswith("exit.") and target in exit_node_names:
             can_reach_exit.add(transition.from_node)
-            queue.append(transition.from_node)
+            if transition.from_node not in queue:
+                queue.append(transition.from_node)
+        # Legacy format: exit::name
+        elif target.startswith("exit::"):
+            can_reach_exit.add(transition.from_node)
+            if transition.from_node not in queue:
+                queue.append(transition.from_node)
 
     # Build reverse edges: target -> [sources]
     reverse_edges: dict[str, list[str]] = {}
     for transition in graph.transitions:
-        if not transition.is_exit:
-            target = transition.to_target
+        target = transition.to_target
+        # Skip exit transitions for reverse edge building
+        if not (target.startswith("exit::") or target in exit_node_names):
             if target not in reverse_edges:
                 reverse_edges[target] = []
             reverse_edges[target].append(transition.from_node)
@@ -258,7 +314,8 @@ def validate_no_infinite_loop(graph: TransitionGraph) -> ValidationResult:
 
     # Detect reachable nodes that cannot reach exit
     reachable = _find_reachable_nodes(graph)
-    stuck_nodes = reachable - can_reach_exit
+    # Exclude exit nodes themselves from stuck check
+    stuck_nodes = reachable - can_reach_exit - exit_node_names
 
     if stuck_nodes:
         return ValidationResult.error(

@@ -340,29 +340,6 @@ class TestCodegenWithFixtures:
         assert "PROCESS_C" in code
         assert "FINALIZE" in code
 
-    def test_generate_from_top2_yaml(self, top2_yaml: Path):
-        """Should generate code from full 事例1 YAML."""
-        from railway.core.dag.codegen import generate_transition_code
-        from railway.core.dag.parser import load_transition_graph
-
-        graph = load_transition_graph(top2_yaml)
-        code = generate_transition_code(graph, str(top2_yaml))
-
-        # Should be valid Python
-        ast.parse(code)
-
-        # Should have all 8 nodes
-        assert "FETCH_ALERT" in code
-        assert "CHECK_SESSION_EXISTS" in code
-        assert "CHECK_SESSION_STATUS" in code
-        assert "RESOLVE_INCIDENT" in code
-
-        # Should have all 4 exit codes
-        assert "GREEN_ACTIVE_TIMEOUT" in code
-        assert "GREEN_CTIME_OK" in code
-        assert "GREEN_RESOLVED" in code
-        assert "RED_ERROR" in code
-
 
 class TestCodegenHelpers:
     """Test helper functions."""

@@ -1,0 +1,25 @@
+version: "1.0"
+entrypoint: basic_exit_test
+description: "基本的な終端ノードテスト"
+
+# 開始ノードを最初に明示（分かりやすさのため）
+start: initialize
+
+nodes:
+  # 通常ノード
+  initialize:
+    description: "初期化ノード"
+
+  # 終端ノード（nodes.exit 配下）
+  exit:
+    success:
+      done:
+        description: "正常終了"
+    failure:
+      error:
+        description: "異常終了"
+
+transitions:
+  initialize:
+    success::done: exit.success.done
+    failure::error: exit.failure.error

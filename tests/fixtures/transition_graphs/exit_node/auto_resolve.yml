@@ -1,0 +1,25 @@
+version: "1.0"
+entrypoint: auto_resolve_test
+description: "module/function 自動解決テスト"
+
+nodes:
+  # module/function 省略 → 自動解決
+  start_process:
+    description: "開始ノード"
+
+  validate_input:
+    description: "入力検証"
+
+  exit:
+    success:
+      done:
+        description: "正常終了"
+
+start: start_process
+
+transitions:
+  start_process:
+    success::done: validate_input
+
+  validate_input:
+    success::done: exit.success.done

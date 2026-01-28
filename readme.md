@@ -442,6 +442,67 @@ TRANSITIONS = {
 | `Exit.YELLOW` | 警告終了 | `exit::yellow::warning` |
 | `Exit.RED` | エラー終了 | `exit::red::error` |
 
+### 終端ノード（Exit Node）
+
+ワークフロー終了時に処理を実行できます。通常のノードと同じ形式で記述できるため、
+コールバックの概念を知らなくても実装できます。
+
+**YAML定義:**
+
+```yaml
+nodes:
+  finalize:
+    description: "最終処理"
+
+  exit:
+    success:
+      done:
+        description: "正常終了（Slack通知）"
+      skipped:
+        description: "スキップして終了"
+
+    failure:
+      timeout:
+        description: "タイムアウト（PagerDuty通知）"
+
+transitions:
+  finalize:
+    success::complete: exit.success.done
+    success::skipped: exit.success.skipped
+    failure::timeout: exit.failure.timeout
+```
+
+**実装例:**
+
+```python
+# src/nodes/exit/success/done.py
+from railway import Contract, node
+
+class FinalSummary(Contract):
+    status: str
+    processed_count: int
+
+@node
+def done(ctx: WorkflowContext) -> FinalSummary:
+    """終端ノードは Context のみを返す（Outcome 不要）。"""
+    send_slack_notification(f"処理完了: {ctx.count}件")
+    return FinalSummary(
+        status="completed",
+        processed_count=ctx.count,
+    )
+```
+
+**特徴:**
+
+| 項目 | 説明 |
+|------|------|
+| 一貫性 | 通常のノードと同じ書き方 |
+| テスト可能性 | 純粋関数としてテスト可能 |
+| 表現力 | 詳細な終了状態を表現（done, skipped, timeout など） |
+| 自動解決 | module/function は省略可能 |
+
+詳細は [docs/transition_graph_reference.md](docs/transition_graph_reference.md) を参照。
+
 ---
 
 ## デバッグと監査
