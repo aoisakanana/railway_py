@@ -3,14 +3,12 @@ Outcome class for simplified node return values.
 
 Provides a clean API for expressing success/failure outcomes
 without directly referencing the generated State Enum.
+
+v0.12.2: Removed unused map_to_state and is_outcome functions
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypeVar
-
-if TYPE_CHECKING:
-    from railway.core.dag.state import NodeOutcome
 
 
 class OutcomeMappingError(Exception):
@@ -85,46 +83,3 @@ class Outcome:
             State string in format: {node_name}::{outcome_type}::{detail}
         """
         return f"{node_name}::{self.outcome_type}::{self.detail}"
-
-
-StateEnumT = TypeVar("StateEnumT", bound="NodeOutcome")
-
-
-def map_to_state(
-    outcome: Outcome,
-    node_name: str,
-    state_enum: type[StateEnumT],
-) -> StateEnumT:
-    """
-    Map an Outcome to a State Enum value.
-
-    This is used internally for code generation validation.
-    Users typically don't need to call this directly.
-
-    Args:
-        outcome: Outcome to map
-        node_name: Name of the node (used to construct state string)
-        state_enum: Target State Enum class
-
-    Returns:
-        Matching State Enum value
-
-    Raises:
-        OutcomeMappingError: If no matching state found
-    """
-    target_value = outcome.to_state_string(node_name)
-
-    for member in state_enum:
-        if member.value == target_value:
-            return member
-
-    available = [m.value for m in state_enum]
-    raise OutcomeMappingError(
-        f"Outcomeに対応する状態が見つかりません: '{target_value}'\n"
-        f"利用可能な状態: {available}"
-    )
-
-
-def is_outcome(value: object) -> bool:
-    """Check if value is an Outcome instance."""
-    return isinstance(value, Outcome)

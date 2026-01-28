@@ -1,4 +1,7 @@
-"""Tests for Outcome class and @node decorator mapping."""
+"""Tests for Outcome class and @node decorator mapping.
+
+v0.12.2: Removed tests for deleted map_to_state and is_outcome functions.
+"""
 import pytest
 
 
@@ -64,51 +67,6 @@ class TestOutcome:
 
         assert success.detail == "done"
         assert failure.detail == "error"
-
-
-class TestOutcomeMapping:
-    """Test Outcome to State Enum mapping (internal use only)."""
-
-    def test_map_outcome_to_state_enum(self):
-        """Should map Outcome to State Enum value (internal)."""
-        from railway.core.dag.outcome import Outcome, map_to_state
-        from railway.core.dag.state import NodeOutcome
-
-        class MyState(NodeOutcome):
-            FETCH_SUCCESS_DONE = "fetch::success::done"
-            FETCH_FAILURE_HTTP = "fetch::failure::http"
-
-        outcome = Outcome.success("done")
-        state = map_to_state(outcome, "fetch", MyState)
-
-        assert state == MyState.FETCH_SUCCESS_DONE
-
-    def test_map_failure_outcome(self):
-        """Should map failure Outcome to State Enum (internal)."""
-        from railway.core.dag.outcome import Outcome, map_to_state
-        from railway.core.dag.state import NodeOutcome
-
-        class MyState(NodeOutcome):
-            FETCH_SUCCESS_DONE = "fetch::success::done"
-            FETCH_FAILURE_HTTP = "fetch::failure::http"
-
-        outcome = Outcome.failure("http")
-        state = map_to_state(outcome, "fetch", MyState)
-
-        assert state == MyState.FETCH_FAILURE_HTTP
-
-    def test_map_unknown_outcome_raises(self):
-        """Should raise error for unknown outcome (internal)."""
-        from railway.core.dag.outcome import Outcome, OutcomeMappingError, map_to_state
-        from railway.core.dag.state import NodeOutcome
-
-        class MyState(NodeOutcome):
-            FETCH_SUCCESS_DONE = "fetch::success::done"
-
-        outcome = Outcome.failure("unknown")
-
-        with pytest.raises(OutcomeMappingError):
-            map_to_state(outcome, "fetch", MyState)
 
 
 class TestNodeDecorator:
@@ -213,23 +171,3 @@ class TestNodeDecorator:
         assert test_node._is_railway_node is True
         assert hasattr(test_node, "_node_name")
         assert test_node._node_name == "test_node"
-
-
-class TestIsOutcome:
-    """Test is_outcome helper."""
-
-    def test_is_outcome_true(self):
-        """Should return True for Outcome instances."""
-        from railway.core.dag.outcome import Outcome, is_outcome
-
-        assert is_outcome(Outcome.success("done")) is True
-        assert is_outcome(Outcome.failure("error")) is True
-
-    def test_is_outcome_false(self):
-        """Should return False for non-Outcome values."""
-        from railway.core.dag.outcome import is_outcome
-
-        assert is_outcome("string") is False
-        assert is_outcome(123) is False
-        assert is_outcome(None) is False
-        assert is_outcome({"key": "value"}) is False

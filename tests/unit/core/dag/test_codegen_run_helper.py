@@ -116,7 +116,7 @@ class TestGenerateTransitionCodeWithRunHelper:
 
         assert "dag_runner" in code
         assert "async_dag_runner" in code
-        assert "DagRunnerResult" in code
+        assert "ExitContract" in code  # v0.12.2: ExitContract instead of DagRunnerResult
 
     def test_generated_code_is_valid_python(self) -> None:
         """生成コードが有効な Python。"""

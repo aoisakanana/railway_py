@@ -7,6 +7,7 @@
 Note:
     変更定義型は railway/migrations/changes.py からインポート。
 """
+import glob as glob_module
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -26,6 +27,7 @@ from railway.migrations.changes import (
     FileChange,
     ConfigChange,
     ChangeType,
+    YamlTransform,
 )
 from railway.migrations.config_merger import merge_config
 
@@ -83,6 +85,42 @@ def apply_config_change(project_path: Path, change: ConfigChange) -> None:
         yaml.dump(result, f, default_flow_style=False, allow_unicode=True)
 
 
+def apply_yaml_transform(project_path: Path, transform: YamlTransform) -> None:
+    """YAML 変換を適用する。
+
+    glob パターンにマッチするファイルに対して変換関数を実行する。
+
+    Args:
+        project_path: プロジェクトルートパス
+        transform: 適用する YAML 変換定義
+    """
+    pattern = str(project_path / transform.pattern)
+    for file_path_str in glob_module.glob(pattern, recursive=True):
+        file_path = Path(file_path_str)
+        if not file_path.is_file():
+            continue
+
+        with open(file_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+
+        if data is None:
+            continue
+
+        result = transform.transform(data)
+        # ConversionResult または dict を処理
+        converted = result.data if hasattr(result, "data") else result
+
+        if converted != data and converted is not None:
+            with open(file_path, "w", encoding="utf-8") as f:
+                yaml.dump(
+                    converted,
+                    f,
+                    default_flow_style=False,
+                    allow_unicode=True,
+                    sort_keys=False,
+                )
+
+
 def apply_migration(project_path: Path, migration: MigrationDefinition) -> None:
     """マイグレーションを適用する。
 
@@ -97,6 +135,10 @@ def apply_migration(project_path: Path, migration: MigrationDefinition) -> None:
     # 設定変更を適用
     for change in migration.config_changes:
         apply_config_change(project_path, change)
+
+    # YAML 変換を適用
+    for transform in migration.yaml_transforms:
+        apply_yaml_transform(project_path, transform)
 
 
 # ============================================================

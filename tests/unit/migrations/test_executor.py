@@ -5,19 +5,23 @@ TDD Red Phase: まずテストを書き、失敗を確認する。
 from pathlib import Path
 
 import pytest
+import yaml
 
 from railway.migrations.types import MigrationPlan
 from railway.migrations.changes import (
     MigrationDefinition,
     FileChange,
     ChangeType,
+    YamlTransform,
 )
 from railway.migrations.executor import (
     apply_file_change,
+    apply_yaml_transform,
     execute_migration_plan,
     initialize_project,
 )
 from railway.core.project_metadata import load_metadata, save_metadata, create_metadata
+from railway.migrations.yaml_converter import convert_yaml_structure
 
 
 class TestApplyFileChange:
@@ -174,3 +178,154 @@ class TestInitializeProject:
         metadata = load_metadata(tmp_path)
         assert metadata is not None
         assert metadata.project.name == tmp_path.name
+
+
+class TestApplyYamlTransform:
+    """YAML 変換適用のテスト（Issue #34）。"""
+
+    def test_applies_yaml_transform(self, tmp_path: Path) -> None:
+        """yaml_transforms が適用される。"""
+        yaml_dir = tmp_path / "transition_graphs"
+        yaml_dir.mkdir()
+        (yaml_dir / "test.yml").write_text(
+            """version: "1.0"
+exits:
+  green_done:
+    code: 0
+    description: "done"
+nodes:
+  start: {}
+transitions:
+  start:
+    success::done: exit::green_done
+"""
+        )
+
+        transform = YamlTransform(
+            pattern="transition_graphs/**/*.yml",
+            transform=convert_yaml_structure,
+            description="test",
+        )
+
+        apply_yaml_transform(tmp_path, transform)
+
+        result = yaml.safe_load((yaml_dir / "test.yml").read_text())
+        assert "exits" not in result
+        assert "exit" in result.get("nodes", {})
+        assert "success" in result["nodes"]["exit"]
+
+    def test_does_not_modify_file_without_changes(self, tmp_path: Path) -> None:
+        """変換不要なファイルは変更しない。"""
+        yaml_dir = tmp_path / "transition_graphs"
+        yaml_dir.mkdir()
+        original_content = """version: "1.0"
+nodes:
+  start: {}
+  exit:
+    success:
+      done: {}
+"""
+        (yaml_dir / "test.yml").write_text(original_content)
+
+        transform = YamlTransform(
+            pattern="transition_graphs/**/*.yml",
+            transform=convert_yaml_structure,
+            description="test",
+        )
+
+        apply_yaml_transform(tmp_path, transform)
+
+        # ファイルは変更されない（同一内容）
+        result_content = (yaml_dir / "test.yml").read_text()
+        result = yaml.safe_load(result_content)
+        assert "exits" not in result
+        assert "exit" in result.get("nodes", {})
+
+    def test_handles_empty_yaml(self, tmp_path: Path) -> None:
+        """空の YAML ファイルを正しく処理する。"""
+        yaml_dir = tmp_path / "transition_graphs"
+        yaml_dir.mkdir()
+        (yaml_dir / "empty.yml").write_text("")
+
+        transform = YamlTransform(
+            pattern="transition_graphs/**/*.yml",
+            transform=convert_yaml_structure,
+            description="test",
+        )
+
+        # エラーにならない
+        apply_yaml_transform(tmp_path, transform)
+
+    def test_matches_glob_pattern(self, tmp_path: Path) -> None:
+        """glob パターンでファイルをマッチする。"""
+        # マッチするディレクトリ
+        yaml_dir = tmp_path / "transition_graphs"
+        yaml_dir.mkdir()
+        (yaml_dir / "test.yml").write_text(
+            """version: "1.0"
+exits:
+  green_done: {code: 0}
+"""
+        )
+
+        # マッチしないディレクトリ
+        other_dir = tmp_path / "other"
+        other_dir.mkdir()
+        (other_dir / "test.yml").write_text(
+            """version: "1.0"
+exits:
+  green_done: {code: 0}
+"""
+        )
+
+        transform = YamlTransform(
+            pattern="transition_graphs/**/*.yml",
+            transform=convert_yaml_structure,
+            description="test",
+        )
+
+        apply_yaml_transform(tmp_path, transform)
+
+        # マッチしたファイルは変換される
+        matched = yaml.safe_load((yaml_dir / "test.yml").read_text())
+        assert "exits" not in matched
+
+        # マッチしないファイルは変換されない
+        not_matched = yaml.safe_load((other_dir / "test.yml").read_text())
+        assert "exits" in not_matched
+
+
+class TestApplyMigrationWithYamlTransform:
+    """apply_migration が yaml_transforms を適用することのテスト（Issue #34）。"""
+
+    def test_apply_migration_applies_yaml_transforms(self, tmp_path: Path) -> None:
+        """apply_migration が yaml_transforms を適用する。"""
+        yaml_dir = tmp_path / "transition_graphs"
+        yaml_dir.mkdir()
+        (yaml_dir / "test.yml").write_text(
+            """version: "1.0"
+exits:
+  green_done: {code: 0, description: "done"}
+"""
+        )
+
+        migration = MigrationDefinition(
+            from_version="0.11.0",
+            to_version="0.12.0",
+            description="test",
+            yaml_transforms=(
+                YamlTransform(
+                    pattern="transition_graphs/**/*.yml",
+                    transform=convert_yaml_structure,
+                    description="YAML 構造変換",
+                ),
+            ),
+        )
+
+        from railway.migrations.executor import apply_migration
+
+        apply_migration(tmp_path, migration)
+
+        result = yaml.safe_load((yaml_dir / "test.yml").read_text())
+        assert "exits" not in result
+        assert "exit" in result.get("nodes", {})

@@ -1,7 +1,8 @@
-"""Tests for dag_runner exit node execution."""
+"""Tests for dag_runner exit node execution (v0.12.2 ExitContract 対応)."""
 
 import pytest
-from railway.core.dag.runner import dag_runner, async_dag_runner, DagRunnerResult
+from railway import ExitContract, DefaultExitContract
+from railway.core.dag.runner import dag_runner, async_dag_runner
 from railway.core.dag.outcome import Outcome
 
 
@@ -28,18 +29,16 @@ class TestDagRunnerExitNode:
         transitions = {
             "start::success::done": exit_success_done,
         }
-        exit_codes = {
-            "exit.success.done": 0,
-        }
 
         result = dag_runner(
             start=start,
             transitions=transitions,
-            exit_codes=exit_codes,
         )
 
         assert "start" in execution_log
         assert "exit.success.done" in execution_log
+        # DefaultExitContract でラップされる
+        assert isinstance(result, DefaultExitContract)
         assert result.context["summary"] == "completed"
         assert result.context["original_count"] == 1
         assert result.is_success is True
@@ -63,21 +62,17 @@ class TestDagRunnerExitNode:
         transitions = {
             "start::success::done": exit_success_done,
         }
-        exit_codes = {
-            "exit.success.done": 0,
-        }
 
         result = dag_runner(
             start=start,
             transitions=transitions,
-            exit_codes=exit_codes,
         )
 
         assert result.context["status"] == "completed"
         assert result.context["original"]["initial"] is True
 
-    def test_exit_code_zero_is_green(self) -> None:
-        """終了コード 0 は green。"""
+    def test_success_exit_node_is_success(self) -> None:
+        """success.* 終端ノードは is_success=True。"""
 
         def start():
             return {}, Outcome.success("done")
@@ -92,22 +87,18 @@ class TestDagRunnerExitNode:
         transitions = {
             "start::success::done": exit_success_done,
         }
-        exit_codes = {
-            "exit.success.done": 0,
-        }
 
         result = dag_runner(
             start=start,
             transitions=transitions,
-            exit_codes=exit_codes,
         )
 
-        assert "green" in result.exit_code
-        assert "exit.success.done" in result.exit_code
+        assert result.exit_state == "success.done"
+        assert result.exit_code == 0
         assert result.is_success is True
 
-    def test_exit_code_nonzero_is_red(self) -> None:
-        """終了コード 0 以外は red。"""
+    def test_failure_exit_node_is_failure(self) -> None:
+        """failure.* 終端ノードは is_failure=True。"""
 
         def start():
             return {}, Outcome.failure("error")
@@ -122,18 +113,14 @@ class TestDagRunnerExitNode:
         transitions = {
             "start::failure::error": exit_failure_error,
         }
-        exit_codes = {
-            "exit.failure.error": 1,
-        }
 
         result = dag_runner(
             start=start,
             transitions=transitions,
-            exit_codes=exit_codes,
         )
 
-        assert "red" in result.exit_code
-        assert "exit.failure.error" in result.exit_code
+        assert result.exit_state == "failure.error"
+        assert result.exit_code == 1
         assert result.is_success is False
 
     def test_on_step_called_for_exit_node(self) -> None:
@@ -156,23 +143,16 @@ class TestDagRunnerExitNode:
         transitions = {
             "start::success::done": exit_success_done,
         }
-        exit_codes = {
-            "exit.success.done": 0,
-        }
 
         dag_runner(
             start=start,
             transitions=transitions,
-            exit_codes=exit_codes,
             on_step=on_step,
         )
 
         assert ("start", "start::success::done") in step_log
-        # 終端ノードは exit:: 形式
-        assert any(
-            "exit.success.done" in node and "exit::green" in state
-            for node, state in step_log
-        )
+        # 終端ノードも on_step で呼ばれる
+        assert any("exit.success.done" in node for node, state in step_log)
 
     def test_execution_path_includes_exit_node(self) -> None:
         """execution_path に終端ノードが含まれる。"""
@@ -190,21 +170,17 @@ class TestDagRunnerExitNode:
         transitions = {
             "start::success::done": exit_success_done,
         }
-        exit_codes = {
-            "exit.success.done": 0,
-        }
 
         result = dag_runner(
             start=start,
             transitions=transitions,
-            exit_codes=exit_codes,
         )
 
         assert "start" in result.execution_path
         assert "exit.success.done" in result.execution_path
 
     def test_backward_compatible_without_exit_codes(self) -> None:
-        """exit_codes なしでも動作（後方互換）。"""
+        """exit_codes なしでも動作（strict=False で終了）。"""
 
         def start():
             return {}, Outcome.success("done")
@@ -227,38 +203,40 @@ class TestDagRunnerExitNode:
             strict=False,  # 遷移先がなくてもエラーにしない
         )
 
-        # 遷移先がないため終了（exit_code は空文字列）
-        assert result.exit_code == ""
+        # 遷移先がないため failure.undefined で終了
+        assert result.exit_state == "failure.undefined"
+        assert result.is_failure is True
 
-    def test_custom_exit_code(self) -> None:
-        """カスタム終了コード。"""
+    def test_custom_exit_contract_subclass(self) -> None:
+        """ExitContract サブクラスを返す終端ノード。"""
+
+        class DoneResult(ExitContract):
+            summary: str
+            exit_state: str = "success.done"
 
         def start():
-            return {}, Outcome.success("warn")
+            return {}, Outcome.success("done")
 
         start._node_name = "start"
 
-        def exit_warning_low_disk(ctx):
-            return {"warning": "disk space low"}
+        def exit_success_done(ctx) -> DoneResult:
+            return DoneResult(summary="all tasks completed")
 
-        exit_warning_low_disk._node_name = "exit.warning.low_disk"
+        exit_success_done._node_name = "exit.success.done"
 
         transitions = {
-            "start::success::warn": exit_warning_low_disk,
-        }
-        exit_codes = {
-            "exit.warning.low_disk": 2,  # カスタム終了コード
+            "start::success::done": exit_success_done,
         }
 
         result = dag_runner(
             start=start,
             transitions=transitions,
-            exit_codes=exit_codes,
         )
 
-        # 0 以外は red
-        assert "red" in result.exit_code
-        assert "exit.warning.low_disk" in result.exit_code
+        assert isinstance(result, DoneResult)
+        assert result.summary == "all tasks completed"
+        assert result.exit_code == 0
+        assert result.is_success is True
 
 
 class TestDagRunnerExitNodeAsync:
@@ -281,14 +259,10 @@ class TestDagRunnerExitNodeAsync:
         transitions = {
             "start::success::done": exit_success_done,
         }
-        exit_codes = {
-            "exit.success.done": 0,
-        }
 
         result = await async_dag_runner(
             start=start,
             transitions=transitions,
-            exit_codes=exit_codes,
         )
 
         assert result.context["summary"] == "completed"
@@ -311,14 +285,10 @@ class TestDagRunnerExitNodeAsync:
         transitions = {
             "start::success::done": exit_success_done,
         }
-        exit_codes = {
-            "exit.success.done": 0,
-        }
 
         result = await async_dag_runner(
             start=start,
             transitions=transitions,
-            exit_codes=exit_codes,
         )
 
         assert result.context["summary"] == "completed"
