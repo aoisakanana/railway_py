@@ -79,18 +79,6 @@ def branching_yaml() -> Path:
 
 
 @pytest.fixture
-def test_entry_yaml() -> Path:
-    """事例1完全版YAML（8ノード、4終了）
-
-    用途:
-    - 実運用レベルのワークフローテスト
-    - 複雑な遷移パターンの検証
-    - E2Eテストのベースライン
-    """
-    return FIXTURES_DIR / "test_entry_20250125000000.yml"
-
-
-@pytest.fixture
 def invalid_yaml_missing_start(tmp_path: Path) -> Path:
     """開始ノードが未定義のYAML（バリデータエラーテスト用）"""
     content = '''
