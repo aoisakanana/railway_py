@@ -866,6 +866,322 @@ def done(ctx) -> DoneResult:
 
 ---
 
+## Step 11: コンテキストの引き継ぎ - model_copy パターン（5分）
+
+DAGワークフローでは、**直前のノードの Contract のみが次のノードに渡されます**。
+ワークフロー全体で必要なデータを保持するには、`model_copy()` を使用します。
+
+### 11.1 なぜ model_copy が必要か？
+
+Railway Framework の設計原則:
+
+| 原則 | 説明 |
+|------|------|
+| **明示的なデータフロー** | 何が渡されるか Contract を見れば分かる |
+| **イミュータブル** | Contract は変更不可、新しいインスタンスを作成 |
+| **暗黙的状態の排除** | グローバルコンテキストを使わない |
+
+```python
+# ❌ Contract は直接変更できない（イミュータブル）
+ctx.hostname = "web-01"  # Error!
+
+# ✅ model_copy で新しいインスタンスを作成
+new_ctx = ctx.model_copy(update={"hostname": "web-01"})
+```
+
+### 11.2 ワークフロー用 Contract を定義
+
+ワークフロー全体で必要なフィールドを1つの Contract に含めます:
+
+`src/contracts/alert_context.py`:
+
+```python
+from railway import Contract
+
+
+class AlertContext(Contract):
+    """アラート処理ワークフローのコンテキスト。
+
+    ワークフロー全体で必要なデータを含む。
+    各ノードで model_copy() を使って新しいフィールドを追加する。
+    """
+    # 初期データ（開始ノードで設定）
+    incident_id: str
+    severity: str
+
+    # 各ノードで追加されるデータ（Optional で定義）
+    hostname: str | None = None        # check_host で設定
+    escalated: bool = False            # escalate で設定
+    notification_sent: bool = False    # notify で設定
+```
+
+**ポイント:**
+- 後続ノードで追加されるフィールドは **Optional** または **デフォルト値付き** で定義
+- すべてのノードが同じ Contract 型を使用
+
+### 11.3 ノードで model_copy を使用
+
+各ノードで `model_copy()` を使い、既存データを保持しつつ新しいフィールドを追加:
+
+`src/nodes/check_host.py`:
+
+```python
+from railway import node
+from railway.core.dag import Outcome
+from contracts.alert_context import AlertContext
+
+
+def lookup_hostname(incident_id: str) -> str | None:
+    """ホスト名を取得（実際の実装は省略）。"""
+    return "web-01"
+
+
+@node
+def check_host(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
+    """ホスト情報を取得するノード。"""
+    hostname = lookup_hostname(ctx.incident_id)
+
+    if hostname:
+        # model_copy で既存データを保持しつつ、hostname を追加
+        new_ctx = ctx.model_copy(update={"hostname": hostname})
+        return new_ctx, Outcome.success("found")
+
+    return ctx, Outcome.failure("not_found")
+```
+
+`src/nodes/escalate.py`:
+
+```python
+from railway import node
+from railway.core.dag import Outcome
+from contracts.alert_context import AlertContext
+
+
+@node
+def escalate(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
+    """エスカレーションするノード。"""
+    # ctx.incident_id, ctx.severity, ctx.hostname すべて利用可能
+    print(f"Escalating {ctx.incident_id} on {ctx.hostname}")
+
+    # escalated フラグを追加
+    return ctx.model_copy(update={"escalated": True}), Outcome.success("done")
+```
+
+### 11.4 データフローの可視化
+
+```
+[開始ノード]
+  incident_id="INC-001", severity="critical"
+     │
+     ▼ (Contract がそのまま渡される)
+[check_host]
+  model_copy(update={"hostname": "web-01"})
+     │
+     ▼ (更新された Contract が渡される)
+  incident_id="INC-001", severity="critical", hostname="web-01"
+     │
+     ▼
+[escalate]
+  model_copy(update={"escalated": True})
+     │
+     ▼
+  incident_id="INC-001", severity="critical", hostname="web-01", escalated=True
+     │
+     ▼
+[終端ノード]
+  すべてのデータにアクセス可能
+```
+
+### 11.5 テストでの確認
+
+`model_copy` のデータ引き継ぎをテストで確認:
+
+```python
+from contracts.alert_context import AlertContext
+from nodes.check_host import check_host
+from nodes.escalate import escalate
+from railway.core.dag import Outcome
+
+
+class TestContextFlow:
+    def test_check_host_preserves_initial_data(self):
+        """check_host が初期データを保持すること。"""
+        ctx = AlertContext(incident_id="INC-001", severity="critical")
+
+        result_ctx, outcome = check_host(ctx)
+
+        # 初期データが保持されている
+        assert result_ctx.incident_id == "INC-001"
+        assert result_ctx.severity == "critical"
+        # 新しいデータが追加されている
+        assert result_ctx.hostname == "web-01"
+
+    def test_escalate_receives_all_previous_data(self):
+        """escalate が前ノードのデータを受け取ること。"""
+        # check_host の出力を模擬
+        ctx = AlertContext(
+            incident_id="INC-001",
+            severity="critical",
+            hostname="web-01",
+        )
+
+        result_ctx, outcome = escalate(ctx)
+
+        # すべてのデータが保持されている
+        assert result_ctx.incident_id == "INC-001"
+        assert result_ctx.hostname == "web-01"
+        assert result_ctx.escalated is True
+```
+
+### 11.6 恩恵のまとめ
+
+| 利点 | 説明 |
+|------|------|
+| **型安全性** | Contract でフィールドが明示、IDE 補完が効く |
+| **追跡可能性** | データフローが Contract を見れば分かる |
+| **テスト容易性** | 各ノードを独立してテスト可能 |
+| **デバッグ容易性** | 各ノードの入出力が明確 |
+
+🎉 **model_copy パターンでワークフロー全体のデータを型安全に管理できます！**
+
+---
+
+## Step 12: フィールドベース依存関係（5分）
+
+ワークフローが複雑になると、ノード間のデータ依存を管理する必要があります。
+フィールドベース依存関係で、**YAML だけでワークフローを変更できる**ようにしましょう。
+
+### 12.1 問題の理解
+
+遷移グラフを変更すると、必要なデータがないエラーが発生することがあります:
+
+```yaml
+# Before: check_severity → check_host → escalate
+#         hostname は check_host が提供
+
+# After: check_severity → escalate (check_host を削除)
+#        ↑ hostname がないためエラー！
+```
+
+従来は、YAML 記述者がノードの内部実装を知っている必要がありました。
+
+### 12.2 ノードで依存を宣言
+
+各ノードが必要とするフィールドを **`@node` デコレータで宣言** します:
+
+`src/nodes/check_host.py`:
+```python
+from railway import node
+from railway.core.dag import Outcome
+from contracts.alert_context import AlertContext
+
+
+@node(requires=["incident_id"], provides=["hostname"])
+def check_host(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
+    """ホスト情報を取得。"""
+    hostname = lookup_hostname(ctx.incident_id)
+    return ctx.model_copy(update={"hostname": hostname}), Outcome.success("found")
+```
+
+`src/nodes/escalate.py`:
+```python
+@node(requires=["incident_id"], optional=["hostname"], provides=["escalated"])
+def escalate(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
+    """エスカレーション。hostname は optional。"""
+    if ctx.hostname:  # optional なので存在チェック
+        notify_with_host(ctx.hostname)
+    else:
+        notify_without_host()
+    return ctx.model_copy(update={"escalated": True}), Outcome.success("done")
+```
+
+**ポイント:**
+- `requires`: 必須フィールド。なければ実行エラー
+- `optional`: あれば使用するフィールド。なくても動作する
+- `provides`: このノードが追加するフィールド
+
+### 12.3 YAML には依存を書かない
+
+YAML には **遷移のみ** を記述します。依存情報は **ノードコードに** あります:
+
+```yaml
+# ノード名と遷移のみ - 依存情報は書かない
+nodes:
+  check_severity:
+    description: "重要度チェック"
+  check_host:
+    description: "ホスト情報取得"
+  escalate:
+    description: "エスカレーション"
+
+transitions:
+  check_severity:
+    success::critical: check_host
+    success::normal: escalate   # ← フレームワークが自動検証
+  check_host:
+    success::found: escalate
+```
+
+### 12.4 sync で自動検証
+
+`railway sync transition` を実行すると、依存関係が自動検証されます:
+
+```bash
+$ railway sync transition --entry alert_workflow
+
+✅ 依存関係検証OK
+
+⚠️ 警告:
+  - 経路 'check_severity → escalate' で hostname が利用不可
+    （escalate は optional で宣言しているため問題なし）
+```
+
+### 12.5 依存エラーの例
+
+`escalate` が `hostname` を `requires` で宣言していた場合:
+
+```bash
+$ railway sync transition --entry alert_workflow
+
+❌ 依存関係エラー: 遷移 'check_severity → escalate' が無効です
+
+  escalate が必要とするフィールド:
+    requires: [hostname]  ❌ 利用不可
+
+  この時点で利用可能なフィールド:
+    [incident_id, severity]
+
+  提案:
+    - check_host を経由する遷移に変更
+    - または escalate の requires から hostname を削除
+```
+
+### 12.6 実行時チェック（オプション）
+
+`dag_runner` で `check_dependencies=True` を指定すると、実行時にも依存チェックが行われます:
+
+```python
+result = dag_runner(
+    start=start,
+    transitions=TRANSITIONS,
+    check_dependencies=True,  # 実行時依存チェック
+)
+```
+
+静的検証で不十分な場合や、動的に決まる経路がある場合に有用です。
+
+### 12.7 恩恵のまとめ
+
+| 観点 | 従来 | フィールドベース依存関係 |
+|------|------|------------------------|
+| YAML 変更時 | ノード実装を確認必要 | **自動検証でエラー検出** |
+| 依存情報の場所 | 暗黙的・ドキュメント | **ノードコードに明示** |
+| YAML 記述者の知識 | ノード実装の詳細 | **ノード名と Outcome のみ** |
+
+🎉 **YAML を変更して sync するだけで、依存エラーを検出できます！**
+
+---
+
 ## 次のステップ
 
 おめでとうございます！🎉 Railwayの基本と応用を習得しました。
@@ -884,6 +1200,8 @@ def done(ctx) -> DoneResult:
 - **DAGワークフロー** (dag_runner, 条件分岐)
 - **終端ノード** (ExitContract, 型安全な終了処理)
 - **v0.12.x からの移行** (ExitNodeTypeError 対応)
+- **model_copy パターン** でワークフロー全体のコンテキストを引き継ぎ
+- **フィールドベース依存関係** (`@node(requires=..., optional=..., provides=...)`)
 
 ### さらに学ぶ
 

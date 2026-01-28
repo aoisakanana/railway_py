@@ -20,7 +20,11 @@ from typing import Any, Callable
 
 from loguru import logger
 
-from railway.core.dag.errors import ExitNodeTypeError, LegacyExitFormatError
+from railway.core.dag.errors import (
+    DependencyRuntimeError,
+    ExitNodeTypeError,
+    LegacyExitFormatError,
+)
 from railway.core.dag.outcome import Outcome
 from railway.core.exit_contract import ExitContract
 
@@ -184,6 +188,92 @@ async def _execute_exit_node_async(
     )
 
 
+def _get_available_fields(context: Any) -> set[str]:
+    """コンテキストの利用可能フィールドを取得する。
+
+    None でないフィールドを利用可能として返す。
+
+    Args:
+        context: コンテキストオブジェクト
+
+    Returns:
+        利用可能なフィールド名のセット
+    """
+    if hasattr(context, "model_dump"):
+        # Pydantic model
+        return {
+            name
+            for name, value in context.model_dump().items()
+            if value is not None
+        }
+    elif hasattr(context, "__dict__"):
+        return {
+            name
+            for name, value in context.__dict__.items()
+            if value is not None
+        }
+    return set()
+
+
+def _check_node_dependencies(
+    node_func: Callable,
+    available_fields: set[str],
+    node_name: str,
+) -> None:
+    """ノードの依存をチェックする。
+
+    Args:
+        node_func: ノード関数
+        available_fields: 利用可能なフィールド
+        node_name: ノード名
+
+    Raises:
+        DependencyRuntimeError: 依存が満たされていない場合
+    """
+    from railway.core.dag.dependency_extraction import extract_field_dependency
+
+    dep = extract_field_dependency(node_func)
+    if dep is None:
+        return  # 依存宣言がない
+
+    missing = dep.requires - available_fields
+    if missing:
+        raise DependencyRuntimeError(
+            node_name=node_name,
+            requires=dep.requires,
+            available=available_fields,
+            missing=missing,
+        )
+
+
+def _update_available_fields(
+    node_func: Callable,
+    context: Any,
+    available_fields: set[str],
+) -> set[str]:
+    """ノード実行後の利用可能フィールドを更新する。
+
+    Args:
+        node_func: 実行したノード関数
+        context: 実行後のコンテキスト
+        available_fields: 現在の利用可能フィールド
+
+    Returns:
+        更新された利用可能フィールド
+    """
+    from railway.core.dag.dependency_extraction import extract_field_dependency
+
+    # コンテキストから実際に設定されているフィールドを追加
+    new_fields = available_fields | _get_available_fields(context)
+
+    # provides で宣言されたフィールドも追加（宣言ベース）
+    dep = extract_field_dependency(node_func)
+    if dep is not None:
+        new_fields |= dep.provides
+
+    return new_fields
+
+
 def _check_legacy_exit_format(next_step: Any, state_string: str) -> None:
     """レガシー exit 形式をチェックし、使用されていればエラーを発生。
 
@@ -204,6 +294,7 @@ def dag_runner(
     max_iterations: int = 100,
     strict: bool = True,
     on_step: Callable[[str, str, Any], None] | None = None,
+    check_dependencies: bool = False,
 ) -> ExitContract:
     """Execute a DAG workflow.
 
@@ -220,6 +311,7 @@ def dag_runner(
         max_iterations: Maximum number of node executions
         strict: Raise error on undefined states
         on_step: Optional callback for each step (node_name, state_string, context)
+        check_dependencies: Enable runtime dependency checking (default: False)
 
     Returns:
         ExitContract from the exit node
@@ -229,6 +321,7 @@ def dag_runner(
         UndefinedStateError: If strict and undefined state encountered
         ExitNodeTypeError: If exit node returns non-ExitContract (v0.12.3+)
         LegacyExitFormatError: If legacy "exit::..." format is used (v0.12.3+)
+        DependencyRuntimeError: If check_dependencies=True and requires not satisfied
 
     Example:
         transitions = {
@@ -242,6 +335,7 @@ def dag_runner(
 
     execution_path: list[str] = []
     iteration = 0
+    available_fields: set[str] = set()
 
     # Execute start node
     context, outcome = start()
@@ -250,6 +344,14 @@ def dag_runner(
 
     execution_path.append(node_name)
     iteration += 1
+
+    # 初期フィールドを設定
+    available_fields = _get_available_fields(context)
+
+    # 開始ノードの依存チェック
+    if check_dependencies:
+        _check_node_dependencies(start, available_fields, node_name)
+        available_fields = _update_available_fields(start, context, available_fields)
 
     logger.debug(f"[{iteration}] {node_name} -> {state_string}")
 
@@ -279,6 +381,10 @@ def dag_runner(
         iteration += 1
         next_node_name = _get_node_name(next_step)
 
+        # 依存チェック（オプション）
+        if check_dependencies:
+            _check_node_dependencies(next_step, available_fields, next_node_name)
+
         # Check if it's an exit node
         if _is_exit_node(next_node_name):
             execution_path.append(next_node_name)
@@ -303,6 +409,12 @@ def dag_runner(
         state_string = outcome.to_state_string(node_name)
 
         execution_path.append(node_name)
+
+        # 利用可能フィールドを更新
+        if check_dependencies:
+            available_fields = _update_available_fields(
+                next_step, context, available_fields
+            )
 
         logger.debug(f"[{iteration}] {node_name} -> {state_string}")
 

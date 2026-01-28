@@ -61,6 +61,8 @@ def main():
 - コード生成: YAMLから遷移コードを自動生成
 - バージョン管理: プロジェクトバージョン追跡、自動マイグレーション
 
+> **設計思想を理解したい方へ**: [アーキテクチャガイド](docs/ARCHITECTURE.md) で 3 つのコンポーネントと 5 つの設計思想を解説しています。
+
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Test Coverage](https://img.shields.io/badge/coverage-90%25+-brightgreen.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -401,6 +403,7 @@ railway backup clean --keep 3    # 古いバックアップを削除
 - 🎯 **純粋関数**: ノードは副作用のない純粋関数
 - ⚡ **コード生成**: YAMLから遷移コードを自動生成
 - 🔄 **2つの実行モデル**: dag_runner（条件分岐）と typed_pipeline（線形）
+- 🔗 **フィールドベース依存関係**: ノードコードで依存を宣言、sync時に自動検証
 - 🧪 **テスト容易**: モック不要、引数を渡すだけ
 - ⚙️ **環境別設定**: development/production を簡単に切り替え
 - 📊 **構造化ロギング**: loguru による美しいログ出力
@@ -443,6 +446,57 @@ def check_host(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
         return new_ctx, Outcome.success("found")
     return ctx, Outcome.failure("not_found")
 ```
+
+**コンテキストの引き継ぎ:**
+
+DAGワークフローでは**直前のノードの Contract のみが次のノードに渡されます**。
+ワークフロー全体で必要なデータは `model_copy()` で引き継ぎます：
+
+```python
+# model_copy で既存データを保持しつつ新しいフィールドを追加
+new_ctx = ctx.model_copy(update={"hostname": hostname})
+return new_ctx, Outcome.success("found")
+```
+
+詳細は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) を参照。
+
+### フィールドベース依存関係
+
+ノード間のデータ依存を `@node` デコレータで宣言します:
+
+```python
+@node(
+    requires=["incident_id"],      # 必須: なければ実行エラー
+    optional=["hostname"],         # 任意: あれば使用
+    provides=["escalated"],        # 提供: このノードが追加
+)
+def escalate(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
+    if ctx.hostname:  # optional なので存在チェック
+        notify_with_host(ctx.hostname)
+    return ctx.model_copy(update={"escalated": True}), Outcome.success("done")
+```
+
+**YAML には依存情報を書かない:**
+
+```yaml
+# ノード名と遷移のみ
+nodes:
+  check_host:
+    description: "ホスト情報取得"
+  escalate:
+    description: "エスカレーション"
+
+transitions:
+  check_host:
+    success::found: escalate  # フレームワークが依存を自動検証
+```
+
+**利点:**
+- YAML 記述者はノード実装の詳細を知らなくてよい
+- `railway sync transition` で依存エラーを自動検出
+- YAML のみでフロー変更、ノードコード変更不要
+
+詳細は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#フィールドベース依存関係) を参照。
 
 ### ExitContract（実行結果）
 
@@ -798,6 +852,7 @@ railway run alert_workflow
 
 ## ドキュメント
 
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - **アーキテクチャガイド（全体像）**
 - [TUTORIAL.md](TUTORIAL.md) - ハンズオンチュートリアル
 - [readme_linear.md](readme_linear.md) - 線形パイプライン詳細
 - [docs/adr/](docs/adr/) - 設計決定記録

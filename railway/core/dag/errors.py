@@ -39,3 +39,36 @@ class LegacyExitFormatError(ValueError):
             "\n\nヒント: `railway update` を実行してマイグレーションしてください。"
         )
         super().__init__(message)
+
+
+class DependencyRuntimeError(RuntimeError):
+    """依存関係の実行時エラー。
+
+    check_dependencies=True で実行した際に、
+    ノードの requires が満たされていない場合に発生する。
+
+    Attributes:
+        node_name: ノード名
+        requires: 必要なフィールド
+        available: 利用可能なフィールド
+        missing: 不足しているフィールド
+    """
+
+    def __init__(
+        self,
+        node_name: str,
+        requires: frozenset[str],
+        available: set[str],
+        missing: set[str],
+    ) -> None:
+        self.node_name = node_name
+        self.requires = requires
+        self.available = available
+        self.missing = missing
+        message = (
+            f"ノード '{node_name}' の依存が満たされていません。\n"
+            f"  requires: {sorted(requires)}\n"
+            f"  利用可能: {sorted(available)}\n"
+            f"  不足: {sorted(missing)}"
+        )
+        super().__init__(message)

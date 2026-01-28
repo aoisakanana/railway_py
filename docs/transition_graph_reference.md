@@ -37,6 +37,33 @@ transitions:
 
 ## nodes セクション
 
+**重要:** 依存情報（requires/optional/provides）は YAML に記述しません。
+ノードの Python コードで `@node` デコレータに宣言します。
+
+```yaml
+# ✅ 正しい: 遷移のみ
+nodes:
+  check_host:
+    description: "ホスト情報を取得"
+
+# ❌ 不要: 依存情報は書かない
+nodes:
+  check_host:
+    requires: [incident_id]  # ← これは書かない！
+    provides: [hostname]      # ← これも書かない！
+```
+
+依存情報はノードコードに記述:
+
+```python
+# nodes/check_host.py
+@node(requires=["incident_id"], provides=["hostname"])
+def check_host(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
+    ...
+```
+
+詳細は [ARCHITECTURE.md](ARCHITECTURE.md#フィールドベース依存関係) を参照。
+
 ### 通常のノード
 
 ```yaml

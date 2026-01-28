@@ -8,6 +8,7 @@ from railway.core.dag.callbacks import (
     StepRecorder,
 )
 from railway.core.dag.codegen import (
+    detect_context_type,
     generate_exit_enum,
     generate_imports,
     generate_metadata,
@@ -42,6 +43,11 @@ from railway.core.dag.runner import (
     async_dag_runner,
     dag_runner,
 )
+from railway.core.dag.errors import (
+    DependencyRuntimeError,
+    ExitNodeTypeError,
+    LegacyExitFormatError,
+)
 from railway.core.dag.validator import (
     ValidationError,
     ValidationResult,
@@ -54,6 +60,27 @@ from railway.core.dag.validator import (
     validate_start_node_exists,
     validate_termination,
     validate_transition_targets,
+)
+from railway.core.dag.field_dependency import (
+    AvailableFields,
+    EMPTY_FIELD_DEPENDENCY,
+    FieldDependency,
+    field_dependency_from_dict,
+    validate_transition_dependencies,
+    ValidationResult as FieldValidationResult,
+)
+from railway.core.dag.dependency_extraction import (
+    extract_field_dependency,
+    extract_initial_fields_from_start_node,
+    import_node_function,
+    load_node_dependencies,
+)
+from railway.core.dag.dependency_validator import (
+    DependencyValidationResult,
+    find_all_paths,
+    validate_all_paths,
+    validate_path_dependencies,
+    validate_requires_against_contract,
 )
 
 __all__ = [
@@ -84,6 +111,7 @@ __all__ = [
     "NodeOutcome",
     "StateFormatError",
     # Codegen
+    "detect_context_type",
     "generate_transition_code",
     "generate_state_enum",
     "generate_exit_enum",
@@ -98,10 +126,32 @@ __all__ = [
     "async_dag_runner",
     "MaxIterationsError",
     "UndefinedStateError",
+    # Errors
+    "DependencyRuntimeError",
+    "ExitNodeTypeError",
+    "LegacyExitFormatError",
     # Callbacks
     "StepCallback",
     "StepRecord",
     "StepRecorder",
     "AuditLogger",
     "CompositeCallback",
+    # Field Dependency
+    "FieldDependency",
+    "AvailableFields",
+    "EMPTY_FIELD_DEPENDENCY",
+    "field_dependency_from_dict",
+    "validate_transition_dependencies",
+    "FieldValidationResult",
+    # Dependency Extraction
+    "extract_field_dependency",
+    "extract_initial_fields_from_start_node",
+    "import_node_function",
+    "load_node_dependencies",
+    # Dependency Validator
+    "DependencyValidationResult",
+    "find_all_paths",
+    "validate_all_paths",
+    "validate_path_dependencies",
+    "validate_requires_against_contract",
 ]

@@ -57,6 +57,9 @@ def node(
     *,
     inputs: dict[str, Type[Contract]] | None = None,
     output: Type[Contract] | None = None,
+    requires: list[str] | None = None,
+    optional: list[str] | None = None,
+    provides: list[str] | None = None,
     retry: bool | Retry = False,
     retry_policy: "RetryPolicy | None" = None,
     retries: int | None = None,
@@ -73,6 +76,9 @@ def node(
     *,
     inputs: dict[str, Type[Contract]] | None = None,
     output: Type[Contract] | None = None,
+    requires: list[str] | None = None,
+    optional: list[str] | None = None,
+    provides: list[str] | None = None,
     retry: bool | Retry = False,
     retry_policy: "RetryPolicy | None" = None,
     retries: int | None = None,
@@ -89,11 +95,15 @@ def node(
     3. Structured logging
     4. Metadata storage
     5. Type-safe input/output contracts (Output Model pattern)
+    6. Field-based dependency declaration (requires/optional/provides)
 
     Args:
         func: Function to decorate
         inputs: Dictionary mapping parameter names to expected Contract types
         output: Expected output Contract type
+        requires: Required fields (node cannot execute without these)
+        optional: Optional fields (used if available)
+        provides: Fields this node adds to the context
         retry: Enable retry (bool) or provide Retry config
         log_input: Log input parameters (caution: may log sensitive data)
         log_output: Log output data (caution: may log sensitive data)
@@ -134,6 +144,18 @@ def node(
     # Normalize inputs to empty dict if None
     inputs_dict = inputs or {}
 
+    # Build field dependency
+    from railway.core.dag.field_dependency import FieldDependency
+
+    field_requires = frozenset(requires or [])
+    field_optional = frozenset(optional or [])
+    field_provides = frozenset(provides or [])
+    field_dependency = FieldDependency(
+        requires=field_requires,
+        optional=field_optional,
+        provides=field_provides,
+    )
+
     # Resolve retry configuration
     # Priority: retry_policy > shorthand (retries/retry_on/retry_delay) > retry (legacy)
     resolved_retry_policy = _resolve_retry_config(
@@ -152,15 +174,23 @@ def node(
         resolved_inputs = inputs_dict if inputs_dict else _infer_inputs_from_hints(f)
 
         if is_async:
-            return _create_async_wrapper(
+            wrapper = _create_async_wrapper(
                 f, node_name, resolved_inputs, output, retry, log_input, log_output,
                 resolved_retry_policy
             )
         else:
-            return _create_sync_wrapper(
+            wrapper = _create_sync_wrapper(
                 f, node_name, resolved_inputs, output, retry, log_input, log_output,
                 resolved_retry_policy
             )
+
+        # Add field dependency metadata
+        wrapper._requires = field_requires  # type: ignore[attr-defined]
+        wrapper._optional = field_optional  # type: ignore[attr-defined]
+        wrapper._provides = field_provides  # type: ignore[attr-defined]
+        wrapper._field_dependency = field_dependency  # type: ignore[attr-defined]
+
+        return wrapper
 
     # Handle decorator usage with and without parentheses
     if func is None:
