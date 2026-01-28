@@ -1,7 +1,7 @@
 # ADR-005: ExitContract による dag_runner API 簡素化
 
 ## ステータス
-提案中 (2026-01-28)
+承認済み (2026-01-28)
 
 ## コンテキスト
 
@@ -117,7 +117,7 @@ def done(ctx: WorkflowContext) -> DoneResult:
 1. 終端ノードを検出（`exit.` または `_exit_` プレフィックス）
 2. 終端ノードを実行
 3. 結果が `ExitContract` なら `execution_path` と `iterations` を追加して返す
-4. 結果が `ExitContract` でなければ `DefaultExitContract` でラップ（後方互換）
+4. 結果が `ExitContract` でなければ `ExitNodeTypeError`（v0.13.0 で後方互換廃止）
 
 ### 3. 削除する抽象化
 
@@ -177,37 +177,61 @@ result = dag_runner(...)
 | `exit_codes` パラメータ | 削除 |
 | `Exit` クラス | 削除 |
 
-### 後方互換性
+### 後方互換性（v0.12.2）
 
-- 終端ノードが `ExitContract` 以外を返す場合、`DefaultExitContract` でラップ
-- `exit_state` は終端ノード名から自動導出
+> **注意**: v0.13.0 で後方互換性は廃止されました。下記のセクションを参照してください。
+
+~~- 終端ノードが `ExitContract` 以外を返す場合、`DefaultExitContract` でラップ~~
+~~- `exit_state` は終端ノード名から自動導出~~
+
+### v0.13.0 破壊的変更
+
+v0.13.0 で型安全性を強制するため、以下の破壊的変更が導入されました：
+
+| 変更 | v0.12.2 | v0.13.0 |
+|------|---------|---------|
+| `DefaultExitContract` | フォールバックとして使用 | **削除** |
+| 非 `ExitContract` 戻り値 | ラップして返す | **`ExitNodeTypeError`** |
+| レガシー `exit::` 形式 | サポート（警告なし） | **`LegacyExitFormatError`** |
+
+**v0.13.0 での終端ノード要件:**
 
 ```python
-# 後方互換: Context のみ返す終端ノード
+# 正しい: ExitContract サブクラスを返す
 @node(name="exit.success.done")
-def done(ctx: WorkflowContext) -> dict:
-    return {"status": "ok"}
+def done(ctx: WorkflowContext) -> DoneResult:
+    return DoneResult(data="completed")
 
-# dag_runner は DefaultExitContract でラップして返す
-result = dag_runner(...)
-assert isinstance(result, DefaultExitContract)
-assert result.context == {"status": "ok"}
-assert result.exit_state == "success.done"
+# エラー: dict を返すと ExitNodeTypeError
+@node(name="exit.success.done")
+def done_bad(ctx: WorkflowContext) -> dict:
+    return {"status": "ok"}  # ExitNodeTypeError!
 ```
+
+**マイグレーション手順:**
+
+1. `railway sync transition` を実行してスケルトンを生成
+2. 終端ノードの戻り値を `ExitContract` サブクラスに変更
+3. レガシー `exit::` 形式を新形式 `exit.` に変換
 
 ### 実装への影響
 
 **追加:**
 - `ExitContract` 基底クラス（`railway/core/exit_contract.py`）
-- `DefaultExitContract` フォールバッククラス
+- `ExitNodeTypeError` エラークラス（v0.13.0）
+- `LegacyExitFormatError` エラークラス（v0.13.0）
 - `_is_exit_node()` 純粋関数
 - `_derive_exit_state()` 純粋関数
+- `_execute_exit_node()` 純粋関数（v0.13.0）
+- `_check_legacy_exit_format()` 純粋関数（v0.13.0）
 
 **削除:**
 - `Exit` クラス
 - `DagRunnerResult` クラス
+- `DefaultExitContract` クラス（v0.13.0 で削除）
 - `exit_codes` パラメータ
 - `EXIT_CODES` 生成（codegen）
+- `generate_exit_codes()` 関数（v0.13.0 で削除）
 - `ExitOutcome` クラス
 - `NodeDefinition.exit_code` 属性
 

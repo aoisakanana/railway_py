@@ -6,7 +6,7 @@
 
 ```python
 # DAGワークフロー: 条件分岐対応
-from railway import Contract, node, entry_point
+from railway import Contract, ExitContract, node, entry_point
 from railway.core.dag import dag_runner, Outcome
 
 class AlertContext(Contract):
@@ -27,9 +27,13 @@ def escalate(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
 def log_only(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
     return ctx.model_copy(update={"handled": True}), Outcome.success("done")
 
-# 終端ノード: Context のみ返す（Outcome 不要）
-def exit_success_done(ctx: AlertContext) -> AlertContext:
-    return ctx
+# 終端ノード: ExitContract を返す（v0.13.0+）
+class AlertResult(ExitContract):
+    exit_state: str = "success.done"
+    handled: bool
+
+def exit_success_done(ctx: AlertContext) -> AlertResult:
+    return AlertResult(handled=ctx.handled)
 
 exit_success_done._node_name = "exit.success.done"
 
@@ -47,7 +51,7 @@ def main():
         transitions=TRANSITIONS,
     )
     # result は ExitContract: exit_code, exit_state, is_success 等を持つ
-    return result.context
+    return result
 ```
 
 **特徴:**
@@ -60,7 +64,7 @@ def main():
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Test Coverage](https://img.shields.io/badge/coverage-90%25+-brightgreen.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-305%20passing-success.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1074%20passing-success.svg)]()
 
 ---
 
@@ -284,11 +288,16 @@ Railway Framework は2つの実行モデルを提供します：
 条件分岐がある複雑なワークフローに適しています：
 
 ```python
+from railway import ExitContract
 from railway.core.dag import dag_runner, Outcome
 
-# 終端ノードを定義
-def exit_success_done(ctx):
-    return ctx
+# 終端ノードを定義（v0.13.0+: ExitContract を返す）
+class WorkflowResult(ExitContract):
+    exit_state: str = "success.done"
+
+def exit_success_done(ctx) -> WorkflowResult:
+    return WorkflowResult()
+
 exit_success_done._node_name = "exit.success.done"
 
 TRANSITIONS = {
@@ -491,30 +500,22 @@ transitions:
     failure::timeout: exit.failure.timeout
 ```
 
-**実装例（基本）:**
-
-```python
-# src/nodes/exit/success/done.py - Context を返す（推奨）
-def done(ctx: WorkflowContext) -> dict:
-    """終端ノードは Context のみを返す（Outcome 不要）。"""
-    send_slack_notification(f"処理完了: {ctx.count}件")
-    return {"status": "completed", "count": ctx.count}
-```
-
-**実装例（カスタム ExitContract）:**
+**実装例（v0.13.0+）:**
 
 ```python
 # src/nodes/exit/success/done.py - ExitContract サブクラスを返す
-from railway import ExitContract
+from railway import ExitContract, node
 
 class DoneResult(ExitContract):
     """正常終了時の詳細結果。"""
     status: str
     processed_count: int
-    exit_state: str = "success.done"  # 明示的に指定
+    exit_state: str = "success.done"
 
+@node(name="exit.success.done")
 def done(ctx: WorkflowContext) -> DoneResult:
-    """ExitContract を返すと exit_code が自動導出される。"""
+    """終端ノードは ExitContract を返す（Outcome 不要）。"""
+    send_slack_notification(f"処理完了: {ctx.count}件")
     return DoneResult(
         status="completed",
         processed_count=ctx.count,
@@ -525,6 +526,8 @@ def done(ctx: WorkflowContext) -> DoneResult:
 
 | 項目 | 説明 |
 |------|------|
+| 型安全性 | ExitContract で戻り値の型が保証される |
+| IDE補完 | カスタムフィールドに補完が効く |
 | 一貫性 | 通常のノードと同じ書き方 |
 | テスト可能性 | 純粋関数としてテスト可能 |
 | 表現力 | 詳細な終了状態を表現（done, skipped, timeout など） |

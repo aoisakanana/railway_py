@@ -1,7 +1,7 @@
 """Tests for DAG runner with Contract + Outcome (v0.12.2 ExitContract 対応)."""
 import pytest
 
-from railway import Contract, ExitContract, DefaultExitContract
+from railway import Contract, ExitContract
 from railway.core.dag.outcome import Outcome
 
 
@@ -22,8 +22,12 @@ class TestDagRunner:
             # Contract はイミュータブル、model_copy で新規生成
             return ctx.model_copy(update={"value": 2}), Outcome.success("done")
 
-        def exit_success_done(ctx: WorkflowContext) -> WorkflowContext:
-            return ctx
+        class DoneResult(ExitContract):
+            exit_state: str = "success.done"
+            context: WorkflowContext
+
+        def exit_success_done(ctx: WorkflowContext) -> DoneResult:
+            return DoneResult(context=ctx)
 
         exit_success_done._node_name = "exit.success.done"
 
@@ -64,13 +68,16 @@ class TestDagRunner:
             call_log.append("path_b")
             return ctx, Outcome.success("done")
 
-        def exit_success_done_a(ctx: BranchContext) -> BranchContext:
-            return ctx
+        class BranchResult(ExitContract):
+            context: BranchContext
+
+        def exit_success_done_a(ctx: BranchContext) -> BranchResult:
+            return BranchResult(exit_state="success.done_a", context=ctx)
 
         exit_success_done_a._node_name = "exit.success.done_a"
 
-        def exit_success_done_b(ctx: BranchContext) -> BranchContext:
-            return ctx
+        def exit_success_done_b(ctx: BranchContext) -> BranchResult:
+            return BranchResult(exit_state="success.done_b", context=ctx)
 
         exit_success_done_b._node_name = "exit.success.done_b"
 
@@ -112,13 +119,16 @@ class TestDagRunner:
             call_log.append("path_b")
             return ctx, Outcome.success("done")
 
-        def exit_success_done_a(ctx: BranchContext) -> BranchContext:
-            return ctx
+        class BranchResult(ExitContract):
+            context: BranchContext
+
+        def exit_success_done_a(ctx: BranchContext) -> BranchResult:
+            return BranchResult(exit_state="success.done_a", context=ctx)
 
         exit_success_done_a._node_name = "exit.success.done_a"
 
-        def exit_success_done_b(ctx: BranchContext) -> BranchContext:
-            return ctx
+        def exit_success_done_b(ctx: BranchContext) -> BranchResult:
+            return BranchResult(exit_state="success.done_b", context=ctx)
 
         exit_success_done_b._node_name = "exit.success.done_b"
 
@@ -188,8 +198,13 @@ class TestDagRunner:
             )
 
     def test_undefined_state_non_strict(self):
-        """Should not error on undefined state when strict=False."""
-        from railway.core.dag.runner import dag_runner
+        """v0.13.0: strict=False でも UndefinedStateError が発生する。
+
+        Note:
+            v0.13.0 で strict=False の動作が変更され、
+            未定義状態では常に UndefinedStateError が発生する。
+        """
+        from railway.core.dag.runner import UndefinedStateError, dag_runner
 
         class EmptyContext(Contract):
             pass
@@ -201,16 +216,13 @@ class TestDagRunner:
             "node::success::known": lambda x: (x, Outcome.success("done")),
         }
 
-        # Should not raise, but result won't have proper exit
-        result = dag_runner(
-            start=node,
-            transitions=transitions,
-            strict=False,
-        )
-
-        # Result should exist but with failure state
-        assert result.iterations == 1
-        assert result.exit_state == "failure.undefined"
+        # v0.13.0: strict=False でも例外が発生
+        with pytest.raises(UndefinedStateError):
+            dag_runner(
+                start=node,
+                transitions=transitions,
+                strict=False,
+            )
 
     def test_passes_context_between_nodes(self):
         """Should pass context from one node to the next."""
@@ -227,8 +239,12 @@ class TestDagRunner:
             assert ctx.from_a is True
             return ctx.model_copy(update={"from_b": True}), Outcome.success("done")
 
-        def exit_success_done(ctx: ChainContext) -> ChainContext:
-            return ctx
+        class ChainResult(ExitContract):
+            exit_state: str = "success.done"
+            context: ChainContext
+
+        def exit_success_done(ctx: ChainContext) -> ChainResult:
+            return ChainResult(context=ctx)
 
         exit_success_done._node_name = "exit.success.done"
 
@@ -260,8 +276,12 @@ class TestDagRunner:
         def node_b(ctx: StepContext) -> tuple[StepContext, Outcome]:
             return ctx.model_copy(update={"value": 2}), Outcome.success("done")
 
-        def exit_success_done(ctx: StepContext) -> StepContext:
-            return ctx
+        class StepResult(ExitContract):
+            exit_state: str = "success.done"
+            context: StepContext
+
+        def exit_success_done(ctx: StepContext) -> StepResult:
+            return StepResult(context=ctx)
 
         exit_success_done._node_name = "exit.success.done"
 
@@ -282,27 +302,24 @@ class TestExitContractResult:
 
     def test_exit_contract_is_success(self):
         """Should return ExitContract with is_success for success.* state."""
-        result = DefaultExitContract(
+        result = ExitContract(
             exit_state="success.done",
-            context={"key": "value"},
         )
         assert result.is_success is True
         assert result.exit_code == 0
 
     def test_exit_contract_is_failure(self):
         """Should return ExitContract with is_failure for failure.* state."""
-        result = DefaultExitContract(
+        result = ExitContract(
             exit_state="failure.error",
-            context={"key": "value"},
         )
         assert result.is_success is False
         assert result.exit_code == 1
 
     def test_exit_contract_is_immutable(self):
         """ExitContract should be immutable."""
-        result = DefaultExitContract(
+        result = ExitContract(
             exit_state="success.done",
-            context={"key": "value"},
         )
 
         from pydantic import ValidationError
@@ -312,10 +329,11 @@ class TestExitContractResult:
 
 
 class TestLegacyExitFormat:
-    """Test backward compatibility with legacy exit:: format."""
+    """v0.13.0: レガシー exit:: 形式は拒否される。"""
 
-    def test_legacy_exit_green(self):
-        """Should handle legacy exit::green::done format."""
+    def test_legacy_exit_green_raises_error(self):
+        """v0.13.0: レガシー形式 exit::green::done は LegacyExitFormatError。"""
+        from railway.core.dag.errors import LegacyExitFormatError
         from railway.core.dag.runner import dag_runner
 
         class EmptyContext(Contract):
@@ -324,19 +342,19 @@ class TestLegacyExitFormat:
         def start() -> tuple[EmptyContext, Outcome]:
             return EmptyContext(), Outcome.success("done")
 
-        # Legacy format uses string exit
+        # Legacy format is now rejected
         transitions = {
             "start::success::done": "exit::green::done",
         }
 
-        result = dag_runner(start=start, transitions=transitions)
+        with pytest.raises(LegacyExitFormatError) as exc_info:
+            dag_runner(start=start, transitions=transitions)
 
-        # Converts to success.done
-        assert result.exit_state == "success.done"
-        assert result.is_success is True
+        assert "exit::green::done" in str(exc_info.value)
 
-    def test_legacy_exit_red(self):
-        """Should handle legacy exit::red::error format."""
+    def test_legacy_exit_red_raises_error(self):
+        """v0.13.0: レガシー形式 exit::red::error は LegacyExitFormatError。"""
+        from railway.core.dag.errors import LegacyExitFormatError
         from railway.core.dag.runner import dag_runner
 
         class EmptyContext(Contract):
@@ -345,19 +363,17 @@ class TestLegacyExitFormat:
         def start() -> tuple[EmptyContext, Outcome]:
             return EmptyContext(), Outcome.failure("error")
 
-        # Legacy format
+        # Legacy format is now rejected
         transitions = {
             "start::failure::error": "exit::red::error",
         }
 
-        result = dag_runner(start=start, transitions=transitions)
+        with pytest.raises(LegacyExitFormatError):
+            dag_runner(start=start, transitions=transitions)
 
-        # Converts to failure.error
-        assert result.exit_state == "failure.error"
-        assert result.is_failure is True
-
-    def test_legacy_exit_yellow(self):
-        """Should handle legacy exit::yellow::warning format (warning is success)."""
+    def test_legacy_exit_yellow_raises_error(self):
+        """v0.13.0: レガシー形式 exit::yellow::warning は LegacyExitFormatError。"""
+        from railway.core.dag.errors import LegacyExitFormatError
         from railway.core.dag.runner import dag_runner
 
         class EmptyContext(Contract):
@@ -370,11 +386,8 @@ class TestLegacyExitFormat:
             "start::success::warn": "exit::yellow::warning",
         }
 
-        result = dag_runner(start=start, transitions=transitions)
-
-        # Yellow is treated as success category
-        assert result.exit_state == "success.warning"
-        assert result.is_success is True
+        with pytest.raises(LegacyExitFormatError):
+            dag_runner(start=start, transitions=transitions)
 
 
 class TestDagRunnerWithOutcome:
@@ -393,8 +406,12 @@ class TestDagRunnerWithOutcome:
         def node_b(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
             return ctx.model_copy(update={"value": 2}), Outcome.success("complete")
 
-        def exit_success_done(ctx: WorkflowContext) -> WorkflowContext:
-            return ctx
+        class WorkflowResult(ExitContract):
+            exit_state: str = "success.done"
+            context: WorkflowContext
+
+        def exit_success_done(ctx: WorkflowContext) -> WorkflowResult:
+            return WorkflowResult(context=ctx)
 
         exit_success_done._node_name = "exit.success.done"
 
@@ -421,13 +438,16 @@ class TestDagRunnerWithOutcome:
         def handle_error(ctx: FailContext) -> tuple[FailContext, Outcome]:
             return ctx, Outcome.success("handled")
 
-        def exit_success_done(ctx: FailContext) -> FailContext:
-            return ctx
+        class FailResult(ExitContract):
+            context: FailContext
+
+        def exit_success_done(ctx: FailContext) -> FailResult:
+            return FailResult(exit_state="success.done", context=ctx)
 
         exit_success_done._node_name = "exit.success.done"
 
-        def exit_warning_handled(ctx: FailContext) -> FailContext:
-            return ctx
+        def exit_warning_handled(ctx: FailContext) -> FailResult:
+            return FailResult(exit_state="success.handled", context=ctx)
 
         exit_warning_handled._node_name = "exit.success.handled"
 
@@ -457,8 +477,12 @@ class TestDagRunnerAsync:
         async def async_node() -> tuple[AsyncContext, Outcome]:
             return AsyncContext(is_async=True), Outcome.success("done")
 
-        def exit_success_done(ctx: AsyncContext) -> AsyncContext:
-            return ctx
+        class AsyncResult(ExitContract):
+            exit_state: str = "success.done"
+            context: AsyncContext
+
+        def exit_success_done(ctx: AsyncContext) -> AsyncResult:
+            return AsyncResult(context=ctx)
 
         exit_success_done._node_name = "exit.success.done"
 
@@ -489,8 +513,12 @@ class TestDagRunnerAsync:
         async def async_node(ctx: MixedContext) -> tuple[MixedContext, Outcome]:
             return ctx.model_copy(update={"async_called": True}), Outcome.success("done")
 
-        def exit_success_done(ctx: MixedContext) -> MixedContext:
-            return ctx
+        class MixedResult(ExitContract):
+            exit_state: str = "success.done"
+            context: MixedContext
+
+        def exit_success_done(ctx: MixedContext) -> MixedResult:
+            return MixedResult(context=ctx)
 
         exit_success_done._node_name = "exit.success.done"
 

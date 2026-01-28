@@ -17,8 +17,6 @@ ExitContract は終端ノードが返す Contract の基底クラスです。
     def done(ctx: WorkflowContext) -> DoneResult:
         return DoneResult(data="completed")
 """
-from typing import Any
-
 from pydantic import ConfigDict, model_validator
 
 from railway.core.contract import Contract
@@ -68,14 +66,3 @@ class ExitContract(Contract):
         return self.exit_code != 0
 
 
-class DefaultExitContract(ExitContract):
-    """デフォルト終端 Contract（後方互換・ハンドラなし用）。
-
-    終端ノードが ExitContract 以外を返した場合に、
-    dag_runner がこのクラスでラップして返す。
-
-    Attributes:
-        context: 終端ノードが返した元の値
-    """
-
-    context: Any = None

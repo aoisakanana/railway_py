@@ -117,16 +117,24 @@ nodes:
 
 ### 終端ノードの返り値
 
-終端ノードは `Context` のみを返します（`Outcome` は不要）:
+終端ノードは `ExitContract` サブクラスを返します（`Outcome` は不要）:
 
 ```python
-@node
+from railway import ExitContract, node
+
+class FinalSummary(ExitContract):
+    """終了時のサマリー。"""
+    status: str
+    exit_state: str = "success.done"
+
+@node(name="exit.success.done")
 def done(ctx: WorkflowContext) -> FinalSummary:
-    """終端ノードは Context のみを返す。"""
+    """終端ノードは ExitContract を返す。"""
     return FinalSummary(status="completed")
 ```
 
 遷移先がないため、`Outcome` を返す必要がありません。
+v0.13.0 以降、`ExitContract` サブクラス以外を返すと `ExitNodeTypeError` が発生します。
 
 ### 深いネスト
 

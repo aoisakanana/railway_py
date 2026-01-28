@@ -7,10 +7,11 @@ routing between nodes based on their returned states.
 Note: This runner ONLY supports Contract context and string keys.
       dict context is NOT supported.
 
-v0.12.2: ExitContract ベースに変更
-- dag_runner() は ExitContract を返す
-- Exit クラス、DagRunnerResult クラスは削除
-- exit_codes パラメータは削除
+v0.13.0: 型安全性強制
+- 終端ノードは ExitContract サブクラスを返す必要がある
+- dict, None 等を返すと ExitNodeTypeError
+- レガシー形式 "exit::green::done" は LegacyExitFormatError
+- DefaultExitContract は削除
 """
 from __future__ import annotations
 
@@ -19,8 +20,9 @@ from typing import Any, Callable
 
 from loguru import logger
 
+from railway.core.dag.errors import ExitNodeTypeError, LegacyExitFormatError
 from railway.core.dag.outcome import Outcome
-from railway.core.exit_contract import DefaultExitContract, ExitContract
+from railway.core.exit_contract import ExitContract
 
 
 class MaxIterationsError(Exception):
@@ -103,6 +105,99 @@ def _get_node_name(func: Callable) -> str:
     return getattr(func, "__name__", "unknown")
 
 
+def _execute_exit_node(
+    exit_node: Callable,
+    context: Any,
+    node_name: str,
+    execution_path: list[str],
+    iteration: int,
+) -> ExitContract:
+    """終端ノードを実行し、ExitContract を返す。
+
+    Args:
+        exit_node: 終端ノード関数
+        context: 直前のコンテキスト
+        node_name: ノード名
+        execution_path: 実行パス
+        iteration: イテレーション数
+
+    Returns:
+        ExitContract: 終了結果
+
+    Raises:
+        ExitNodeTypeError: ExitContract 以外が返された場合
+    """
+    result = exit_node(context)
+
+    if isinstance(result, ExitContract):
+        return result.model_copy(
+            update={
+                "execution_path": tuple(execution_path),
+                "iterations": iteration,
+            }
+        )
+
+    raise ExitNodeTypeError(
+        node_name=node_name,
+        actual_type=type(result).__name__,
+    )
+
+
+async def _execute_exit_node_async(
+    exit_node: Callable,
+    context: Any,
+    node_name: str,
+    execution_path: list[str],
+    iteration: int,
+) -> ExitContract:
+    """終端ノードを非同期実行し、ExitContract を返す。
+
+    Args:
+        exit_node: 終端ノード関数（sync or async）
+        context: 直前のコンテキスト
+        node_name: ノード名
+        execution_path: 実行パス
+        iteration: イテレーション数
+
+    Returns:
+        ExitContract: 終了結果
+
+    Raises:
+        ExitNodeTypeError: ExitContract 以外が返された場合
+    """
+    if asyncio.iscoroutinefunction(exit_node):
+        result = await exit_node(context)
+    else:
+        result = exit_node(context)
+
+    if isinstance(result, ExitContract):
+        return result.model_copy(
+            update={
+                "execution_path": tuple(execution_path),
+                "iterations": iteration,
+            }
+        )
+
+    raise ExitNodeTypeError(
+        node_name=node_name,
+        actual_type=type(result).__name__,
+    )
+
+
+def _check_legacy_exit_format(next_step: Any, state_string: str) -> None:
+    """レガシー exit 形式をチェックし、使用されていればエラーを発生。
+
+    Args:
+        next_step: 次のステップ
+        state_string: 状態文字列（エラーメッセージ用）
+
+    Raises:
+        LegacyExitFormatError: レガシー形式が使用された場合
+    """
+    if isinstance(next_step, str) and next_step.startswith("exit::"):
+        raise LegacyExitFormatError(legacy_format=next_step)
+
+
 def dag_runner(
     start: Callable[[], tuple[Any, Outcome]],
     transitions: dict[str, Callable | str],
@@ -132,6 +227,8 @@ def dag_runner(
     Raises:
         MaxIterationsError: If max iterations exceeded
         UndefinedStateError: If strict and undefined state encountered
+        ExitNodeTypeError: If exit node returns non-ExitContract (v0.13.0+)
+        LegacyExitFormatError: If legacy "exit::..." format is used (v0.13.0+)
 
     Example:
         transitions = {
@@ -171,32 +268,12 @@ def dag_runner(
                 )
             else:
                 logger.warning(f"未定義の状態: {state_string}")
-                # Return DefaultExitContract with failure state
-                return DefaultExitContract(
-                    exit_state="failure.undefined",
-                    context=context,
-                    execution_path=tuple(execution_path),
-                    iterations=iteration,
+                raise UndefinedStateError(
+                    f"未定義の状態です: {state_string} (ノード: {node_name})"
                 )
 
-        # Check if it's an exit (legacy string format "exit::...")
-        if isinstance(next_step, str) and next_step.startswith("exit::"):
-            logger.debug(f"DAGワークフロー終了 (レガシー形式): {next_step}")
-            # Convert legacy format to exit_state
-            # "exit::green::done" → "success.done"
-            # "exit::red::error" → "failure.error"
-            parts = next_step.split("::")
-            color = parts[1] if len(parts) > 1 else "green"
-            detail = parts[2] if len(parts) > 2 else "done"
-            category = "success" if color in ("green", "yellow") else "failure"
-            exit_state = f"{category}.{detail}"
-
-            return DefaultExitContract(
-                exit_state=exit_state,
-                context=context,
-                execution_path=tuple(execution_path),
-                iterations=iteration,
-            )
+        # Check for legacy exit format (v0.13.0: raise error)
+        _check_legacy_exit_format(next_step, state_string)
 
         # Execute next node
         iteration += 1
@@ -204,37 +281,21 @@ def dag_runner(
 
         # Check if it's an exit node
         if _is_exit_node(next_node_name):
-            # Exit node returns Context or ExitContract (no Outcome)
-            result = next_step(context)
             execution_path.append(next_node_name)
-
             logger.debug(f"DAGワークフロー終了（終端ノード）: {next_node_name}")
 
-            if on_step:
-                exit_state = (
-                    result.exit_state
-                    if isinstance(result, ExitContract)
-                    else _derive_exit_state(next_node_name)
-                )
-                on_step(next_node_name, f"exit::{exit_state}", result)
+            result = _execute_exit_node(
+                exit_node=next_step,
+                context=context,
+                node_name=next_node_name,
+                execution_path=execution_path,
+                iteration=iteration,
+            )
 
-            # Return ExitContract with execution metadata
-            if isinstance(result, ExitContract):
-                return result.model_copy(
-                    update={
-                        "execution_path": tuple(execution_path),
-                        "iterations": iteration,
-                    }
-                )
-            else:
-                # Backward compatibility: wrap non-ExitContract in DefaultExitContract
-                exit_state = _derive_exit_state(next_node_name)
-                return DefaultExitContract(
-                    exit_state=exit_state,
-                    context=result,
-                    execution_path=tuple(execution_path),
-                    iterations=iteration,
-                )
+            if on_step:
+                on_step(next_node_name, f"exit::{result.exit_state}", result)
+
+            return result
 
         # Regular node returns (context, Outcome)
         context, outcome = next_step(context)
@@ -279,6 +340,8 @@ async def async_dag_runner(
     Raises:
         MaxIterationsError: If max iterations exceeded
         UndefinedStateError: If strict and undefined state encountered
+        ExitNodeTypeError: If exit node returns non-ExitContract (v0.13.0+)
+        LegacyExitFormatError: If legacy "exit::..." format is used (v0.13.0+)
     """
     logger.debug(f"非同期DAGワークフロー開始: max_iterations={max_iterations}")
 
@@ -305,68 +368,35 @@ async def async_dag_runner(
 
         if next_step is None:
             if strict:
-                raise UndefinedStateError(f"未定義の状態です: {state_string}")
-            return DefaultExitContract(
-                exit_state="failure.undefined",
-                context=context,
-                execution_path=tuple(execution_path),
-                iterations=iteration,
+                raise UndefinedStateError(
+                    f"未定義の状態です: {state_string} (ノード: {node_name})"
+                )
+            raise UndefinedStateError(
+                f"未定義の状態です: {state_string} (ノード: {node_name})"
             )
 
-        # Check if it's an exit (legacy string format "exit::...")
-        if isinstance(next_step, str) and next_step.startswith("exit::"):
-            # Convert legacy format to exit_state
-            parts = next_step.split("::")
-            color = parts[1] if len(parts) > 1 else "green"
-            detail = parts[2] if len(parts) > 2 else "done"
-            category = "success" if color in ("green", "yellow") else "failure"
-            exit_state = f"{category}.{detail}"
-
-            return DefaultExitContract(
-                exit_state=exit_state,
-                context=context,
-                execution_path=tuple(execution_path),
-                iterations=iteration,
-            )
+        # Check for legacy exit format (v0.13.0: raise error)
+        _check_legacy_exit_format(next_step, state_string)
 
         iteration += 1
         next_node_name = _get_node_name(next_step)
 
         # Check if it's an exit node
         if _is_exit_node(next_node_name):
-            # Exit node returns Context or ExitContract (no Outcome)
-            if asyncio.iscoroutinefunction(next_step):
-                result = await next_step(context)
-            else:
-                result = next_step(context)
-
             execution_path.append(next_node_name)
 
-            if on_step:
-                exit_state = (
-                    result.exit_state
-                    if isinstance(result, ExitContract)
-                    else _derive_exit_state(next_node_name)
-                )
-                on_step(next_node_name, f"exit::{exit_state}", result)
+            result = await _execute_exit_node_async(
+                exit_node=next_step,
+                context=context,
+                node_name=next_node_name,
+                execution_path=execution_path,
+                iteration=iteration,
+            )
 
-            # Return ExitContract with execution metadata
-            if isinstance(result, ExitContract):
-                return result.model_copy(
-                    update={
-                        "execution_path": tuple(execution_path),
-                        "iterations": iteration,
-                    }
-                )
-            else:
-                # Backward compatibility: wrap non-ExitContract in DefaultExitContract
-                exit_state = _derive_exit_state(next_node_name)
-                return DefaultExitContract(
-                    exit_state=exit_state,
-                    context=result,
-                    execution_path=tuple(execution_path),
-                    iterations=iteration,
-                )
+            if on_step:
+                on_step(next_node_name, f"exit::{result.exit_state}", result)
+
+            return result
 
         # Regular node returns (context, Outcome)
         if asyncio.iscoroutinefunction(next_step):

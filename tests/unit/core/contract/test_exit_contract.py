@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from railway import Contract
-from railway.core.exit_contract import ExitContract, DefaultExitContract
+from railway.core.exit_contract import ExitContract
 
 
 class TestExitContract:
@@ -97,42 +97,11 @@ class TestExitContractSubclass:
         assert result.exit_code == 1
 
 
-class TestDefaultExitContract:
-    """DefaultExitContract のテスト。"""
-
-    def test_holds_context(self) -> None:
-        """context を保持できる。"""
-        result = DefaultExitContract(
-            exit_state="success.done",
-            context={"key": "value"},
-        )
-        assert result.context == {"key": "value"}
-
-    def test_context_defaults_to_none(self) -> None:
-        """context のデフォルトは None。"""
-        result = DefaultExitContract(exit_state="success.done")
-        assert result.context is None
-
-    def test_inherits_from_exit_contract(self) -> None:
-        """ExitContract を継承している。"""
-        assert issubclass(DefaultExitContract, ExitContract)
-
-    def test_is_success_derived(self) -> None:
-        """is_success が正しく導出される。"""
-        result = DefaultExitContract(
-            exit_state="success.done",
-            context={"data": "test"},
-        )
-        assert result.is_success is True
-        assert result.exit_code == 0
-
-
 class TestExitContractExport:
     """エクスポートのテスト。"""
 
     def test_can_import_from_railway(self) -> None:
         """railway パッケージからインポートできる。"""
-        from railway import ExitContract, DefaultExitContract
+        from railway import ExitContract
 
         assert ExitContract is not None
-        assert DefaultExitContract is not None

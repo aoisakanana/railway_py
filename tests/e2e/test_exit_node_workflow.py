@@ -1,11 +1,16 @@
-"""E2E tests for exit node workflow (v0.12.2 ExitContract 対応).
+"""E2E tests for exit node workflow (v0.13.0 ExitContract 強制).
 
 Tests the complete flow: YAML -> parse -> codegen -> dag_runner -> exit node execution.
+
+v0.13.0 破壊的変更:
+- 終端ノードは ExitContract サブクラスを返す必要がある
+- dict, None 等を返すと ExitNodeTypeError
 """
 
 import pytest
 from pathlib import Path
 
+from railway import ExitContract
 from railway.core.dag.parser import load_transition_graph
 from railway.core.dag.codegen import generate_transition_code
 from railway.core.dag.runner import dag_runner, async_dag_runner
@@ -32,8 +37,9 @@ class TestExitNodeE2EWorkflow:
 
         # 3. コード生成
         code = generate_transition_code(graph, str(yaml_path))
-        # Note: v0.12.2 では EXIT_CODES は codegen に含まれる可能性がある
+        # v0.13.0: EXIT_CODES は廃止（ExitContract が exit_code を直接定義）
         assert "exit.success.done" in code
+        assert "EXIT_CODES" not in code
 
         # 4. 生成コードが有効な Python
         compile(code, "<generated>", "exec")
@@ -107,7 +113,7 @@ class TestExitNodeE2EWorkflow:
 
 
 class TestExitNodeE2ERuntime:
-    """終端ノード E2E ランタイムテスト（v0.12.2 ExitContract）。"""
+    """終端ノード E2E ランタイムテスト（v0.13.0 ExitContract 強制）。"""
 
     def test_exit_node_execution_with_mock_nodes(self) -> None:
         """モックノードを使った終端ノード実行。
@@ -115,6 +121,11 @@ class TestExitNodeE2ERuntime:
         実際のファイルシステムを使わず、メモリ内でテスト。
         """
         execution_log: list[str] = []
+
+        class CompletedResult(ExitContract):
+            status: str
+            steps: int
+            exit_state: str = "success.done"
 
         # モックノード: 開始
         def start():
@@ -130,13 +141,13 @@ class TestExitNodeE2ERuntime:
 
         process._node_name = "process"
 
-        # モックノード: 終端（Context のみを返す）
-        def exit_success_done(ctx):
+        # モックノード: 終端（ExitContract を返す）
+        def exit_success_done(ctx) -> CompletedResult:
             execution_log.append("exit.success.done")
-            return {
-                "status": "completed",
-                "steps": ctx["step"],
-            }
+            return CompletedResult(
+                status="completed",
+                steps=ctx["step"],
+            )
 
         exit_success_done._node_name = "exit.success.done"
 
@@ -153,8 +164,8 @@ class TestExitNodeE2ERuntime:
 
         # 検証
         assert execution_log == ["start", "process", "exit.success.done"]
-        assert result.context["status"] == "completed"
-        assert result.context["steps"] == 2
+        assert result.status == "completed"
+        assert result.steps == 2
         assert result.is_success is True
         assert result.exit_state == "success.done"
         assert result.exit_code == 0
@@ -163,13 +174,17 @@ class TestExitNodeE2ERuntime:
     def test_failure_exit_node_execution(self) -> None:
         """失敗終端ノードの実行。"""
 
+        class TimeoutResult(ExitContract):
+            error: str
+            exit_state: str = "failure.timeout"
+
         def start():
             return {}, Outcome.failure("timeout")
 
         start._node_name = "start"
 
-        def exit_failure_timeout(ctx):
-            return {"error": "Operation timed out"}
+        def exit_failure_timeout(ctx) -> TimeoutResult:
+            return TimeoutResult(error="Operation timed out")
 
         exit_failure_timeout._node_name = "exit.failure.timeout"
 
@@ -185,11 +200,15 @@ class TestExitNodeE2ERuntime:
         assert result.is_success is False
         assert result.exit_state == "failure.timeout"
         assert result.exit_code == 1
-        assert result.context["error"] == "Operation timed out"
+        assert result.error == "Operation timed out"
 
     def test_on_step_callback_with_exit_node(self) -> None:
         """on_step コールバックの E2E テスト。"""
         step_history: list[dict] = []
+
+        class FinalResult(ExitContract):
+            final: bool
+            exit_state: str = "success.done"
 
         def on_step(node_name: str, state: str, ctx) -> None:
             step_history.append({
@@ -203,8 +222,8 @@ class TestExitNodeE2ERuntime:
 
         start._node_name = "start"
 
-        def exit_success_done(ctx):
-            return {"final": True}
+        def exit_success_done(ctx) -> FinalResult:
+            return FinalResult(final=True)
 
         exit_success_done._node_name = "exit.success.done"
 
@@ -227,7 +246,7 @@ class TestExitNodeE2ERuntime:
 
         # exit ノード
         assert step_history[1]["node"] == "exit.success.done"
-        # v0.12.2 では exit:: 形式で状態が返される
+        # v0.13.0 では exit:: 形式で状態が返される
         assert "exit" in step_history[1]["state"]
 
 
@@ -327,7 +346,7 @@ class TestExitNodeE2EValidation:
 
 
 class TestRunHelperE2E:
-    """run() ヘルパー関数の E2E テスト（v0.12.2 ExitContract）。"""
+    """run() ヘルパー関数の E2E テスト（v0.13.0 ExitContract 強制）。"""
 
     def test_run_helper_executes_workflow(self) -> None:
         """run() ヘルパーでワークフローを実行。
@@ -337,12 +356,17 @@ class TestRunHelperE2E:
         from railway.core.dag.runner import dag_runner
         from railway.core.dag.outcome import Outcome
 
+        class CompletedResult(ExitContract):
+            status: str
+            original: dict
+            exit_state: str = "success.done"
+
         # モックノード
         def initialize(ctx):
             return {"step": 1, **ctx}, Outcome.success("done")
 
-        def exit_success_done(ctx):
-            return {"status": "completed", "original": ctx}
+        def exit_success_done(ctx) -> CompletedResult:
+            return CompletedResult(status="completed", original=ctx)
 
         # _node_name 属性設定（codegen が生成）
         initialize._node_name = "initialize"
@@ -371,8 +395,8 @@ class TestRunHelperE2E:
         result = run({"user_id": 123})
 
         assert result.is_success
-        assert result.context["status"] == "completed"
-        assert result.context["original"]["user_id"] == 123
+        assert result.status == "completed"
+        assert result.original["user_id"] == 123
 
     @pytest.mark.asyncio
     async def test_run_async_helper_executes_workflow(self) -> None:
@@ -380,12 +404,17 @@ class TestRunHelperE2E:
         from railway.core.dag.runner import async_dag_runner
         from railway.core.dag.outcome import Outcome
 
+        class AsyncCompletedResult(ExitContract):
+            status: str
+            original: dict
+            exit_state: str = "success.done"
+
         # モック非同期ノード
         async def initialize(ctx):
             return {"step": 1, **ctx}, Outcome.success("done")
 
-        async def exit_success_done(ctx):
-            return {"status": "async_completed", "original": ctx}
+        async def exit_success_done(ctx) -> AsyncCompletedResult:
+            return AsyncCompletedResult(status="async_completed", original=ctx)
 
         initialize._node_name = "initialize"
         exit_success_done._node_name = "exit.success.done"
@@ -410,4 +439,4 @@ class TestRunHelperE2E:
         result = await run_async({"user_id": 456})
 
         assert result.is_success
-        assert result.context["status"] == "async_completed"
+        assert result.status == "async_completed"

@@ -3,7 +3,6 @@
 import pytest
 from railway.core.dag.codegen import (
     generate_imports,
-    generate_exit_codes,
     generate_transition_table,
     generate_transition_code,
     generate_node_name_assignments,
@@ -142,72 +141,6 @@ class TestGenerateImports:
 
         # ヘッダーコメントのみ
         assert "exit.success.done" not in result
-
-
-class TestGenerateExitCodes:
-    """EXIT_CODES 生成テスト。"""
-
-    def test_generates_exit_codes_mapping(self) -> None:
-        """EXIT_CODES マッピングが生成される。"""
-        nodes = (
-            NodeDefinition(
-                name="exit.success.done",
-                module="nodes.exit.success.done",
-                function="done",
-                description="正常終了",
-                is_exit=True,
-                exit_code=0,
-            ),
-            NodeDefinition(
-                name="exit.failure.timeout",
-                module="nodes.exit.failure.timeout",
-                function="timeout",
-                description="タイムアウト",
-                is_exit=True,
-                exit_code=1,
-            ),
-        )
-        graph = TransitionGraph(
-            version="1.0",
-            entrypoint="test",
-            description="Test",
-            nodes=nodes,
-            exits=(),
-            transitions=(),
-            start_node="start",
-            options=None,
-        )
-
-        result = generate_exit_codes(graph)
-
-        assert "EXIT_CODES: dict[str, int] = {" in result
-        assert '"exit.success.done": 0' in result
-        assert '"exit.failure.timeout": 1' in result
-
-    def test_empty_when_no_exit_nodes(self) -> None:
-        """終端ノードがない場合は空の dict。"""
-        nodes = (
-            NodeDefinition(
-                name="start",
-                module="nodes.start",
-                function="start",
-                description="開始",
-            ),
-        )
-        graph = TransitionGraph(
-            version="1.0",
-            entrypoint="test",
-            description="Test",
-            nodes=nodes,
-            exits=(),
-            transitions=(),
-            start_node="start",
-            options=None,
-        )
-
-        result = generate_exit_codes(graph)
-
-        assert result == "EXIT_CODES: dict[str, int] = {}"
 
 
 class TestGenerateNodeNameAssignments:
@@ -374,39 +307,6 @@ class TestGenerateTransitionCodeIntegration:
 
         # Python として構文解析可能
         compile(code, "<string>", "exec")
-
-    def test_includes_exit_codes(self) -> None:
-        """EXIT_CODES が含まれる。"""
-        nodes = (
-            NodeDefinition(
-                name="start",
-                module="nodes.start",
-                function="start",
-                description="開始",
-            ),
-            NodeDefinition(
-                name="exit.success.done",
-                module="nodes.exit.success.done",
-                function="done",
-                description="正常終了",
-                is_exit=True,
-                exit_code=0,
-            ),
-        )
-        graph = TransitionGraph(
-            version="1.0",
-            entrypoint="test",
-            description="Test",
-            nodes=nodes,
-            exits=(),
-            transitions=(),
-            start_node="start",
-            options=None,
-        )
-
-        code = generate_transition_code(graph, "test.yml")
-
-        assert "EXIT_CODES" in code
 
     def test_includes_node_name_assignments(self) -> None:
         """_node_name 属性設定が含まれる。"""
