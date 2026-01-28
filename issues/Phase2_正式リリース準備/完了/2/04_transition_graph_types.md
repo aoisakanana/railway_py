@@ -62,13 +62,13 @@ class TestNodeDefinition:
             name="fetch_alert",
             module="nodes.fetch_alert",
             function="fetch_alert",
-            description="PagerDuty APIからアラート情報を取得",
+            description="外部SaaS APIからアラート情報を取得",
         )
 
         assert node.name == "fetch_alert"
         assert node.module == "nodes.fetch_alert"
         assert node.function == "fetch_alert"
-        assert node.description == "PagerDuty APIからアラート情報を取得"
+        assert node.description == "外部SaaS APIからアラート情報を取得"
 
     def test_node_definition_is_immutable(self):
         """NodeDefinition should be immutable."""

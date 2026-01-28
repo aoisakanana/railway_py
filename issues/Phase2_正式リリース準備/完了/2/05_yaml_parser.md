@@ -271,7 +271,7 @@ class TestParseTransitionGraph:
               fetch_alert:
                 module: nodes.fetch_alert
                 function: fetch_alert
-                description: "PagerDuty APIからアラート情報を取得"
+                description: "外部SaaS APIからアラート情報を取得"
               check_session_exists:
                 module: nodes.check_session_exists
                 function: check_session_exists
