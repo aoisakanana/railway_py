@@ -238,6 +238,111 @@ class TestTutorialMigrationExamples:
         assert result.message == "User 123 processed"
 
 
+class TestTutorialModelCopyPattern:
+    """TUTORIAL.md Step 11: model_copy パターンのテスト。"""
+
+    def test_model_copy_preserves_existing_data(self) -> None:
+        """model_copy が既存データを保持すること。"""
+
+        class AlertContext(Contract):
+            """ワークフロー全体で必要なデータを含む Contract。"""
+
+            incident_id: str
+            severity: str
+            hostname: str | None = None
+            escalated: bool = False
+
+        @node(name="start")
+        def start() -> tuple[AlertContext, Outcome]:
+            return AlertContext(incident_id="INC-001", severity="critical"), Outcome.success("check")
+
+        @node(name="check_host")
+        def check_host(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
+            # model_copy で既存データを保持しつつ hostname を追加
+            new_ctx = ctx.model_copy(update={"hostname": "web-01"})
+            return new_ctx, Outcome.success("escalate")
+
+        @node(name="escalate")
+        def escalate(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
+            # すべての既存データが利用可能
+            assert ctx.incident_id == "INC-001"
+            assert ctx.severity == "critical"
+            assert ctx.hostname == "web-01"
+            return ctx.model_copy(update={"escalated": True}), Outcome.success("done")
+
+        class DoneResult(ExitContract):
+            exit_state: str = "success.done"
+            incident_id: str
+            escalated: bool
+
+        @node(name="exit.success.done")
+        def done(ctx: AlertContext) -> DoneResult:
+            return DoneResult(incident_id=ctx.incident_id, escalated=ctx.escalated)
+
+        result = dag_runner(
+            start=start,
+            transitions={
+                "start::success::check": check_host,
+                "check_host::success::escalate": escalate,
+                "escalate::success::done": done,
+            },
+        )
+
+        assert result.is_success
+        assert result.incident_id == "INC-001"
+        assert result.escalated is True
+
+    def test_data_flows_through_multiple_nodes(self) -> None:
+        """データが複数ノードを経由して正しく引き継がれること。"""
+
+        class WorkflowContext(Contract):
+            step: int = 0
+            values: tuple[str, ...] = ()
+
+        @node(name="start")
+        def start() -> tuple[WorkflowContext, Outcome]:
+            ctx = WorkflowContext(step=1, values=("start",))
+            return ctx, Outcome.success("next")
+
+        @node(name="step_a")
+        def step_a(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
+            new_ctx = ctx.model_copy(update={
+                "step": ctx.step + 1,
+                "values": ctx.values + ("step_a",),
+            })
+            return new_ctx, Outcome.success("next")
+
+        @node(name="step_b")
+        def step_b(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
+            new_ctx = ctx.model_copy(update={
+                "step": ctx.step + 1,
+                "values": ctx.values + ("step_b",),
+            })
+            return new_ctx, Outcome.success("done")
+
+        class FinalResult(ExitContract):
+            exit_state: str = "success.done"
+            final_step: int
+            all_values: tuple[str, ...]
+
+        @node(name="exit.success.done")
+        def done(ctx: WorkflowContext) -> FinalResult:
+            return FinalResult(final_step=ctx.step, all_values=ctx.values)
+
+        result = dag_runner(
+            start=start,
+            transitions={
+                "start::success::next": step_a,
+                "step_a::success::next": step_b,
+                "step_b::success::done": done,
+            },
+        )
+
+        assert result.is_success
+        assert result.final_step == 3
+        assert result.all_values == ("start", "step_a", "step_b")
+
+
 @pytest.mark.asyncio
 class TestTutorialAsyncExamples:
     """非同期ワークフローのテスト。"""

@@ -471,6 +471,62 @@ def _to_exit_enum_name(exit_name: str) -> str:
 
 
 # =============================================================================
+# Context Type Detection
+# =============================================================================
+
+
+def detect_context_type(module_path: str, function_name: str) -> str | None:
+    """開始ノードからコンテキスト型を検出する（純粋関数）。
+
+    開始ノード関数の第一引数の型ヒントを解析し、
+    コンテキスト型名を返す。
+
+    Args:
+        module_path: モジュールパス（例: "nodes.start"）
+        function_name: 関数名（例: "start"）
+
+    Returns:
+        コンテキスト型名（検出できない場合は None）
+
+    Example:
+        >>> # nodes/start.py:
+        >>> # def start(ctx: MyContext) -> tuple[MyContext, Outcome]: ...
+        >>> detect_context_type("nodes.start", "start")
+        'MyContext'
+    """
+    try:
+        import importlib
+        import inspect
+        from typing import get_type_hints
+
+        # キャッシュを無効化（テスト時の動的モジュール作成に対応）
+        importlib.invalidate_caches()
+
+        module = importlib.import_module(module_path)
+        func = getattr(module, function_name)
+
+        # 型ヒントを取得
+        hints = get_type_hints(func)
+
+        # 第一引数の型を取得
+        sig = inspect.signature(func)
+        params = list(sig.parameters.keys())
+
+        if not params:
+            return None
+
+        first_param = params[0]
+        if first_param not in hints:
+            return None
+
+        ctx_type = hints[first_param]
+        return ctx_type.__name__
+
+    except Exception:
+        return None
+
+
+# =============================================================================
 # Exit Node Skeleton Generation (Issue #44)
 # =============================================================================
 
