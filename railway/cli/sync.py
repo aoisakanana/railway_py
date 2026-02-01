@@ -252,7 +252,10 @@ def _sync_entry(
     validate_only: bool,
     force: bool,
 ) -> None:
-    """Sync a single entrypoint."""
+    """Sync a single entrypoint.
+
+    Issue #62 修正: sync_exit_nodes() を呼び出すように変更。
+    """
     # Find latest YAML
     yaml_path = find_latest_yaml(graphs_dir, entry_name)
     if yaml_path is None:
@@ -280,11 +283,10 @@ def _sync_entry(
         typer.echo(f"✓ {entry_name}: 検証成功")
         return
 
-    # Generate code (pure function)
-    relative_yaml = yaml_path.relative_to(graphs_dir.parent)
-    code = generate_transition_code(graph, str(relative_yaml))
-
     if dry_run:
+        # Generate code (pure function) for preview
+        relative_yaml = yaml_path.relative_to(graphs_dir.parent)
+        code = generate_transition_code(graph, str(relative_yaml))
         typer.echo(f"\n--- プレビュー: {entry_name}_transitions.py ---")
         # Show first 50 lines
         lines = code.split("\n")[:50]
@@ -293,6 +295,16 @@ def _sync_entry(
             typer.echo("... (省略)")
         typer.echo("--- プレビュー終了 ---\n")
         return
+
+    # Issue #62: 終端ノードスケルトン生成（副作用あり）
+    cwd = graphs_dir.parent  # プロジェクトルート
+    exit_result = sync_exit_nodes(graph, cwd)
+    for path in exit_result.generated:
+        typer.echo(f"  終端ノード生成: {path.relative_to(cwd)}")
+
+    # Generate code (pure function)
+    relative_yaml = yaml_path.relative_to(graphs_dir.parent)
+    code = generate_transition_code(graph, str(relative_yaml))
 
     # Write generated code (IO operation)
     output_path = output_dir / f"{entry_name}_transitions.py"
