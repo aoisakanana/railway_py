@@ -1086,10 +1086,15 @@ def _create_entry(
         force: 既存ファイルを上書きするか
         mode: 実行モード（dag or linear）
         sync: sync を実行するか（dag モードのみ）
+
+    Note:
+        dag モードでは既存ファイルがあっても処理を続行する
+        （YAML 変換、transitions 再生成のため）
     """
     file_path = Path.cwd() / "src" / f"{name}.py"
 
-    if file_path.exists() and not force:
+    # dag モードでは既存ファイルがあっても処理を続行（既存スキップは内部で行う）
+    if file_path.exists() and not force and mode != EntryMode.dag:
         typer.echo(
             f"Error: {file_path} already exists. Use --force to overwrite.", err=True
         )
@@ -1100,8 +1105,51 @@ def _create_entry(
     else:
         _create_linear_entry(name)
 
-    # Create test file
-    _create_entry_test(name)
+    # Create test file (only if not exists)
+    test_path = Path.cwd() / "tests" / "nodes" / f"test_{name}.py"
+    if not test_path.exists():
+        _create_entry_test(name)
+
+
+def _find_existing_yaml(graphs_dir: Path, name: str) -> Optional[Path]:
+    """既存の YAML ファイルを検索（純粋関数）。"""
+    pattern = f"{name}_*.yml"
+    matches = list(graphs_dir.glob(pattern))
+    if not matches:
+        return None
+    # 最新のタイムスタンプを持つファイルを返す
+    matches.sort(key=lambda p: p.name, reverse=True)
+    return matches[0]
+
+
+def _is_old_format_yaml(yaml_content: str) -> bool:
+    """YAML が旧形式（exits セクションあり）か判定（純粋関数）。"""
+    import yaml
+    data = yaml.safe_load(yaml_content)
+    return "exits" in data
+
+
+def _convert_old_format_yaml(yaml_path: Path) -> str:
+    """旧形式 YAML を新形式に変換（副作用あり: ファイル書き込み）。
+
+    Returns:
+        変換後の YAML コンテンツ
+    """
+    import yaml
+    from railway.migrations.yaml_converter import convert_yaml_structure
+
+    content = yaml_path.read_text()
+    data = yaml.safe_load(content)
+    result = convert_yaml_structure(data)
+
+    if result.success:
+        new_content = yaml.safe_dump(result.data, allow_unicode=True, sort_keys=False)
+        yaml_path.write_text(new_content)
+        typer.echo(f"  変換: {yaml_path.name}（旧形式 → 新形式）")
+        return new_content
+    else:
+        typer.echo(f"  警告: YAML 変換に失敗しました: {result.error}", err=True)
+        return content
 
 
 def _create_dag_entry(name: str, sync: bool = True) -> None:
@@ -1112,6 +1160,10 @@ def _create_dag_entry(name: str, sync: bool = True) -> None:
         sync: sync を実行するか（デフォルト True）
 
     Issue #64: デフォルトで sync を実行し、1コマンドで動作するプロジェクトを生成
+    既存ファイルの扱い:
+        - YAML 旧形式: 新形式に自動変換
+        - YAML 新形式: 何もしない（既存を使用）
+        - transitions: 常に再生成
     """
     cwd = Path.cwd()
     src_dir = cwd / "src"
@@ -1122,34 +1174,55 @@ def _create_dag_entry(name: str, sync: bool = True) -> None:
     # Create directories
     nodes_dir.mkdir(parents=True, exist_ok=True)
 
-    # 1. Create YAML (pure function → side effect)
+    # 1. Check for existing YAML
+    existing_yaml = _find_existing_yaml(graphs_dir, name)
+    yaml_created = False
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-    yaml_content = _get_dag_yaml_template(name)
-    _write_file(graphs_dir / f"{name}_{timestamp}.yml", yaml_content)
 
-    # 2. Create start node
-    node_content = _get_dag_node_template(name)
-    (nodes_dir / "__init__.py").touch()
-    _write_file(nodes_dir / "start.py", node_content)
+    if existing_yaml:
+        yaml_content = existing_yaml.read_text()
+        if _is_old_format_yaml(yaml_content):
+            # 旧形式: 変換して上書き
+            yaml_content = _convert_old_format_yaml(existing_yaml)
+        else:
+            # 新形式: 何もしない
+            typer.echo(f"  スキップ: {existing_yaml.name}（既に新形式）")
+    else:
+        # 新規作成
+        yaml_content = _get_dag_yaml_template(name)
+        _write_file(graphs_dir / f"{name}_{timestamp}.yml", yaml_content)
+        yaml_created = True
 
-    # 3. Generate exit nodes from YAML (side effect)
+    # 2. Create start node (only if not exists)
+    start_node_path = nodes_dir / "start.py"
+    if not start_node_path.exists():
+        node_content = _get_dag_node_template(name)
+        (nodes_dir / "__init__.py").touch()
+        _write_file(start_node_path, node_content)
+
+    # 3. Generate exit nodes from YAML (skips existing)
     exit_result = _generate_exit_nodes_from_yaml(yaml_content, cwd)
 
-    # 4. Sync transition (if enabled)
+    # 4. Sync transition (if enabled) - always regenerate
     if sync:
         output_dir.mkdir(parents=True, exist_ok=True)
         _run_sync_for_entry(name, graphs_dir, output_dir)
 
-    # 5. Create entrypoint (depends on sync state)
-    if sync:
-        entry_content = _get_dag_entry_template(name)
-    else:
-        entry_content = _get_dag_entry_template_pending_sync(name)
-
-    _write_file(src_dir / f"{name}.py", entry_content)
+    # 5. Create entrypoint (only if not exists)
+    entry_path = src_dir / f"{name}.py"
+    if not entry_path.exists():
+        if sync:
+            entry_content = _get_dag_entry_template(name)
+        else:
+            entry_content = _get_dag_entry_template_pending_sync(name)
+        _write_file(entry_path, entry_content)
 
     # Output messages
-    _print_dag_entry_created(name, timestamp, exit_result, sync)
+    _print_dag_entry_created(
+        name, timestamp, exit_result, sync,
+        yaml_created=yaml_created,
+        existing_yaml=existing_yaml,
+    )
 
 
 def _run_sync_for_entry(
@@ -1186,12 +1259,19 @@ def _print_dag_entry_created(
     timestamp: str,
     exit_result: "SyncResult",
     sync: bool,
+    yaml_created: bool = True,
+    existing_yaml: Optional[Path] = None,
 ) -> None:
     """生成結果を表示する（副作用あり: 標準出力）。"""
-    typer.echo(f"✓ エントリーポイント '{name}' を作成しました（モード: dag）\n")
-    typer.echo(f"  作成: src/{name}.py")
-    typer.echo(f"  作成: src/nodes/{name}/start.py")
-    typer.echo(f"  作成: transition_graphs/{name}_{timestamp}.yml")
+    if yaml_created:
+        typer.echo(f"✓ エントリーポイント '{name}' を作成しました（モード: dag）\n")
+        typer.echo(f"  作成: src/{name}.py")
+        typer.echo(f"  作成: src/nodes/{name}/start.py")
+        typer.echo(f"  作成: transition_graphs/{name}_{timestamp}.yml")
+    else:
+        typer.echo(f"✓ エントリーポイント '{name}' を更新しました（モード: dag）\n")
+        if existing_yaml:
+            typer.echo(f"  使用: {existing_yaml.name}")
 
     cwd = Path.cwd()
     for path in exit_result.generated:
@@ -1199,7 +1279,7 @@ def _print_dag_entry_created(
         typer.echo(f"  作成: {relative}")
 
     if sync:
-        typer.echo(f"  作成: _railway/generated/{name}_transitions.py")
+        typer.echo(f"  生成: _railway/generated/{name}_transitions.py")
 
     typer.echo("")
     if sync:

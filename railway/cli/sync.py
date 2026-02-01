@@ -312,6 +312,7 @@ def _sync_entry(
         typer.echo(
             f"  ファイルが既に存在します。--force で上書き可能です: {output_path}"
         )
+        return  # force=False の場合は上書きしない
 
     output_path.write_text(code, encoding="utf-8")
 
