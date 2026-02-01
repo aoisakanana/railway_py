@@ -22,6 +22,43 @@ class TestAutoResolve:
         assert result[0].function == "start"
         assert result[0].name == "start"
 
+    def test_auto_resolve_with_entrypoint(self) -> None:
+        """entrypoint を考慮した module 自動解決。"""
+        nodes_data = {"start": {"description": "開始"}}
+        result = parse_nodes(nodes_data, entrypoint="my_workflow")
+
+        assert len(result) == 1
+        assert result[0].module == "nodes.my_workflow.start"
+        assert result[0].function == "start"
+
+    def test_auto_resolve_exit_node_ignores_entrypoint(self) -> None:
+        """終端ノードは entrypoint を無視。"""
+        nodes_data = {"exit": {"success": {"done": {"description": "完了"}}}}
+        result = parse_nodes(nodes_data, entrypoint="my_workflow")
+
+        assert len(result) == 1
+        # exit ノードは entrypoint を含まない
+        assert result[0].module == "nodes.exit.success.done"
+        assert result[0].function == "done"
+
+    def test_auto_resolve_deep_nested_with_entrypoint(self) -> None:
+        """深いネストでも entrypoint を考慮した自動解決。"""
+        nodes_data = {
+            "process": {
+                "check": {
+                    "db": {
+                        "session_pool": {"description": "セッションプール確認"}
+                    }
+                }
+            }
+        }
+        result = parse_nodes(nodes_data, entrypoint="my_workflow")
+
+        assert len(result) == 1
+        assert result[0].name == "process.check.db.session_pool"
+        assert result[0].module == "nodes.my_workflow.process.check.db.session_pool"
+        assert result[0].function == "session_pool"
+
     def test_explicit_module_override(self) -> None:
         """明示的な module 指定は自動解決より優先。"""
         nodes_data = {
@@ -263,7 +300,10 @@ class TestParserWithFixtures:
         assert exit_done.exit_code == 0
 
     def test_parse_auto_resolve_fixture(self, exit_node_fixtures) -> None:
-        """auto_resolve.yml をパース。"""
+        """auto_resolve.yml をパース。
+
+        Note: v0.13.3+ includes entrypoint in module path.
+        """
         from railway.core.dag.parser import load_transition_graph
 
         yaml_path = exit_node_fixtures / "auto_resolve.yml"
@@ -274,7 +314,8 @@ class TestParserWithFixtures:
             None,
         )
         assert start is not None
-        assert start.module == "nodes.start_process"
+        # v0.13.3: module includes entrypoint (auto_resolve_test)
+        assert start.module == "nodes.auto_resolve_test.start_process"
         assert start.function == "start_process"
 
     def test_parse_deep_nested_fixture(self, exit_node_fixtures) -> None:

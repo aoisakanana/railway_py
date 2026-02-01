@@ -353,8 +353,9 @@ transitions:
 ```
 
 **ポイント:**
-- `module/function` は省略可能（ノード名から自動解決）
-- 終端ノードは `nodes.exit` 配下に定義
+- `module/function` は省略可能（`nodes.{{entrypoint}}.{{ノード名}}` に自動解決）
+- 例: `check_time` → `nodes.greeting.check_time` に解決
+- 終端ノードは `nodes.exit` 配下に定義（entrypoint を含まない）
 - 遷移先は `exit.success.done` 形式で指定
 
 ### 4.2 ノードを実装
@@ -661,7 +662,8 @@ def process(ctx: ProcessContext) -> tuple[ProcessContext, Outcome]:
 
 - [TUTORIAL_linear.md](TUTORIAL_linear.md) - 線形パイプライン詳細チュートリアル
 - [docs/adr/002_execution_models.md](docs/adr/002_execution_models.md) - 実行モデルの詳細
-- `railway docs` で詳細を確認
+- `railway docs` - README をターミナルに表示
+- `railway docs --browser` - ブラウザでドキュメントを開く
 
 ---
 

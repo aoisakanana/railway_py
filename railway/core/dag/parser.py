@@ -26,7 +26,6 @@ from railway.core.dag.types import (
     TransitionGraph,
 )
 
-
 # Reserved keys that indicate a leaf node (not intermediate)
 _LEAF_KEYS: frozenset[str] = frozenset({
     "description",
@@ -50,7 +49,10 @@ SUPPORTED_VERSIONS = ("1.0",)
 # =============================================================================
 
 
-def parse_nodes(data: dict[str, Any]) -> Sequence[NodeDefinition]:
+def parse_nodes(
+    data: dict[str, Any],
+    entrypoint: str | None = None,
+) -> Sequence[NodeDefinition]:
     """Parse nodes section with nested structure support (pure function).
 
     Supports both flat nodes and nested exit nodes:
@@ -58,28 +60,33 @@ def parse_nodes(data: dict[str, Any]) -> Sequence[NodeDefinition]:
     - Nested: {"exit": {"success": {"done": {"description": "..."}}}}
 
     Auto-resolution:
-    - module: from YAML path (e.g., "nodes.start")
+    - module: from YAML path with entrypoint (e.g., "nodes.{entrypoint}.start")
     - function: from key name (e.g., "start")
     - exit_code: success=0, failure/others=1
 
+    Note:
+        Exit nodes (nodes.exit.*) do NOT include entrypoint in module path.
+
     Args:
         data: YAML nodes section dictionary
+        entrypoint: Optional entrypoint name for module path resolution
 
     Returns:
         Immutable sequence of NodeDefinition
 
     Example:
         >>> nodes_data = {"start": {"description": "開始"}}
-        >>> result = parse_nodes(nodes_data)
-        >>> result[0].name
-        'start'
+        >>> result = parse_nodes(nodes_data, entrypoint="my_workflow")
+        >>> result[0].module
+        'nodes.my_workflow.start'
     """
-    return tuple(_parse_nodes_recursive(data, "nodes"))
+    return tuple(_parse_nodes_recursive(data, "nodes", entrypoint))
 
 
 def _parse_nodes_recursive(
     data: dict[str, Any],
     path_prefix: str,
+    entrypoint: str | None = None,
 ) -> Iterator[NodeDefinition]:
     """Recursively parse node definitions (generator).
 
@@ -90,10 +97,10 @@ def _parse_nodes_recursive(
         current_path = f"{path_prefix}.{key}"
 
         if _is_leaf_node(value):
-            yield _parse_leaf_node(key, value, current_path)
+            yield _parse_leaf_node(key, value, current_path, entrypoint)
         else:
             # Intermediate node - recurse
-            yield from _parse_nodes_recursive(value, current_path)
+            yield from _parse_nodes_recursive(value, current_path, entrypoint)
 
 
 def _is_leaf_node(value: dict[str, Any] | None) -> bool:
@@ -126,21 +133,38 @@ def _parse_leaf_node(
     key: str,
     data: dict[str, Any] | None,
     yaml_path: str,
+    entrypoint: str | None = None,
 ) -> NodeDefinition:
     """Parse a leaf node definition (pure function).
 
     Auto-resolution:
-    - module: explicit value or yaml_path
+    - module: explicit value, or path with entrypoint for non-exit nodes
     - function: explicit value or key
+
+    Note:
+        Exit nodes (nodes.exit.*) do NOT include entrypoint in module path.
+
+    Examples:
+        yaml_path="nodes.start", entrypoint="my_wf"
+            -> module="nodes.my_wf.start"
+
+        yaml_path="nodes.process.check.db", entrypoint="my_wf"
+            -> module="nodes.my_wf.process.check.db"
+
+        yaml_path="nodes.exit.success.done", entrypoint="my_wf"
+            -> module="nodes.exit.success.done" (exit ignores entrypoint)
     """
     data = data or {}
 
-    # Auto-resolve with explicit override
-    module = data.get("module") or yaml_path
-    function = data.get("function") or key
-
     # Exit node detection (nodes.exit.* path)
     is_exit = yaml_path.startswith("nodes.exit.")
+
+    # Auto-resolve module with entrypoint (non-exit nodes only)
+    module = _resolve_module_path_with_entrypoint(
+        yaml_path, entrypoint, is_exit, data.get("module")
+    )
+
+    function = data.get("function") or key
 
     # Exit code resolution
     exit_code = _resolve_exit_code(yaml_path, data) if is_exit else None
@@ -153,6 +177,49 @@ def _parse_leaf_node(
         is_exit=is_exit,
         exit_code=exit_code,
     )
+
+
+def _resolve_module_path_with_entrypoint(
+    yaml_path: str,
+    entrypoint: str | None,
+    is_exit: bool,
+    explicit_module: str | None,
+) -> str:
+    """Resolve module path with entrypoint (pure function).
+
+    Args:
+        yaml_path: Full YAML path (e.g., "nodes.process.check.db")
+        entrypoint: Optional entrypoint name
+        is_exit: True if this is an exit node
+        explicit_module: Explicitly specified module (takes priority)
+
+    Returns:
+        Resolved module path
+
+    Examples:
+        >>> _resolve_module_path_with_entrypoint("nodes.start", "my_wf", False, None)
+        'nodes.my_wf.start'
+        >>> _resolve_module_path_with_entrypoint("nodes.process.check", "my_wf", False, None)
+        'nodes.my_wf.process.check'
+        >>> _resolve_module_path_with_entrypoint("nodes.exit.success.done", "my_wf", True, None)
+        'nodes.exit.success.done'
+    """
+    # Explicit module takes priority
+    if explicit_module:
+        return explicit_module
+
+    # Exit nodes: use yaml_path as-is
+    if is_exit:
+        return yaml_path
+
+    # Non-exit nodes with entrypoint: insert entrypoint after "nodes."
+    if entrypoint:
+        # yaml_path is "nodes.xxx.yyy" -> "nodes.{entrypoint}.xxx.yyy"
+        node_path = yaml_path.removeprefix("nodes.")
+        return f"nodes.{entrypoint}.{node_path}"
+
+    # Fallback: use yaml_path as-is
+    return yaml_path
 
 
 def _resolve_exit_code(yaml_path: str, data: dict[str, Any]) -> int:
@@ -218,7 +285,7 @@ def load_transition_graph(file_path: Path) -> TransitionGraph:
 
     try:
         content = file_path.read_text(encoding="utf-8")
-    except IOError as e:
+    except OSError as e:
         raise ParseError(f"ファイル読み込みエラー: {e}") from e
 
     return parse_transition_graph(content)
@@ -238,7 +305,9 @@ def _build_graph(data: dict[str, Any]) -> TransitionGraph:
     if not isinstance(nodes_data, dict):
         nodes_data = {}
 
-    nodes = parse_nodes(nodes_data)
+    # v0.13.3+: Pass entrypoint for module path auto-resolution
+    entrypoint = str(data.get("entrypoint", ""))
+    nodes = parse_nodes(nodes_data, entrypoint=entrypoint or None)
 
     # Parse exits (legacy format, kept for backward compatibility)
     exits_data = data.get("exits", {})

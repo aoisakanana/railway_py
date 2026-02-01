@@ -66,7 +66,7 @@ def main():
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Test Coverage](https://img.shields.io/badge/coverage-90%25+-brightgreen.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-1261%20passing-success.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1223%20passing-success.svg)]()
 
 ---
 
@@ -117,7 +117,7 @@ nodes:
     description: "開始ノード"
 
   process:
-    description: "処理ノード"  # module/function は自動解決
+    description: "処理ノード"  # → nodes.my_workflow.process に自動解決
 
   # 終端ノードは nodes.exit 配下に定義
   exit:
@@ -352,7 +352,8 @@ result = typed_pipeline(
 railway init <name>              # プロジェクト作成
 railway new entry <name>         # エントリポイント作成（dag_runnerモード）
 railway new entry <name> --mode linear  # 線形パイプラインモード
-railway docs                     # ドキュメント表示
+railway docs                     # README をターミナルに表示
+railway docs --browser           # ブラウザでドキュメントを開く
 ```
 
 ### 遷移グラフ管理
