@@ -272,11 +272,20 @@ class GreetingContext(Contract):
 
 
 @node
-def start() -> tuple[GreetingContext, Outcome]:
-    \"\"\"開始ノード\"\"\"
-    ctx = GreetingContext(message="Hello, Railway!")
+def start(ctx: GreetingContext | None = None) -> tuple[GreetingContext, Outcome]:
+    \"\"\"開始ノード
+
+    Args:
+        ctx: 初期コンテキスト（省略時はデフォルト値を使用）
+    \"\"\"
+    if ctx is None:
+        ctx = GreetingContext(message="Hello, Railway!")
     return ctx, Outcome.success("done")
 ```
+
+**開始ノードの特徴:**
+- `run()` から初期コンテキストを受け取れる（テストしやすい）
+- `None` がデフォルトでフォールバック動作
 
 ### 3.2 Outcome クラス
 
@@ -1020,8 +1029,19 @@ def _create_init_files(project_path: Path) -> None:
 
 
 def _create_conftest_py(project_path: Path) -> None:
-    """Create tests/conftest.py file."""
+    """Create tests/conftest.py file with proper path setup.
+
+    src/ を sys.path に追加することで、テストから
+    src. プレフィックスなしでモジュールをインポート可能にする。
+    """
     content = '''"""Pytest configuration and shared fixtures."""
+
+import sys
+from pathlib import Path
+
+# src/ を sys.path に追加（テストからのインポートを可能に）
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root / "src"))
 
 import pytest
 

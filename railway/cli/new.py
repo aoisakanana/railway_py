@@ -51,6 +51,49 @@ def _camel_to_snake(name: str) -> str:
 
 
 # =============================================================================
+# Module Path Resolution (Pure Functions)
+# =============================================================================
+
+
+def _resolve_module_path(entry_name: str, node_name: str) -> str:
+    """ノードのモジュールパスを解決（純粋関数）。
+
+    Args:
+        entry_name: エントリポイント名（例: "greeting", "workflows/daily"）
+        node_name: ノード名（例: "start", "check_time"）
+
+    Returns:
+        モジュールパス（例: "nodes.greeting.start"）
+
+    Examples:
+        >>> _resolve_module_path("greeting", "start")
+        'nodes.greeting.start'
+
+        >>> _resolve_module_path("workflows/daily", "check")
+        'nodes.workflows.daily.check'
+    """
+    # "/" を "." に変換
+    entry_path = entry_name.replace("/", ".")
+    return f"nodes.{entry_path}.{node_name}"
+
+
+def _resolve_exit_module_path(exit_path: str) -> str:
+    """終端ノードのモジュールパスを解決（純粋関数）。
+
+    Args:
+        exit_path: 終端ノードパス（例: "success.done", "failure.timeout"）
+
+    Returns:
+        モジュールパス（例: "nodes.exit.success.done"）
+
+    Examples:
+        >>> _resolve_exit_module_path("success.done")
+        'nodes.exit.success.done'
+    """
+    return f"nodes.exit.{exit_path}"
+
+
+# =============================================================================
 # Contract Templates
 # =============================================================================
 
@@ -398,7 +441,13 @@ raise NotImplementedError(
 
 
 def _get_dag_node_template(name: str) -> str:
-    """Get dag_runner style node template (returns Outcome)."""
+    """Get dag_runner style node template (returns Outcome).
+
+    開始ノードは optional な context を受け取る形式で生成される。
+    これにより run() 関数から初期コンテキストを注入可能。
+
+    純粋関数: name -> テンプレート文字列
+    """
     class_name = _to_pascal_case(name)
     return f'''"""
 {name} 開始ノード
@@ -409,18 +458,21 @@ from railway.core.dag.outcome import Outcome
 
 class {class_name}Context(Contract):
     """ワークフローコンテキスト"""
-    initialized: bool = False
+    message: str = ""
 
 
 @node
-def start() -> tuple[{class_name}Context, Outcome]:
-    """
-    ワークフロー開始ノード。
+def start(ctx: {class_name}Context | None = None) -> tuple[{class_name}Context, Outcome]:
+    """ワークフロー開始ノード。
+
+    Args:
+        ctx: 初期コンテキスト（省略時はデフォルト値を使用）
 
     Returns:
         (context, outcome): コンテキストと状態
     """
-    ctx = {class_name}Context(initialized=True)
+    if ctx is None:
+        ctx = {class_name}Context(message="Hello")
     return ctx, Outcome.success("done")
 '''
 
