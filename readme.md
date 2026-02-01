@@ -357,8 +357,11 @@ railway docs                     # ドキュメント表示
 
 ### 遷移グラフ管理
 ```bash
-railway sync transition --entry <name>  # 遷移コード生成
-railway sync transition --all          # 全遷移コード生成
+railway sync transition --entry <name>  # 遷移コード生成（デフォルトで上書き）
+railway sync transition --all           # 全遷移コード生成
+railway sync transition --entry <name> --no-overwrite  # 既存ファイルをスキップ
+railway sync transition --entry <name> --convert       # 旧形式YAMLを新形式に変換
+railway sync transition --entry <name> --dry-run       # プレビューのみ
 ```
 
 ### Contract（型契約）
@@ -919,7 +922,6 @@ MIT License
 ```bash
 railway init my_workflow
 cd my_workflow
-railway new entry my_workflow
-railway sync transition --entry my_workflow
+railway new entry my_workflow  # sync も自動実行
 railway run my_workflow
 ```

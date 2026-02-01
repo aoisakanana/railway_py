@@ -281,7 +281,7 @@ transitions:
             output_dir=output_dir,
             dry_run=False,
             validate_only=False,
-            force=True,
+            # デフォルトで上書き
         )
 
         # 終端ノードが生成されている
@@ -330,7 +330,7 @@ transitions:
             output_dir=output_dir,
             dry_run=False,
             validate_only=False,
-            force=True,
+            # デフォルトで上書き
         )
 
         # 上書きされていない
@@ -374,7 +374,7 @@ transitions:
             output_dir=output_dir,
             dry_run=True,
             validate_only=False,
-            force=True,
+            # デフォルトで上書き
         )
 
         # dry-run なので生成されない
@@ -418,7 +418,7 @@ transitions:
             output_dir=output_dir,
             dry_run=False,
             validate_only=True,
-            force=True,
+            # デフォルトで上書き
         )
 
         # validate-only なので生成されない
