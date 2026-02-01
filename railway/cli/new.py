@@ -1248,7 +1248,7 @@ def _run_sync_for_entry(
             output_dir=output_dir,
             dry_run=False,
             validate_only=False,
-            force=True,
+            # デフォルトで上書き（no_overwrite=False）
         )
     except SyncError as e:
         typer.echo(f"警告: sync 中にエラーが発生しました: {e}", err=True)

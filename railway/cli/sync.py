@@ -26,6 +26,52 @@ from railway.core.dag.validator import validate_graph
 # =============================================================================
 
 
+# =============================================================================
+# Issue #65: YAML Format Conversion
+# =============================================================================
+
+
+def _is_old_format_yaml(yaml_path: Path) -> bool:
+    """YAML が旧形式（exits セクションあり）か判定（純粋関数）。"""
+    import yaml
+
+    content = yaml_path.read_text()
+    data = yaml.safe_load(content)
+    return "exits" in data
+
+
+def _convert_yaml_if_old_format(yaml_path: Path) -> bool:
+    """旧形式 YAML を新形式に変換（副作用あり）。
+
+    Args:
+        yaml_path: YAML ファイルパス
+
+    Returns:
+        変換した場合 True、既に新形式の場合 False
+    """
+    import yaml
+
+    from railway.migrations.yaml_converter import convert_yaml_structure
+
+    content = yaml_path.read_text()
+    data = yaml.safe_load(content)
+
+    if "exits" not in data:
+        typer.echo(f"  既に新形式: {yaml_path.name}")
+        return False
+
+    result = convert_yaml_structure(data)
+
+    if result.success:
+        new_content = yaml.safe_dump(result.data, allow_unicode=True, sort_keys=False)
+        yaml_path.write_text(new_content)
+        typer.echo(f"  変換: {yaml_path.name}（旧形式 → 新形式）")
+        return True
+    else:
+        typer.echo(f"  警告: YAML 変換に失敗しました: {result.error}", err=True)
+        return False
+
+
 @dataclass(frozen=True)
 class SyncResult:
     """終端ノード同期の結果（イミュータブル）。
@@ -174,11 +220,23 @@ def sync_transition(
         "-v",
         help="検証のみ（コード生成なし）",
     ),
+    no_overwrite: bool = typer.Option(
+        False,
+        "--no-overwrite",
+        help="既存ファイルを上書きしない",
+    ),
+    convert: bool = typer.Option(
+        False,
+        "--convert",
+        "-c",
+        help="旧形式 YAML を新形式に変換",
+    ),
     force: bool = typer.Option(
         False,
         "--force",
         "-f",
-        help="既存ファイルを強制上書き",
+        hidden=True,  # 内部用（後方互換のため残す）
+        help="既存ファイルを強制上書き（非推奨: デフォルトで上書き）",
     ),
 ) -> None:
     """
@@ -229,7 +287,8 @@ def sync_transition(
                 output_dir=output_dir,
                 dry_run=dry_run,
                 validate_only=validate_only,
-                force=force,
+                no_overwrite=no_overwrite,
+                convert=convert,
             )
             success_count += 1
         except SyncError as e:
@@ -250,11 +309,22 @@ def _sync_entry(
     output_dir: Path,
     dry_run: bool,
     validate_only: bool,
-    force: bool,
+    no_overwrite: bool = False,
+    convert: bool = False,
 ) -> None:
     """Sync a single entrypoint.
 
     Issue #62 修正: sync_exit_nodes() を呼び出すように変更。
+    Issue #65 修正: デフォルトで上書き、--no-overwrite でスキップ、--convert で変換。
+
+    Args:
+        entry_name: エントリーポイント名
+        graphs_dir: 遷移グラフディレクトリ
+        output_dir: 出力ディレクトリ
+        dry_run: プレビューのみ
+        validate_only: 検証のみ
+        no_overwrite: True の場合、既存ファイルをスキップ
+        convert: True の場合、旧形式 YAML を新形式に変換
     """
     # Find latest YAML
     yaml_path = find_latest_yaml(graphs_dir, entry_name)
@@ -262,6 +332,10 @@ def _sync_entry(
         raise SyncError(f"遷移グラフが見つかりません: {entry_name}_*.yml")
 
     typer.echo(f"処理中: {yaml_path.name}")
+
+    # Convert YAML if requested
+    if convert:
+        _convert_yaml_if_old_format(yaml_path)
 
     # Parse YAML (pure function via IO boundary)
     try:
@@ -308,11 +382,9 @@ def _sync_entry(
 
     # Write generated code (IO operation)
     output_path = output_dir / f"{entry_name}_transitions.py"
-    if output_path.exists() and not force:
-        typer.echo(
-            f"  ファイルが既に存在します。--force で上書き可能です: {output_path}"
-        )
-        return  # force=False の場合は上書きしない
+    if output_path.exists() and no_overwrite:
+        typer.echo(f"  スキップ: {output_path.name}（既に存在、--no-overwrite）")
+        return
 
     output_path.write_text(code, encoding="utf-8")
 
