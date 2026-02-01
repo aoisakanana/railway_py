@@ -78,17 +78,21 @@ class TestExitNodeE2EWorkflow:
         assert ssh_handshake.function == "handshake"
 
     def test_auto_resolve_workflow(self, exit_node_fixtures: Path) -> None:
-        """module/function 自動解決ワークフロー。"""
+        """module/function 自動解決ワークフロー。
+
+        v0.13.4: entrypoint を含むパスに解決される。
+        """
         yaml_path = exit_node_fixtures / "auto_resolve.yml"
         graph = load_transition_graph(yaml_path)
 
-        # module/function が自動解決されている
+        # module/function が自動解決されている（entrypoint を含む）
         start = next(
             (n for n in graph.nodes if n.name == "start_process"),
             None,
         )
         assert start is not None
-        assert start.module == "nodes.start_process"
+        # v0.13.4: nodes.{entrypoint}.{node_name} に解決
+        assert start.module == "nodes.auto_resolve_test.start_process"
         assert start.function == "start_process"
 
     def test_custom_exit_code_workflow(self, exit_node_fixtures: Path) -> None:

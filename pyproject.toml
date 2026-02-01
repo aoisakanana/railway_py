@@ -50,6 +50,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["railway"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"readme.md" = "railway/readme.md"
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
