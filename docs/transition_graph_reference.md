@@ -74,22 +74,34 @@ nodes:
     description: "処理ノード"   # 説明
 ```
 
-### 自動解決（v0.12.0+）
+### 自動解決（v0.13.4+）
 
-`module` と `function` は省略可能。ノード名から自動解決されます。
+`module` と `function` は省略可能。`entrypoint` とノード名から自動解決されます。
 
 ```yaml
+entrypoint: alert_workflow
+
 nodes:
   fetch_alert:
     description: "アラート取得"
-    # module: nodes.fetch_alert (自動)
+    # module: nodes.alert_workflow.fetch_alert (自動)
     # function: fetch_alert (自動)
+
+  # 深いネストも対応
+  process:
+    check:
+      db:
+        description: "DB確認"
+        # module: nodes.alert_workflow.process.check.db (自動)
+        # function: db (自動)
 ```
 
-| ノード名 | module | function |
-|----------|--------|----------|
-| `fetch_alert` | `nodes.fetch_alert` | `fetch_alert` |
-| `check_status` | `nodes.check_status` | `check_status` |
+| entrypoint | ノードパス | module | function |
+|------------|-----------|--------|----------|
+| `my_wf` | `start` | `nodes.my_wf.start` | `start` |
+| `my_wf` | `process.check.db` | `nodes.my_wf.process.check.db` | `db` |
+
+**Note:** 終端ノード（`exit.*`）は `entrypoint` を含みません。
 
 ---
 
@@ -113,6 +125,8 @@ nodes:
 ### 自動解決
 
 `module` と `function` は省略可能。YAML パスから自動解決されます。
+
+**Note:** 終端ノードは `entrypoint` を含みません（通常ノードとは異なる）。
 
 | YAML パス | module | function |
 |----------|--------|----------|

@@ -329,7 +329,10 @@ class TestParseTransitionGraphErrors:
         assert "nodes" in str(exc_info.value).lower()
 
     def test_auto_resolve_when_module_omitted(self):
-        """Should auto-resolve module when omitted (v0.12.0+ behavior)."""
+        """Should auto-resolve module when omitted (v0.13.3+ behavior).
+
+        Note: v0.13.3+ includes entrypoint in module path for non-exit nodes.
+        """
         from railway.core.dag.parser import parse_transition_graph
 
         yaml_content = dedent("""
@@ -344,11 +347,11 @@ class TestParseTransitionGraphErrors:
             transitions: {}
         """)
 
-        # v0.12.0: module/function are auto-resolved, no error
+        # v0.13.3: module includes entrypoint for non-exit nodes
         graph = parse_transition_graph(yaml_content)
         start_node = graph.get_node("start")
         assert start_node is not None
-        assert start_node.module == "nodes.start"
+        assert start_node.module == "nodes.test.start"
         assert start_node.function == "start"
 
     def test_empty_transitions(self):
