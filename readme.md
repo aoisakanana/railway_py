@@ -66,7 +66,7 @@ def main():
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Test Coverage](https://img.shields.io/badge/coverage-90%25+-brightgreen.svg)]()
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Tests](https://img.shields.io/badge/tests-1074%20passing-success.svg)]()
+[![Tests](https://img.shields.io/badge/tests-1261%20passing-success.svg)]()
 
 ---
 
@@ -591,6 +591,32 @@ def done(ctx: WorkflowContext) -> DoneResult:
 | 自動解決 | module/function は省略可能 |
 
 詳細は [docs/transition_graph_reference.md](docs/transition_graph_reference.md) を参照。
+
+---
+
+## エラーコード
+
+Railway Framework は分かりやすいエラーメッセージとヒントを提供します。
+
+| コード | 説明 | 発生箇所 |
+|--------|------|----------|
+| E001 | 開始ノードの引数エラー | dag_runner |
+| E002 | モジュールが見つかりません | sync transition |
+| E003 | 無効な識別子 | sync transition |
+| E004 | 終端ノードの戻り値エラー | dag_runner |
+
+**エラーメッセージの例:**
+
+```
+Error [E001]: 開始ノードの引数エラー
+
+開始ノード 'start' は引数を受け取る必要があります。
+
+Hint:
+  def start(ctx: Context | None = None) -> tuple[Context, Outcome]:
+
+詳細: https://github.com/your-org/railway-framework/wiki/errors/E001
+```
 
 ---
 

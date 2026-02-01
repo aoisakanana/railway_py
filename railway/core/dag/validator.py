@@ -324,3 +324,100 @@ def validate_no_infinite_loop(graph: TransitionGraph) -> ValidationResult:
             f"{', '.join(sorted(stuck_nodes))}",
         )
     return ValidationResult.valid()
+
+
+# =============================================================================
+# Python Identifier Validation (Pure Functions)
+# =============================================================================
+
+import keyword
+import re as _re
+from typing import NamedTuple
+
+
+class IdentifierValidation(NamedTuple):
+    """識別子検証結果（イミュータブル）。"""
+
+    is_valid: bool
+    invalid_identifiers: tuple[str, ...]
+    suggestions: tuple[str, ...]
+
+
+def validate_python_identifiers(node_names: tuple[str, ...]) -> IdentifierValidation:
+    """ノード名が Python の識別子として有効か検証（純粋関数）。
+
+    Args:
+        node_names: 検証するノード名のタプル
+
+    Returns:
+        IdentifierValidation: 検証結果
+
+    Examples:
+        >>> validate_python_identifiers(("start", "exit.success.done"))
+        IdentifierValidation(is_valid=True, invalid_identifiers=(), suggestions=())
+
+        >>> validate_python_identifiers(("exit.green.1",))
+        IdentifierValidation(is_valid=False, invalid_identifiers=('1',), suggestions=('exit_1',))
+    """
+    invalid: list[str] = []
+    suggestions: list[str] = []
+
+    for name in node_names:
+        parts = name.split(".")
+        for part in parts:
+            if not _is_valid_identifier(part):
+                invalid.append(part)
+                suggestions.append(_suggest_valid_name(part))
+
+    return IdentifierValidation(
+        is_valid=len(invalid) == 0,
+        invalid_identifiers=tuple(invalid),
+        suggestions=tuple(suggestions),
+    )
+
+
+def _is_valid_identifier(name: str) -> bool:
+    """Python の識別子として有効か（純粋関数）。
+
+    Args:
+        name: 識別子名
+
+    Returns:
+        有効な場合 True
+    """
+    # 空文字列は無効
+    if not name:
+        return False
+
+    # 数字のみ、または数字で始まる
+    if name.isdigit() or (name[0].isdigit()):
+        return False
+
+    # Python キーワード
+    if keyword.iskeyword(name):
+        return False
+
+    # 識別子パターン（アルファベット/アンダースコアで始まり、英数字/アンダースコアが続く）
+    return bool(_re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name))
+
+
+def _suggest_valid_name(invalid_name: str) -> str:
+    """有効な識別子を提案（純粋関数）。
+
+    Args:
+        invalid_name: 無効な識別子名
+
+    Returns:
+        修正提案
+    """
+    if not invalid_name:
+        return "unnamed"
+
+    if invalid_name.isdigit():
+        return f"exit_{invalid_name}"
+
+    if invalid_name[0].isdigit():
+        return f"n_{invalid_name}"
+
+    # キーワードやその他の場合
+    return f"{invalid_name}_"
