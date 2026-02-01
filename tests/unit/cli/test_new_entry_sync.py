@@ -153,3 +153,133 @@ class TestNewEntryNoSyncOption:
             assert (tmp_path / "src/nodes/exit/failure/error.py").exists()
         finally:
             os.chdir(old_cwd)
+
+
+class TestExistingYamlHandling:
+    """既存 YAML ファイルの処理テスト。"""
+
+    @pytest.fixture
+    def runner(self) -> CliRunner:
+        return CliRunner()
+
+    def test_existing_new_format_yaml_is_not_overwritten(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """新形式の既存 YAML は上書きしない。"""
+        from railway.cli.main import app
+        import os
+
+        (tmp_path / "src").mkdir()
+        (tmp_path / "transition_graphs").mkdir()
+        (tmp_path / "_railway/generated").mkdir(parents=True)
+
+        # 既存の新形式 YAML を作成
+        existing_yaml = tmp_path / "transition_graphs/greeting_20260101000000.yml"
+        existing_content = '''version: "1.0"
+entrypoint: greeting
+description: "カスタム説明"
+
+nodes:
+  start:
+    description: "開始"
+  exit:
+    success:
+      done:
+        description: "完了"
+
+start: start
+
+transitions:
+  start:
+    success::done: exit.success.done
+'''
+        existing_yaml.write_text(existing_content)
+
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            result = runner.invoke(app, ["new", "entry", "greeting"])
+
+            assert result.exit_code == 0, f"Failed: {result.stdout}"
+            # 既存 YAML の内容が保持されている
+            assert existing_yaml.read_text() == existing_content
+            # 新しい YAML が作成されていない
+            yamls = list((tmp_path / "transition_graphs").glob("greeting_*.yml"))
+            assert len(yamls) == 1
+            assert yamls[0].name == "greeting_20260101000000.yml"
+        finally:
+            os.chdir(old_cwd)
+
+    def test_existing_old_format_yaml_is_converted(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """旧形式の既存 YAML は新形式に変換される。"""
+        from railway.cli.main import app
+        import os
+
+        (tmp_path / "src").mkdir()
+        (tmp_path / "transition_graphs").mkdir()
+        (tmp_path / "_railway/generated").mkdir(parents=True)
+
+        # 既存の旧形式 YAML を作成
+        existing_yaml = tmp_path / "transition_graphs/greeting_20260101000000.yml"
+        old_format_content = '''version: "1.0"
+entrypoint: greeting
+description: "テスト"
+
+nodes:
+  start:
+    description: "開始"
+
+exits:
+  green_done:
+    code: 0
+    description: "正常終了"
+
+start: start
+
+transitions:
+  start:
+    success::done: exit::green_done
+'''
+        existing_yaml.write_text(old_format_content)
+
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            result = runner.invoke(app, ["new", "entry", "greeting"])
+
+            assert result.exit_code == 0, f"Failed: {result.stdout}"
+            # YAML が変換されている
+            converted = existing_yaml.read_text()
+            assert "exits:" not in converted
+            assert "exit:" in converted or "exit" in converted
+        finally:
+            os.chdir(old_cwd)
+
+    def test_existing_entrypoint_is_not_overwritten(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """既存のエントリポイントは上書きしない。"""
+        from railway.cli.main import app
+        import os
+
+        (tmp_path / "src").mkdir()
+        (tmp_path / "transition_graphs").mkdir()
+        (tmp_path / "_railway/generated").mkdir(parents=True)
+
+        # 既存のエントリポイントを作成
+        entry_file = tmp_path / "src/greeting.py"
+        custom_content = "# Custom entrypoint\nprint('hello')\n"
+        entry_file.write_text(custom_content)
+
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            result = runner.invoke(app, ["new", "entry", "greeting"])
+
+            assert result.exit_code == 0, f"Failed: {result.stdout}"
+            # 既存のエントリポイントが保持されている
+            assert entry_file.read_text() == custom_content
+        finally:
+            os.chdir(old_cwd)
