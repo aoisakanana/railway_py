@@ -39,8 +39,8 @@ class TestRailwayNewEntry:
             finally:
                 os.chdir(original_cwd)
 
-    def test_new_entry_contains_decorator(self):
-        """Should contain @entry_point decorator."""
+    def test_new_entry_contains_main_function(self):
+        """Should contain main function with run() helper (v0.13.1+)."""
         from railway.cli.main import app
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -50,7 +50,8 @@ class TestRailwayNewEntry:
                 os.chdir(tmpdir)
                 runner.invoke(app, ["new", "entry", "my_entry"])
                 content = (Path(tmpdir) / "src" / "my_entry.py").read_text()
-                assert "@entry_point" in content
+                # v0.13.1+: run() ヘルパーを使用
+                assert "from _railway.generated.my_entry_transitions import run" in content
                 assert "def main" in content
             finally:
                 os.chdir(original_cwd)

@@ -30,12 +30,13 @@ class TestNewEntryDefault:
 
         assert result.exit_code == 0
 
-        # Check entry file contains dag_runner
+        # Check entry file uses run() helper (v0.13.1+)
         entry_file = tmp_path / "src" / "my_workflow.py"
         assert entry_file.exists()
         content = entry_file.read_text()
-        assert "dag_runner" in content
-        assert "TRANSITION_TABLE" in content
+        # v0.13.1+: run() ヘルパーを使用（dag_runner は直接呼び出さない）
+        assert "from _railway.generated.my_workflow_transitions import run" in content
+        assert "result = run(" in content
         assert "typed_pipeline" not in content
 
     def test_creates_transition_yaml(self, tmp_path, monkeypatch):
@@ -170,9 +171,10 @@ class TestNewEntryValidation:
 
         assert result.exit_code == 0
 
+        # v0.13.1+: run() ヘルパーを使用
         entry_file = tmp_path / "src" / "my_workflow.py"
         content = entry_file.read_text()
-        assert "dag_runner" in content
+        assert "from _railway.generated.my_workflow_transitions import run" in content
 
 
 class TestNewEntryOutput:

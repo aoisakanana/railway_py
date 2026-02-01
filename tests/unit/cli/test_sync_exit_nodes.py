@@ -1,6 +1,9 @@
-"""Issue #44: 終端ノード同期のテスト（副作用を含む）。
+"""Issue #44 & #62: 終端ノード同期のテスト（副作用を含む）。
 
 TDD Red Phase: 失敗するテストを先に作成。
+
+Issue #62 追加分:
+- _sync_entry() から sync_exit_nodes() が呼ばれることをテスト（バグ修正）
 """
 import pytest
 from pathlib import Path
@@ -221,3 +224,202 @@ class TestSyncExitNodes:
         # 必要な要素が含まれている
         assert "class SuccessDoneResult(ExitContract):" in content
         assert '@node(name="exit.success.done")' in content
+
+
+# =============================================================================
+# Issue #62: _sync_entry() から sync_exit_nodes() が呼ばれるテスト（バグ修正）
+# =============================================================================
+
+
+class TestSyncEntryCallsSyncExitNodes:
+    """_sync_entry() から sync_exit_nodes() が呼ばれることのテスト。
+
+    バグ修正: sync_exit_nodes() は存在するが _sync_entry() で呼ばれていなかった。
+    """
+
+    def test_sync_entry_generates_exit_nodes(self, tmp_path: Path) -> None:
+        """_sync_entry() 実行時に終端ノードが生成される。"""
+        from railway.cli.sync import _sync_entry
+
+        # YAML を作成
+        graphs_dir = tmp_path / "transition_graphs"
+        graphs_dir.mkdir()
+        yaml_content = '''version: "1.0"
+entrypoint: test
+description: "テストワークフロー"
+
+nodes:
+  start:
+    module: nodes.test.start
+    function: start
+    description: "開始ノード"
+  exit:
+    success:
+      done:
+        description: "正常終了"
+    failure:
+      timeout:
+        description: "タイムアウト"
+
+start: start
+
+transitions:
+  start:
+    success::done: exit.success.done
+    failure::timeout: exit.failure.timeout
+'''
+        (graphs_dir / "test_20260201000000.yml").write_text(yaml_content)
+
+        # sync 実行
+        output_dir = tmp_path / "_railway" / "generated"
+        output_dir.mkdir(parents=True)
+        (tmp_path / "src").mkdir()
+
+        _sync_entry(
+            entry_name="test",
+            graphs_dir=graphs_dir,
+            output_dir=output_dir,
+            dry_run=False,
+            validate_only=False,
+            force=True,
+        )
+
+        # 終端ノードが生成されている
+        assert (tmp_path / "src/nodes/exit/success/done.py").exists()
+        assert (tmp_path / "src/nodes/exit/failure/timeout.py").exists()
+
+    def test_sync_entry_skips_existing_exit_nodes(self, tmp_path: Path) -> None:
+        """既存の終端ノードは上書きされない。"""
+        from railway.cli.sync import _sync_entry
+
+        graphs_dir = tmp_path / "transition_graphs"
+        graphs_dir.mkdir()
+        yaml_content = '''version: "1.0"
+entrypoint: test
+description: "テストワークフロー"
+
+nodes:
+  start:
+    module: nodes.test.start
+    function: start
+    description: "開始ノード"
+  exit:
+    success:
+      done:
+        description: "正常終了"
+
+start: start
+
+transitions:
+  start:
+    success::done: exit.success.done
+'''
+        (graphs_dir / "test_20260201000000.yml").write_text(yaml_content)
+
+        # 既存ファイルを作成
+        exit_path = tmp_path / "src/nodes/exit/success/done.py"
+        exit_path.parent.mkdir(parents=True)
+        exit_path.write_text("# custom implementation")
+
+        output_dir = tmp_path / "_railway" / "generated"
+        output_dir.mkdir(parents=True)
+
+        _sync_entry(
+            entry_name="test",
+            graphs_dir=graphs_dir,
+            output_dir=output_dir,
+            dry_run=False,
+            validate_only=False,
+            force=True,
+        )
+
+        # 上書きされていない
+        assert exit_path.read_text() == "# custom implementation"
+
+    def test_sync_entry_dry_run_skips_exit_nodes(self, tmp_path: Path) -> None:
+        """dry-run 時は終端ノードを生成しない。"""
+        from railway.cli.sync import _sync_entry
+
+        graphs_dir = tmp_path / "transition_graphs"
+        graphs_dir.mkdir()
+        yaml_content = '''version: "1.0"
+entrypoint: test
+description: "テストワークフロー"
+
+nodes:
+  start:
+    module: nodes.test.start
+    function: start
+    description: "開始ノード"
+  exit:
+    success:
+      done:
+        description: "正常終了"
+
+start: start
+
+transitions:
+  start:
+    success::done: exit.success.done
+'''
+        (graphs_dir / "test_20260201000000.yml").write_text(yaml_content)
+
+        output_dir = tmp_path / "_railway" / "generated"
+        output_dir.mkdir(parents=True)
+        (tmp_path / "src").mkdir()
+
+        _sync_entry(
+            entry_name="test",
+            graphs_dir=graphs_dir,
+            output_dir=output_dir,
+            dry_run=True,
+            validate_only=False,
+            force=True,
+        )
+
+        # dry-run なので生成されない
+        assert not (tmp_path / "src/nodes/exit/success/done.py").exists()
+
+    def test_sync_entry_validate_only_skips_exit_nodes(self, tmp_path: Path) -> None:
+        """validate-only 時は終端ノードを生成しない。"""
+        from railway.cli.sync import _sync_entry
+
+        graphs_dir = tmp_path / "transition_graphs"
+        graphs_dir.mkdir()
+        yaml_content = '''version: "1.0"
+entrypoint: test
+description: "テストワークフロー"
+
+nodes:
+  start:
+    module: nodes.test.start
+    function: start
+    description: "開始ノード"
+  exit:
+    success:
+      done:
+        description: "正常終了"
+
+start: start
+
+transitions:
+  start:
+    success::done: exit.success.done
+'''
+        (graphs_dir / "test_20260201000000.yml").write_text(yaml_content)
+
+        output_dir = tmp_path / "_railway" / "generated"
+        output_dir.mkdir(parents=True)
+        (tmp_path / "src").mkdir()
+
+        _sync_entry(
+            entry_name="test",
+            graphs_dir=graphs_dir,
+            output_dir=output_dir,
+            dry_run=False,
+            validate_only=True,
+            force=True,
+        )
+
+        # validate-only なので生成されない
+        assert not (tmp_path / "src/nodes/exit/success/done.py").exists()

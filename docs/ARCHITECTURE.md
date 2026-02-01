@@ -9,8 +9,9 @@
 
 1. [3つのコンポーネント](#3つのコンポーネント)
 2. [5つの設計思想](#5つの設計思想)
-3. [コンポーネント間の関係](#コンポーネント間の関係)
-4. [実践例](#実践例)
+3. [フィールドベース依存関係](#フィールドベース依存関係)
+4. [コンポーネント間の関係](#コンポーネント間の関係)
+5. [実践例](#実践例)
 
 ---
 
@@ -583,7 +584,7 @@ class AlertContext(Contract):
     notified: bool = False
 ```
 
-#### 2. Node を実装
+#### 2. Node を実装（依存宣言付き）
 
 ```python
 # src/nodes/check_severity.py
@@ -591,7 +592,7 @@ from railway import node
 from railway.core.dag import Outcome
 from contracts.alert import AlertContext
 
-@node
+@node(requires=["incident_id", "severity"])  # 依存を明示
 def check_severity(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
     """重要度をチェックし、次のアクションを決定。"""
     match ctx.severity:
@@ -604,6 +605,23 @@ def check_severity(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
 ```
 
 ```python
+# src/nodes/escalate.py
+from railway import node
+from railway.core.dag import Outcome
+from contracts.alert import AlertContext
+
+@node(
+    requires=["incident_id"],
+    optional=["notified"],      # あれば使用
+    provides=["escalated"],     # このノードが追加
+)
+def escalate(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
+    """エスカレーションを実行。"""
+    do_escalation(ctx.incident_id)
+    return ctx.model_copy(update={"escalated": True}), Outcome.success("done")
+```
+
+```python
 # src/nodes/exit/success/done.py
 from railway import ExitContract, node
 
@@ -613,7 +631,7 @@ class AlertResult(ExitContract):
     incident_id: str
     action_taken: str
 
-@node(name="exit.success.done")
+@node(name="exit.success.done", requires=["incident_id"])
 def done(ctx: AlertContext) -> AlertResult:
     return AlertResult(
         incident_id=ctx.incident_id,
@@ -692,6 +710,7 @@ Python コードの変更は不要です。
 | **ROP の本質** | ステートマシンの単純化。列挙可能な状態と 1:1 の遷移 |
 | **関心の分離** | Node だけに集中。フロー制御はフレームワークが担当 |
 | **境界設計** | データ・ロジック・関係性を明確に分離 |
+| **依存管理** | フィールドベース依存関係で YAML と実装を分離 |
 | **品質保証** | 純粋関数による高いテスタビリティ |
 | **ボイラープレート** | 3 つのコンポーネント以外は自動化 |
 

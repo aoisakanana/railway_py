@@ -82,70 +82,70 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv tool install railway-framework
 ```
 
-### 2. プロジェクト作成
+### 2. プロジェクト作成 → エントリーポイント作成 → 実行
+
+**v0.13.1+**: たった 3 コマンドで動作するワークフローが完成します。
 
 ```bash
-railway init my_workflow
-cd my_workflow
+railway init my_workflow && cd my_workflow
 uv sync
+railway new entry my_workflow  # 自動的に sync も実行される
+railway run my_workflow        # すぐに実行可能！
 ```
 
-### 3. エントリーポイント作成
-
-```bash
-railway new entry my_workflow
-```
-
-これにより以下が生成されます：
-- `src/my_workflow.py` - エントリーポイント（dag_runner使用）
+これにより以下が自動生成されます：
+- `src/my_workflow.py` - エントリーポイント（すぐに実行可能）
 - `src/nodes/my_workflow/start.py` - 開始ノード
+- `src/nodes/exit/success/done.py` - 正常終了ノード
+- `src/nodes/exit/failure/error.py` - エラー終了ノード
 - `transition_graphs/my_workflow_*.yml` - 遷移グラフ
+- `_railway/generated/my_workflow_transitions.py` - 遷移コード
 
-### 4. 遷移グラフを編集
+### 3. 遷移グラフをカスタマイズ（オプション）
 
-`transition_graphs/my_workflow_*.yml`:
+`transition_graphs/my_workflow_*.yml` を編集してワークフローを拡張できます：
 
 ```yaml
 version: "1.0"
 entrypoint: my_workflow
+description: "my_workflow ワークフロー"
 
 nodes:
   start:
     module: nodes.my_workflow.start
     function: start
     description: "開始ノード"
-  process:
-    module: nodes.my_workflow.process
-    function: process
-    description: "処理ノード"
 
-exits:
-  success:
-    code: 0
-  error:
-    code: 1
+  process:
+    description: "処理ノード"  # module/function は自動解決
+
+  # 終端ノードは nodes.exit 配下に定義
+  exit:
+    success:
+      done:
+        description: "正常終了"
+    failure:
+      error:
+        description: "エラー終了"
 
 start: start
 
 transitions:
   start:
     success::done: process
-    failure::error: exit::error
+    failure::error: exit.failure.error
   process:
-    success::complete: exit::success
-    failure::error: exit::error
+    success::complete: exit.success.done
+    failure::error: exit.failure.error
+
+options:
+  max_iterations: 100
 ```
 
-### 5. コード生成
+編集後は再度同期：
 
 ```bash
 railway sync transition --entry my_workflow
-```
-
-### 6. 実行
-
-```bash
-railway run my_workflow
 ```
 
 ---

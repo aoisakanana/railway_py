@@ -196,7 +196,24 @@ railway new entry greeting
 - `src/nodes/greeting/start.py` - 開始ノード
 - `transition_graphs/greeting_*.yml` - 遷移グラフ定義
 
-### 2.2 遷移グラフを確認
+### 2.2 すぐに実行可能！
+
+**v0.13.1+**: `railway new entry` は自動的にコード生成も行います。
+
+```bash
+railway run greeting
+```
+
+**期待される出力:**
+```
+[start] 開始...
+[start] ✓ 完了 (success::done)
+ワークフロー完了: exit.success.done
+```
+
+🎉 **1コマンドで動くワークフローが完成！**
+
+### 2.3 遷移グラフを確認
 
 `transition_graphs/greeting_*.yml` を開いて確認してください:
 
@@ -211,34 +228,27 @@ nodes:
     function: start
     description: "開始ノード"
 
-exits:
-  success:
-    code: 0
-    description: "正常終了"
-  error:
-    code: 1
-    description: "異常終了"
+  # 終端ノードは nodes.exit 配下に定義（v0.13.0+）
+  exit:
+    success:
+      done:
+        description: "正常終了"
+    failure:
+      error:
+        description: "エラー終了"
 
 start: start
 
 transitions:
   start:
-    success::done: exit::success
-    failure::error: exit::error
+    success::done: exit.success.done
+    failure::error: exit.failure.error
 ```
 
-### 2.3 コード生成
+編集後は再同期：
 
 ```bash
 railway sync transition --entry greeting
-```
-
-`_railway/generated/greeting_transitions.py` が生成されます。
-
-### 2.4 実行
-
-```bash
-railway run greeting
 ```
 
 ---
@@ -304,26 +314,19 @@ description: "挨拶ワークフロー"
 
 nodes:
   check_time:
-    module: nodes.greeting.check_time
-    function: check_time
     description: "時間帯を判定"
   greet_morning:
-    module: nodes.greeting.greet
-    function: greet_morning
     description: "朝の挨拶"
   greet_afternoon:
-    module: nodes.greeting.greet
-    function: greet_afternoon
     description: "午後の挨拶"
   greet_evening:
-    module: nodes.greeting.greet
-    function: greet_evening
     description: "夜の挨拶"
 
-exits:
-  success:
-    code: 0
-    description: "正常終了"
+  # 終端ノード（v0.13.0+ 形式）
+  exit:
+    success:
+      done:
+        description: "正常終了"
 
 start: check_time
 
@@ -333,12 +336,17 @@ transitions:
     success::afternoon: greet_afternoon
     success::evening: greet_evening
   greet_morning:
-    success::done: exit::success
+    success::done: exit.success.done
   greet_afternoon:
-    success::done: exit::success
+    success::done: exit.success.done
   greet_evening:
-    success::done: exit::success
+    success::done: exit.success.done
 ```
+
+**ポイント:**
+- `module/function` は省略可能（ノード名から自動解決）
+- 終端ノードは `nodes.exit` 配下に定義
+- 遷移先は `exit.success.done` 形式で指定
 
 ### 4.2 ノードを実装
 

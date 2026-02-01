@@ -4,9 +4,12 @@ import re
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import typer
+
+if TYPE_CHECKING:
+    from railway.cli.sync import SyncResult
 
 
 class ComponentType(str, Enum):
@@ -311,51 +314,86 @@ if __name__ == "__main__":
 
 
 def _get_dag_entry_template(name: str) -> str:
-    """Get dag_runner style entry point template."""
+    """Get dag_runner style entry point template (sync 後用).
+
+    純粋関数: name -> Python コード文字列
+
+    Args:
+        name: エントリーポイント名
+
+    Returns:
+        Python コード文字列（run() を使用）
+    """
     class_name = _to_pascal_case(name)
     return f'''"""
 {name} エントリーポイント
 
-実行モード: dag_runner（条件分岐対応）
+Usage:
+    railway run {name}
+    # または
+    python -m src.{name}
 """
-from railway import entry_point
-from railway.core.dag.runner import dag_runner
-from railway.core.dag.callbacks import StepRecorder
-
-from _railway.generated.{name}_transitions import (
-    TRANSITION_TABLE,
-    GRAPH_METADATA,
-)
-from nodes.{name}.start import start
+from _railway.generated.{name}_transitions import run
 
 
-@entry_point
-def main():
-    """
-    {name} ワークフローを実行する。
+def main() -> None:
+    """ワークフローを実行する。"""
+    # TODO: 初期コンテキストを設定してください
+    # from contracts.{name}_context import {class_name}Context
+    # initial_context = {class_name}Context(...)
 
-    遷移ロジックは transition_graphs/{name}_*.yml で定義。
-    コード生成: railway sync transition --entry {name}
-    """
-    recorder = StepRecorder()
-
-    result = dag_runner(
-        start=start,
-        transitions=TRANSITION_TABLE,
-        max_iterations=GRAPH_METADATA.get("max_iterations", 100),
-        on_step=recorder,
-    )
+    result = run({{}})
 
     if result.is_success:
-        print(f"✓ 完了: {{result.exit_code}}")
+        print(f"完了: {{result.exit_state}}")
     else:
-        print(f"✗ 失敗: {{result.exit_code}}")
-
-    return result
+        print(f"失敗: {{result.exit_state}}")
+        raise SystemExit(result.exit_code)
 
 
 if __name__ == "__main__":
     main()
+'''
+
+
+def _get_dag_entry_template_pending_sync(name: str) -> str:
+    """Get dag_runner style entry point template (sync 前用).
+
+    純粋関数: name -> Python コード文字列
+
+    Args:
+        name: エントリーポイント名
+
+    Returns:
+        Python コード文字列（次のステップを案内）
+    """
+    return f'''"""
+{name} エントリーポイント
+
+このファイルは `railway new entry {name}` で --no-sync オプションを
+使用したため、まだ実行できません。
+
+次のステップ:
+    railway sync transition --entry {name}
+    railway run {name}
+"""
+
+# TODO: sync 実行後、以下のコメントを解除してください
+# from _railway.generated.{name}_transitions import run
+#
+# def main() -> None:
+#     result = run({{}})
+#     if result.is_success:
+#         print(f"完了: {{result.exit_state}}")
+#     else:
+#         raise SystemExit(result.exit_code)
+#
+# if __name__ == "__main__":
+#     main()
+
+raise NotImplementedError(
+    "先に `railway sync transition --entry {name}` を実行してください。"
+)
 '''
 
 
@@ -388,7 +426,16 @@ def start() -> tuple[{class_name}Context, Outcome]:
 
 
 def _get_dag_yaml_template(name: str) -> str:
-    """Get transition graph YAML template."""
+    """Get transition graph YAML template (v0.13.0+ 新形式).
+
+    純粋関数: name -> YAML テンプレート文字列
+
+    Args:
+        name: エントリーポイント名
+
+    Returns:
+        YAML テンプレート文字列
+    """
     return f'''version: "1.0"
 entrypoint: {name}
 description: "{name} ワークフロー"
@@ -399,20 +446,20 @@ nodes:
     function: start
     description: "開始ノード"
 
-exits:
-  success:
-    code: 0
-    description: "正常終了"
-  error:
-    code: 1
-    description: "異常終了"
+  exit:
+    success:
+      done:
+        description: "正常終了"
+    failure:
+      error:
+        description: "エラー終了"
 
 start: start
 
 transitions:
   start:
-    success::done: exit::success
-    failure::error: exit::error
+    success::done: exit.success.done
+    failure::error: exit.failure.error
 
 options:
   max_iterations: 100
@@ -481,6 +528,31 @@ def step{step_num}() -> Step{step_num}Output:
 def _to_pascal_case(name: str) -> str:
     """Convert snake_case to PascalCase."""
     return "".join(word.capitalize() for word in name.split("_"))
+
+
+def _generate_exit_nodes_from_yaml(
+    yaml_content: str,
+    project_root: Path,
+) -> "SyncResult":
+    """YAML コンテンツから終端ノードを生成する。
+
+    Args:
+        yaml_content: YAML テンプレート文字列
+        project_root: プロジェクトルート
+
+    Returns:
+        SyncResult: 生成結果
+
+    Note:
+        この関数は副作用を持つ（ファイル書き込み）。
+        内部で純粋関数（parse_transition_graph）と
+        副作用関数（sync_exit_nodes）を組み合わせる。
+    """
+    from railway.cli.sync import sync_exit_nodes
+    from railway.core.dag.parser import parse_transition_graph
+
+    graph = parse_transition_graph(yaml_content)
+    return sync_exit_nodes(graph, project_root)
 
 
 def _get_entry_example_template(name: str) -> str:
@@ -1000,9 +1072,21 @@ def _create_entry_test(name: str) -> None:
 
 
 def _create_entry(
-    name: str, example: bool, force: bool, mode: EntryMode = EntryMode.dag
+    name: str,
+    example: bool,
+    force: bool,
+    mode: EntryMode = EntryMode.dag,
+    sync: bool = True,
 ) -> None:
-    """Create a new entry point."""
+    """Create a new entry point.
+
+    Args:
+        name: エントリポイント名
+        example: サンプルコードを含めるか
+        force: 既存ファイルを上書きするか
+        mode: 実行モード（dag or linear）
+        sync: sync を実行するか（dag モードのみ）
+    """
     file_path = Path.cwd() / "src" / f"{name}.py"
 
     if file_path.exists() and not force:
@@ -1012,7 +1096,7 @@ def _create_entry(
         raise typer.Exit(1)
 
     if mode == EntryMode.dag:
-        _create_dag_entry(name)
+        _create_dag_entry(name, sync=sync)
     else:
         _create_linear_entry(name)
 
@@ -1020,39 +1104,112 @@ def _create_entry(
     _create_entry_test(name)
 
 
-def _create_dag_entry(name: str) -> None:
-    """Create dag_runner style entry point with nodes and YAML."""
+def _create_dag_entry(name: str, sync: bool = True) -> None:
+    """Create dag_runner style entry point with nodes and YAML.
+
+    Args:
+        name: エントリポイント名
+        sync: sync を実行するか（デフォルト True）
+
+    Issue #64: デフォルトで sync を実行し、1コマンドで動作するプロジェクトを生成
+    """
     cwd = Path.cwd()
     src_dir = cwd / "src"
     nodes_dir = src_dir / "nodes" / name
     graphs_dir = cwd / "transition_graphs"
+    output_dir = cwd / "_railway" / "generated"
 
     # Create directories
     nodes_dir.mkdir(parents=True, exist_ok=True)
 
-    # Create entry point file
-    entry_content = _get_dag_entry_template(name)
-    _write_file(src_dir / f"{name}.py", entry_content)
-
-    # Create start node
-    node_content = _get_dag_node_template(name)
-    (nodes_dir / "__init__.py").touch()
-    _write_file(nodes_dir / "start.py", node_content)
-
-    # Create transition YAML
+    # 1. Create YAML (pure function → side effect)
     timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
     yaml_content = _get_dag_yaml_template(name)
     _write_file(graphs_dir / f"{name}_{timestamp}.yml", yaml_content)
 
+    # 2. Create start node
+    node_content = _get_dag_node_template(name)
+    (nodes_dir / "__init__.py").touch()
+    _write_file(nodes_dir / "start.py", node_content)
+
+    # 3. Generate exit nodes from YAML (side effect)
+    exit_result = _generate_exit_nodes_from_yaml(yaml_content, cwd)
+
+    # 4. Sync transition (if enabled)
+    if sync:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        _run_sync_for_entry(name, graphs_dir, output_dir)
+
+    # 5. Create entrypoint (depends on sync state)
+    if sync:
+        entry_content = _get_dag_entry_template(name)
+    else:
+        entry_content = _get_dag_entry_template_pending_sync(name)
+
+    _write_file(src_dir / f"{name}.py", entry_content)
+
+    # Output messages
+    _print_dag_entry_created(name, timestamp, exit_result, sync)
+
+
+def _run_sync_for_entry(
+    name: str,
+    graphs_dir: Path,
+    output_dir: Path,
+) -> None:
+    """sync transition を実行する（副作用あり）。
+
+    Note:
+        subprocess ではなく、直接 Python 関数を呼び出す。
+    """
+    from railway.cli.sync import find_latest_yaml, _sync_entry, SyncError
+
+    yaml_path = find_latest_yaml(graphs_dir, name)
+    if yaml_path is None:
+        return
+
+    try:
+        _sync_entry(
+            entry_name=name,
+            graphs_dir=graphs_dir,
+            output_dir=output_dir,
+            dry_run=False,
+            validate_only=False,
+            force=True,
+        )
+    except SyncError as e:
+        typer.echo(f"警告: sync 中にエラーが発生しました: {e}", err=True)
+
+
+def _print_dag_entry_created(
+    name: str,
+    timestamp: str,
+    exit_result: "SyncResult",
+    sync: bool,
+) -> None:
+    """生成結果を表示する（副作用あり: 標準出力）。"""
     typer.echo(f"✓ エントリーポイント '{name}' を作成しました（モード: dag）\n")
     typer.echo(f"  作成: src/{name}.py")
     typer.echo(f"  作成: src/nodes/{name}/start.py")
     typer.echo(f"  作成: transition_graphs/{name}_{timestamp}.yml")
+
+    cwd = Path.cwd()
+    for path in exit_result.generated:
+        relative = path.relative_to(cwd)
+        typer.echo(f"  作成: {relative}")
+
+    if sync:
+        typer.echo(f"  作成: _railway/generated/{name}_transitions.py")
+
     typer.echo("")
-    typer.echo("次のステップ:")
-    typer.echo(f"  1. transition_graphs/{name}_*.yml を編集")
-    typer.echo(f"  2. railway sync transition --entry {name}")
-    typer.echo(f"  3. railway run {name}")
+    if sync:
+        typer.echo("次のステップ:")
+        typer.echo(f"  railway run {name}")
+    else:
+        typer.echo("次のステップ:")
+        typer.echo(f"  1. transition_graphs/{name}_*.yml を編集（オプション）")
+        typer.echo(f"  2. railway sync transition --entry {name}")
+        typer.echo(f"  3. railway run {name}")
 
 
 def _create_linear_entry(name: str) -> None:
@@ -1267,6 +1424,11 @@ def new(
         "-m",
         help="Mode: dag (default, 条件分岐) or linear (線形パイプライン)",
     ),
+    no_sync: bool = typer.Option(
+        False,
+        "--no-sync",
+        help="sync を実行しない（上級者向け）。デフォルトでは sync を実行し、すぐに run 可能にする",
+    ),
 ) -> None:
     """
     Create a new entry point, node, or contract.
@@ -1276,7 +1438,8 @@ def new(
     Contracts are type-safe data structures for node inputs/outputs.
 
     Examples:
-        railway new entry my_workflow              # dag_runner 型（デフォルト）
+        railway new entry my_workflow              # dag_runner 型、sync 実行（デフォルト）
+        railway new entry my_workflow --no-sync    # sync をスキップ
         railway new entry my_workflow --mode linear  # typed_pipeline 型
         railway new node fetch_data                # dag 形式（デフォルト）
         railway new node transform --mode linear   # linear 形式
@@ -1312,7 +1475,7 @@ def new(
         _create_contract(name, entity, params, force)
     elif component_type == ComponentType.entry:
         entry_mode = EntryMode.dag if mode == "dag" else EntryMode.linear
-        _create_entry(name, example, force, entry_mode)
+        _create_entry(name, example, force, entry_mode, sync=not no_sync)
     else:  # node
         node_mode = NodeMode.dag if mode == "dag" else NodeMode.linear
         _create_node(name, example, force, output, input_specs, node_mode)
