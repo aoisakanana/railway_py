@@ -376,9 +376,12 @@ Usage:
     # または
     python -m src.{name}
 """
+from railway import entry_point
+
 from _railway.generated.{name}_transitions import run
 
 
+@entry_point
 def main() -> None:
     """ワークフローを実行する。"""
     # TODO: 初期コンテキストを設定してください
@@ -420,10 +423,12 @@ def _get_dag_entry_template_pending_sync(name: str) -> str:
     railway sync transition --entry {name}
     railway run {name}
 """
+from railway import entry_point
 
 # TODO: sync 実行後、以下のコメントを解除してください
 # from _railway.generated.{name}_transitions import run
 #
+# @entry_point
 # def main() -> None:
 #     result = run({{}})
 #     if result.is_success:
@@ -999,6 +1004,10 @@ def _get_entry_test_template(name: str) -> str:
 
     Uses CliRunner with main._typer_app to avoid sys.argv pollution
     and ensure tests work even after user rewrites the entry point.
+
+    Note:
+        main._typer_app is always available via @entry_point decorator,
+        even if user removes the explicit 'app' export.
     """
     class_name = "".join(word.title() for word in name.split("_"))
     return f'''"""Tests for {name} entry point."""
@@ -1015,7 +1024,7 @@ class Test{class_name}:
     """Test suite for {name} entry point.
 
     Uses CliRunner with main._typer_app to isolate from pytest's sys.argv.
-    This pattern works regardless of whether 'app' is exported.
+    _typer_app is always available via @entry_point decorator.
     """
 
     def test_{name}_runs_successfully(self):

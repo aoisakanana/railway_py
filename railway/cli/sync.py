@@ -48,16 +48,25 @@ def _convert_yaml_if_old_format(yaml_path: Path) -> bool:
 
     Returns:
         変換した場合 True、既に新形式の場合 False
+
+    Note:
+        「既に新形式」メッセージは、スキーマ検証が成功した場合のみ表示する。
+        スキーマエラーがある場合は何も表示せず、後続の処理でエラーを報告させる。
     """
     import yaml
 
+    from railway.core.dag.schema import validate_yaml_schema
     from railway.migrations.yaml_converter import convert_yaml_structure
 
     content = yaml_path.read_text()
     data = yaml.safe_load(content)
 
     if "exits" not in data:
-        typer.echo(f"  既に新形式: {yaml_path.name}")
+        # 新形式だが、スキーマ検証が成功した場合のみメッセージ表示
+        validation = validate_yaml_schema(data)
+        if validation.is_valid:
+            typer.echo(f"  既に新形式: {yaml_path.name}")
+        # スキーマエラーがある場合は何も表示しない（後続でエラー報告）
         return False
 
     result = convert_yaml_structure(data)
@@ -243,9 +252,9 @@ def sync_transition(
     遷移グラフYAMLからPythonコードを生成する。
 
     Usage:
-        railway sync transition --entry top2
+        railway sync transition --entry entry2
         railway sync transition --all
-        railway sync transition --entry top2 --dry-run
+        railway sync transition --entry entry2 --dry-run
     """
     if not entry and not all_entries:
         typer.echo("エラー: --entry または --all を指定してください", err=True)
@@ -341,7 +350,7 @@ def _sync_entry(
     try:
         graph = load_transition_graph(yaml_path)
     except ParseError as e:
-        raise SyncError(f"パースエラー: {e}")
+        raise SyncError(f"パースエラー:\n  {e}")
 
     # Validate graph (pure function)
     result = validate_graph(graph)

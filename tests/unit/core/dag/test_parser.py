@@ -218,7 +218,7 @@ class TestParseTransitionGraph:
 
         yaml_content = dedent("""
             version: "1.0"
-            entrypoint: top2
+            entrypoint: entry2
             description: "セッション管理ワークフロー"
 
             nodes:
@@ -264,7 +264,7 @@ class TestParseTransitionGraph:
 
         graph = parse_transition_graph(yaml_content)
 
-        assert graph.entrypoint == "top2"
+        assert graph.entrypoint == "entry2"
         assert len(graph.nodes) == 3
         assert len(graph.exits) == 2
         assert graph.start_node == "fetch_alert"
@@ -327,6 +327,58 @@ class TestParseTransitionGraphErrors:
             parse_transition_graph(yaml_content)
 
         assert "nodes" in str(exc_info.value).lower()
+
+    def test_missing_field_error_includes_hint(self):
+        """Should include solution hint in error message."""
+        from railway.core.dag.parser import ParseError, parse_transition_graph
+
+        yaml_content = dedent("""
+            entrypoint: test
+            description: ""
+            nodes: {}
+            exits: {}
+            start: start
+            transitions: {}
+        """)
+
+        with pytest.raises(ParseError) as exc_info:
+            parse_transition_graph(yaml_content)
+
+        error_msg = str(exc_info.value)
+        # エラーメッセージに解決策が含まれている
+        assert "解決" in error_msg
+        assert 'version: "1.0"' in error_msg
+
+
+class TestFormatFieldError:
+    """Test _format_field_error helper function."""
+
+    def test_version_error_has_example(self):
+        """version フィールドのエラーに例が含まれる。"""
+        from railway.core.dag.parser import _format_field_error
+
+        msg = _format_field_error("version")
+        assert "version" in msg
+        assert 'version: "1.0"' in msg
+        assert "解決" in msg
+
+    def test_entrypoint_error_has_example(self):
+        """entrypoint フィールドのエラーに例が含まれる。"""
+        from railway.core.dag.parser import _format_field_error
+
+        msg = _format_field_error("entrypoint")
+        assert "entrypoint" in msg
+        assert "entrypoint:" in msg
+        assert "解決" in msg
+
+    def test_unknown_field_returns_simple_message(self):
+        """未知のフィールドは簡易メッセージを返す。"""
+        from railway.core.dag.parser import _format_field_error
+
+        msg = _format_field_error("unknown_field")
+        assert "unknown_field" in msg
+        # 解決策は含まれない
+        assert "解決" not in msg
 
     def test_auto_resolve_when_module_omitted(self):
         """Should auto-resolve module when omitted (v0.13.3+ behavior).

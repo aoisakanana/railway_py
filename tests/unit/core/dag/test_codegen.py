@@ -202,7 +202,7 @@ class TestGenerateMetadata:
 
         graph = TransitionGraph(
             version="1.0",
-            entrypoint="top2",
+            entrypoint="entry2",
             description="セッション管理",
             nodes=(NodeDefinition("a", "m", "f", "d"),),
             exits=(),
@@ -211,14 +211,14 @@ class TestGenerateMetadata:
             options=GraphOptions(max_iterations=20),
         )
 
-        code = generate_metadata(graph, "transition_graphs/top2_20250125.yml")
+        code = generate_metadata(graph, "transition_graphs/entry2_20250125.yml")
 
         assert "GRAPH_METADATA" in code
         assert '"version": "1.0"' in code
-        assert '"entrypoint": "top2"' in code
+        assert '"entrypoint": "entry2"' in code
         assert '"start_node": "a"' in code
         assert '"max_iterations": 20' in code
-        assert "top2_20250125.yml" in code
+        assert "entry2_20250125.yml" in code
 
 
 class TestGenerateFullCode:
@@ -362,7 +362,7 @@ class TestCodegenHelpers:
         from railway.core.dag.codegen import _to_class_name
 
         assert _to_class_name("my_workflow") == "MyWorkflow"
-        assert _to_class_name("top2") == "Top2"
+        assert _to_class_name("entry2") == "entry2"
         assert _to_class_name("session_manager") == "SessionManager"
 
     def test_to_exit_enum_name(self):

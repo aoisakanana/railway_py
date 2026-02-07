@@ -45,6 +45,58 @@ SUPPORTED_VERSIONS = ("1.0",)
 
 
 # =============================================================================
+# Error Message Helpers
+# =============================================================================
+
+# フィールドごとのエラーメッセージと解決策
+_FIELD_ERROR_HINTS: dict[str, tuple[str, str]] = {
+    "version": (
+        'version: "1.0"',
+        "YAMLの先頭に追加",
+    ),
+    "entrypoint": (
+        "entrypoint: my_workflow",
+        "ワークフロー名を指定",
+    ),
+    "nodes": (
+        "nodes:\n  start:\n    description: \"開始\"",
+        "ノード定義を追加",
+    ),
+    "start": (
+        "start: start",
+        "開始ノード名を指定",
+    ),
+    "transitions": (
+        "transitions:\n  start:\n    success::done: exit.success.done",
+        "遷移定義を追加",
+    ),
+}
+
+
+def _format_field_error(field: str) -> str:
+    """必須フィールドエラーの詳細メッセージを生成（純粋関数）。
+
+    Args:
+        field: 不足しているフィールド名
+
+    Returns:
+        詳細なエラーメッセージ
+    """
+    hint = _FIELD_ERROR_HINTS.get(field)
+    if hint:
+        example, description = hint
+        # 複数行の例はインデントを揃える
+        indented_example = example.replace("\n", "\n        ")
+        return (
+            f"必須フィールド '{field}' がありません\n"
+            f"  解決: {description}:\n"
+            f"        {indented_example}\n"
+            f"  または: railway sync transition --convert で旧形式を自動変換"
+        )
+    return f"必須フィールド '{field}' がありません"
+
+
+# =============================================================================
 # Exit Node Parsing (v0.12.0+)
 # =============================================================================
 
@@ -345,9 +397,9 @@ def _build_graph(data: dict[str, Any]) -> TransitionGraph:
 
 
 def _require_field(data: dict, field: str) -> None:
-    """Validate that a required field exists."""
+    """Validate that a required field exists (with detailed error message)."""
     if field not in data:
-        raise ParseError(f"必須フィールドがありません: {field}")
+        raise ParseError(_format_field_error(field))
 
 
 def _parse_node_definition(name: str, data: dict[str, Any]) -> NodeDefinition:

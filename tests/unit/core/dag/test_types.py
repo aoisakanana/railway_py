@@ -359,14 +359,14 @@ class TestGeneratedFileMetadata:
         from railway.core.dag.types import GeneratedFileMetadata
 
         meta = GeneratedFileMetadata(
-            source_file="transition_graphs/top2_20250125.yml",
+            source_file="transition_graphs/entry2_20250125.yml",
             generated_at=datetime(2025, 1, 25, 14, 30, 0),
             graph_version="1.0",
-            entrypoint="top2",
+            entrypoint="entry2",
         )
 
-        assert meta.source_file == "transition_graphs/top2_20250125.yml"
-        assert meta.entrypoint == "top2"
+        assert meta.source_file == "transition_graphs/entry2_20250125.yml"
+        assert meta.entrypoint == "entry2"
 
     def test_metadata_is_immutable(self):
         """GeneratedFileMetadata should be immutable."""

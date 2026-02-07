@@ -23,7 +23,7 @@ def project_dir(tmp_path: Path) -> Path:
     yaml_content = dedent(
         """
         version: "1.0"
-        entrypoint: top2
+        entrypoint: entry2
         description: "テストワークフロー"
 
         nodes:
@@ -44,7 +44,7 @@ def project_dir(tmp_path: Path) -> Path:
             success: exit::done
     """
     )
-    (graphs_dir / "top2_20250125120000.yml").write_text(yaml_content)
+    (graphs_dir / "entry2_20250125120000.yml").write_text(yaml_content)
 
     return tmp_path
 
@@ -58,13 +58,13 @@ class TestSyncTransitionCommand:
 
         monkeypatch.chdir(project_dir)
 
-        result = runner.invoke(app, ["sync", "transition", "--entry", "top2"])
+        result = runner.invoke(app, ["sync", "transition", "--entry", "entry2"])
 
         assert result.exit_code == 0
-        assert "top2" in result.stdout
+        assert "entry2" in result.stdout
 
         # Check generated file exists
-        generated = project_dir / "_railway" / "generated" / "top2_transitions.py"
+        generated = project_dir / "_railway" / "generated" / "entry2_transitions.py"
         assert generated.exists()
 
     def test_sync_dry_run(self, project_dir: Path, monkeypatch):
@@ -74,14 +74,14 @@ class TestSyncTransitionCommand:
         monkeypatch.chdir(project_dir)
 
         result = runner.invoke(
-            app, ["sync", "transition", "--entry", "top2", "--dry-run"]
+            app, ["sync", "transition", "--entry", "entry2", "--dry-run"]
         )
 
         assert result.exit_code == 0
         assert "プレビュー" in result.stdout or "dry-run" in result.stdout.lower()
 
         # Should NOT create file
-        generated = project_dir / "_railway" / "generated" / "top2_transitions.py"
+        generated = project_dir / "_railway" / "generated" / "entry2_transitions.py"
         assert not generated.exists()
 
     def test_sync_validate_only(self, project_dir: Path, monkeypatch):
@@ -91,7 +91,7 @@ class TestSyncTransitionCommand:
         monkeypatch.chdir(project_dir)
 
         result = runner.invoke(
-            app, ["sync", "transition", "--entry", "top2", "--validate-only"]
+            app, ["sync", "transition", "--entry", "entry2", "--validate-only"]
         )
 
         assert result.exit_code == 0
@@ -146,7 +146,7 @@ class TestSyncTransitionCommand:
         assert result.exit_code == 0
 
         # Both files should be generated
-        assert (project_dir / "_railway" / "generated" / "top2_transitions.py").exists()
+        assert (project_dir / "_railway" / "generated" / "entry2_transitions.py").exists()
         assert (
             project_dir / "_railway" / "generated" / "other_transitions.py"
         ).exists()
@@ -196,14 +196,14 @@ class TestFindLatestYaml:
         graphs_dir.mkdir()
 
         # Create files with different timestamps
-        (graphs_dir / "top2_20250101000000.yml").write_text("old")
-        (graphs_dir / "top2_20250125120000.yml").write_text("new")
-        (graphs_dir / "top2_20250115000000.yml").write_text("middle")
+        (graphs_dir / "entry2_20250101000000.yml").write_text("old")
+        (graphs_dir / "entry2_20250125120000.yml").write_text("new")
+        (graphs_dir / "entry2_20250115000000.yml").write_text("middle")
 
-        latest = find_latest_yaml(graphs_dir, "top2")
+        latest = find_latest_yaml(graphs_dir, "entry2")
 
         assert latest is not None
-        assert latest.name == "top2_20250125120000.yml"
+        assert latest.name == "entry2_20250125120000.yml"
 
     def test_find_latest_yaml_none(self, tmp_path: Path):
         """Should return None when no matching YAML exists."""
@@ -223,13 +223,72 @@ class TestFindLatestYaml:
         graphs_dir = tmp_path / "transition_graphs"
         graphs_dir.mkdir()
 
-        (graphs_dir / "top2_20250101.yml").write_text("")
-        (graphs_dir / "top2_20250102.yml").write_text("")
+        (graphs_dir / "entry2_20250101.yml").write_text("")
+        (graphs_dir / "entry2_20250102.yml").write_text("")
         (graphs_dir / "other_20250101.yml").write_text("")
 
         entries = find_all_entrypoints(graphs_dir)
 
-        assert set(entries) == {"top2", "other"}
+        assert set(entries) == {"entry2", "other"}
+
+
+class TestConvertYamlIfOldFormat:
+    """Test _convert_yaml_if_old_format function."""
+
+    def test_new_format_valid_shows_message(self, tmp_path: Path, capsys):
+        """新形式かつスキーマ検証成功時は「既に新形式」を表示。"""
+        from railway.cli.sync import _convert_yaml_if_old_format
+
+        yaml_content = """\
+version: "1.0"
+entrypoint: test
+description: ""
+nodes:
+  start:
+    module: nodes.start
+    function: start
+    description: ""
+  exit:
+    success:
+      done:
+        description: ""
+start: start
+transitions:
+  start:
+    success::done: exit.success.done
+"""
+        yaml_path = tmp_path / "test.yml"
+        yaml_path.write_text(yaml_content)
+
+        result = _convert_yaml_if_old_format(yaml_path)
+
+        assert result is False
+        captured = capsys.readouterr()
+        assert "既に新形式" in captured.out
+
+    def test_new_format_invalid_no_message(self, tmp_path: Path, capsys):
+        """新形式だがスキーマエラー時は「既に新形式」を表示しない。"""
+        from railway.cli.sync import _convert_yaml_if_old_format
+
+        # version がない不完全な YAML（exits もないので新形式扱い）
+        yaml_content = """\
+entrypoint: test
+description: ""
+nodes:
+  start:
+    description: ""
+start: start
+transitions: {}
+"""
+        yaml_path = tmp_path / "invalid.yml"
+        yaml_path.write_text(yaml_content)
+
+        result = _convert_yaml_if_old_format(yaml_path)
+
+        assert result is False
+        captured = capsys.readouterr()
+        # スキーマエラーがあるので「既に新形式」は表示されない
+        assert "既に新形式" not in captured.out
 
 
 class TestSyncOutput:
@@ -241,7 +300,7 @@ class TestSyncOutput:
 
         monkeypatch.chdir(project_dir)
 
-        result = runner.invoke(app, ["sync", "transition", "--entry", "top2"])
+        result = runner.invoke(app, ["sync", "transition", "--entry", "entry2"])
 
         assert (
             "✓" in result.stdout
@@ -255,6 +314,6 @@ class TestSyncOutput:
 
         monkeypatch.chdir(project_dir)
 
-        result = runner.invoke(app, ["sync", "transition", "--entry", "top2"])
+        result = runner.invoke(app, ["sync", "transition", "--entry", "entry2"])
 
-        assert "_railway/generated/top2_transitions.py" in result.stdout
+        assert "_railway/generated/entry2_transitions.py" in result.stdout
