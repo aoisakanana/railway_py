@@ -1,0 +1,10 @@
+start: start
+
+nodes:
+  start:
+  exit:
+    success:
+
+transitions:
+  start:
+    success: undefined_node

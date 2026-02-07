@@ -932,9 +932,8 @@ railway run alert_workflow
 - ✅ `railway sync transition` コマンド
 
 ### Phase 3 📋 計画中
-- 🔜 並列パイプライン実行
-- 🔜 WebUI
-- 🔜 メトリクス収集
+- 🔜 並列パイプライン実行(保留中)
+- DAG YAMLのビジュアライザ 統合  
 
 ---
 

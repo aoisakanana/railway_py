@@ -369,12 +369,16 @@ from railway.core.dag import Outcome
 
 class TimeContext(Contract):
     \"\"\"時間帯コンテキスト\"\"\"
-    period: str
+    period: str = ""
 
 
 @node
-def check_time() -> tuple[TimeContext, Outcome]:
-    \"\"\"時間帯を判定して状態を返す\"\"\"
+def check_time(ctx: TimeContext | None = None) -> tuple[TimeContext, Outcome]:
+    \"\"\"時間帯を判定して状態を返す
+
+    Args:
+        ctx: 初期コンテキスト（開始ノードなので None 可）
+    \"\"\"
     hour = datetime.now().hour
 
     if 5 <= hour < 12:
@@ -384,6 +388,16 @@ def check_time() -> tuple[TimeContext, Outcome]:
     else:
         return TimeContext(period="evening"), Outcome.success("evening")
 ```
+
+**開始ノードの引数について:**
+
+開始ノードは `run(initial_context)` から初期コンテキストを受け取ります。
+引数を Optional にすることで、以下の両方に対応できます:
+
+- `run({{}})` - 空の初期コンテキスト（ノード内でデフォルト値を使用）
+- `run(TimeContext(period="test"))` - テスト用の初期コンテキスト
+
+これにより、**テスト時に任意の初期状態を注入できます**。
 
 `src/nodes/greeting/greet.py`:
 
@@ -492,30 +506,45 @@ railway new node format_output --mode linear
 
 ### 6.1 失敗パスの追加
 
-遷移グラフに失敗パスを追加:
+遷移グラフに失敗パスを追加（v0.13.0+ 形式）:
 
 ```yaml
+nodes:
+  exit:
+    failure:
+      error:
+        description: "エラー終了"
+
 transitions:
   check_time:
     success::morning: greet_morning
     success::afternoon: greet_afternoon
     success::evening: greet_evening
-    failure::error: exit::error
+    failure::error: exit.failure.error
 ```
 
 ### 6.2 ノードでのエラーハンドリング
 
 ```python
 @node
-def check_time() -> tuple[TimeContext, Outcome]:
+def check_time(ctx: TimeContext | None = None) -> tuple[TimeContext, Outcome]:
     \"\"\"時間帯を判定\"\"\"
     try:
         hour = datetime.now().hour
-        # ... 処理
-        return ctx, Outcome.success("morning")
+        if 5 <= hour < 12:
+            return TimeContext(period="morning"), Outcome.success("morning")
+        elif 12 <= hour < 18:
+            return TimeContext(period="afternoon"), Outcome.success("afternoon")
+        else:
+            return TimeContext(period="evening"), Outcome.success("evening")
     except Exception:
         return TimeContext(period="unknown"), Outcome.failure("error")
 ```
+
+**ポイント:**
+- 想定内のエラーは `Outcome.failure()` で表現
+- 遷移グラフで適切な終端ノードへルーティング
+- 例外は「プログラムのバグ」として伝播（try-except は最小限に）
 
 ---
 

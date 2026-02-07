@@ -16,6 +16,12 @@ import typer
 
 from railway.core.dag.codegen import generate_exit_node_skeleton, generate_transition_code
 from railway.core.dag.parser import ParseError, load_transition_graph
+from railway.core.dag.skeleton import (
+    compute_file_path,
+    compute_skeleton_specs,
+    filter_regular_nodes,
+    generate_regular_node_content,
+)
 from railway.core.dag.types import NodeDefinition, TransitionGraph
 from railway.core.dag.validator import validate_graph
 
@@ -134,6 +140,60 @@ def sync_exit_nodes(graph: TransitionGraph, project_root: Path) -> SyncResult:
 
         # 副作用: ファイル書き込み
         _write_skeleton_file(file_path, code)
+        generated.append(file_path)
+
+    return SyncResult(
+        generated=tuple(generated),
+        skipped=tuple(skipped),
+    )
+
+
+# =============================================================================
+# BUG-001: Regular Node Skeleton Generation
+# =============================================================================
+
+
+def sync_regular_nodes(graph: TransitionGraph, project_root: Path) -> SyncResult:
+    """未実装の通常ノードにスケルトンを生成（副作用あり）。
+
+    純粋関数（skeleton.py）と副作用（ファイル操作）を分離:
+    1. filter_regular_nodes: 通常ノードのフィルタ（純粋）
+    2. compute_skeleton_specs: 仕様生成（純粋）
+    3. compute_file_path: パス計算（純粋）
+    4. generate_regular_node_content: コード生成（純粋）
+    5. _write_skeleton_file: ファイル書き込み（副作用）
+
+    Args:
+        graph: 遷移グラフ
+        project_root: プロジェクトルート
+
+    Returns:
+        SyncResult: 同期結果
+    """
+    src_dir = project_root / "src"
+
+    # Step 1-2: 純粋関数でスケルトン仕様を計算
+    yaml_nodes = tuple(n.name for n in graph.nodes)
+    regular_nodes = filter_regular_nodes(yaml_nodes)
+    specs = compute_skeleton_specs(regular_nodes, graph.entrypoint)
+
+    generated: list[Path] = []
+    skipped: list[Path] = []
+
+    for spec in specs:
+        # Step 3: 純粋関数でパス計算
+        file_path = compute_file_path(spec, src_dir)
+
+        # Step 5: 副作用 - ファイル存在確認
+        if file_path.exists():
+            skipped.append(file_path)
+            continue
+
+        # Step 4: 純粋関数でコード生成
+        content = generate_regular_node_content(spec)
+
+        # Step 5: 副作用 - ファイル書き込み
+        _write_skeleton_file(file_path, content)
         generated.append(file_path)
 
     return SyncResult(
@@ -382,6 +442,11 @@ def _sync_entry(
     exit_result = sync_exit_nodes(graph, cwd)
     for path in exit_result.generated:
         typer.echo(f"  終端ノード生成: {path.relative_to(cwd)}")
+
+    # BUG-001: 通常ノードスケルトン生成（副作用あり）
+    regular_result = sync_regular_nodes(graph, cwd)
+    for path in regular_result.generated:
+        typer.echo(f"  通常ノード生成: {path.relative_to(cwd)}")
 
     # Generate code (pure function)
     relative_yaml = yaml_path.relative_to(graphs_dir.parent)

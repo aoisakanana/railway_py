@@ -1,0 +1,62 @@
+start: start_node
+
+# グラフノードの定義
+nodes:
+  start_node:
+    description: "開始： コンテキスト情報を取得"
+  process_a:
+  process_b:
+  process_c:
+  process_d:
+  process_e:
+  exit:
+    success:
+      pattern1:
+        module: nodes.exit.success.pattern1
+        function: pattern1
+        description: "成功： 【パターン１】 データバックアップ完了"
+      pattern2:
+        module: nodes.mylib.retry
+        function: send_message_reservation_ok
+        description: "成功： 【パターン２】 データバックアップは失敗したが、リトライ予約に成功"
+    failure:
+      unknown:
+      api:
+        request:
+          bad:
+          dns:
+        responce:
+          timeout:
+      ssh:
+        handshake:
+        authentication:
+          permission:
+            description: "失敗: 【SSH::認証】 ./ssh ディレクトリまたは鍵ファイルのパーミッションに問題があります"
+
+# 遷移を記述
+transitions:
+  start_node:
+    success::context::get: process_a
+    failure::context::get: process_e
+    failure::unknown: exit.failure.unknown
+  process_a:
+    success::process::done: process_b
+    success::process::skipped: process_c
+    failure::unknown: exit.failure.unknown
+  process_b:
+    success::process::done: process_d
+    failure::unknown: exit.failure.unknown
+  process_c:
+    success::check::db: process_d
+    failure::unknown: exit.failure.unknown
+    failure::ssh::handshake: exit.failure.ssh.handshake
+    failure::ssh::permission: exit.failure.ssh.authentication.permission
+  process_d:
+    success::api::slack: exit.success.pattern1
+    failure::api::slack::dns::cant_resolve: exit.failure.api.request.dns
+    failure::api::slack::request::bad_header: exit.failure.api.request.bad
+    failure::api::slack::request::bad_body: exit.failure.api.request.bad
+    failure::api::slack::responce::timeout: exit.failure.api.responce.timeout
+  process_e:
+    success::retry::reserved: exit.success.pattern2
+    failure::unknown: exit.failure.unknown

@@ -1,0 +1,16 @@
+start: start_node
+
+nodes:
+  start_node:
+    description: "開始ノード"
+  process_a:
+  exit:
+    success:
+    failure:
+
+transitions:
+  start_node:
+    success: process_a
+    failure: exit.failure
+  process_a:
+    done: exit.success
