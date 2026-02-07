@@ -8,29 +8,28 @@ Note:
     変更定義型は railway/migrations/changes.py からインポート。
 """
 import glob as glob_module
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
 
 import yaml
 
 from railway import __version__
 from railway.core.project_metadata import (
+    create_metadata,
     load_metadata,
     save_metadata,
-    create_metadata,
     update_metadata_version,
 )
 from railway.migrations.backup import create_backup
-from railway.migrations.types import MigrationPlan, MigrationResult
 from railway.migrations.changes import (
-    MigrationDefinition,
-    FileChange,
-    ConfigChange,
     ChangeType,
+    ConfigChange,
+    FileChange,
+    MigrationDefinition,
     YamlTransform,
 )
 from railway.migrations.config_merger import merge_config
-
+from railway.migrations.types import MigrationPlan, MigrationResult
 
 # ============================================================
 # ファイル変更アクション（IO）
@@ -149,7 +148,7 @@ def execute_migration_plan(
     project_path: Path,
     plan: MigrationPlan,
     create_backup_flag: bool = True,
-    on_progress: Optional[Callable[[str], None]] = None,
+    on_progress: Callable[[str], None] | None = None,
 ) -> MigrationResult:
     """マイグレーション計画を実行する。
 
@@ -169,7 +168,7 @@ def execute_migration_plan(
             to_version=plan.to_version,
         )
 
-    backup_path: Optional[Path] = None
+    backup_path: Path | None = None
     current_version = plan.from_version
 
     try:

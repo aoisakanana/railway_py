@@ -1,9 +1,7 @@
 """railway show command implementation."""
 
 import ast
-import re
 from pathlib import Path
-from typing import Optional
 
 import typer
 
@@ -74,7 +72,7 @@ def _extract_node_info(file_path: Path) -> dict | None:
                         }
 
         return None
-    except Exception as e:
+    except Exception:
         return None
 
 
@@ -98,11 +96,11 @@ def _display_node_info(info: dict) -> None:
     typer.echo(f"File: {info['path']}")
 
     if info.get("docstring"):
-        typer.echo(f"\nDescription:")
+        typer.echo("\nDescription:")
         typer.echo(f"  {info['docstring'].split(chr(10))[0]}")
 
     # Display inputs
-    typer.echo(f"\nInputs:")
+    typer.echo("\nInputs:")
     if info.get("inputs"):
         for param_name, type_name in info["inputs"].items():
             typer.echo(f"  {param_name}: {type_name}")
@@ -114,7 +112,7 @@ def _display_node_info(info: dict) -> None:
         typer.echo("  (none)")
 
     # Display output
-    typer.echo(f"\nOutput:")
+    typer.echo("\nOutput:")
     output = info.get("output") or info.get("return_type")
     if output:
         typer.echo(f"  {output}")

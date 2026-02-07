@@ -362,7 +362,7 @@ class TestCodegenHelpers:
         from railway.core.dag.codegen import _to_class_name
 
         assert _to_class_name("my_workflow") == "MyWorkflow"
-        assert _to_class_name("entry2") == "entry2"
+        assert _to_class_name("entry2") == "Entry2"
         assert _to_class_name("session_manager") == "SessionManager"
 
     def test_to_exit_enum_name(self):

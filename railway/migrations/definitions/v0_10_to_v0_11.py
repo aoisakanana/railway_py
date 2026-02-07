@@ -13,7 +13,6 @@ from railway.migrations.changes import (
     MigrationDefinition,
 )
 
-
 MIGRATION_0_10_TO_0_11 = MigrationDefinition(
     from_version="0.10.0",
     to_version="0.11.3",

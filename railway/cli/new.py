@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import typer
 
@@ -1114,7 +1114,7 @@ def _create_contract(
     _write_file(file_path, content)
 
     typer.echo(f"Created contract: src/contracts/{file_name}.py")
-    typer.echo(f"\nTo use in a node:")
+    typer.echo("\nTo use in a node:")
     typer.echo(f"  from contracts.{file_name} import {name}")
 
 
@@ -1172,7 +1172,7 @@ def _create_entry(
         _create_entry_test(name)
 
 
-def _find_existing_yaml(graphs_dir: Path, name: str) -> Optional[Path]:
+def _find_existing_yaml(graphs_dir: Path, name: str) -> Path | None:
     """既存の YAML ファイルを検索（純粋関数）。"""
     pattern = f"{name}_*.yml"
     matches = list(graphs_dir.glob(pattern))
@@ -1197,6 +1197,7 @@ def _convert_old_format_yaml(yaml_path: Path) -> str:
         変換後の YAML コンテンツ
     """
     import yaml
+
     from railway.migrations.yaml_converter import convert_yaml_structure
 
     content = yaml_path.read_text()
@@ -1296,7 +1297,7 @@ def _run_sync_for_entry(
     Note:
         subprocess ではなく、直接 Python 関数を呼び出す。
     """
-    from railway.cli.sync import find_latest_yaml, _sync_entry, SyncError
+    from railway.cli.sync import SyncError, _sync_entry, find_latest_yaml
 
     yaml_path = find_latest_yaml(graphs_dir, name)
     if yaml_path is None:
@@ -1321,7 +1322,7 @@ def _print_dag_entry_created(
     exit_result: "SyncResult",
     sync: bool,
     yaml_created: bool = True,
-    existing_yaml: Optional[Path] = None,
+    existing_yaml: Path | None = None,
 ) -> None:
     """生成結果を表示する（副作用あり: 標準出力）。"""
     if yaml_created:
@@ -1431,8 +1432,8 @@ def _create_single_contract(
 
 def _create_node_test(
     name: str,
-    output_type: Optional[str] = None,
-    inputs: Optional[list[tuple[str, str]]] = None,
+    output_type: str | None = None,
+    inputs: list[tuple[str, str]] | None = None,
     mode: NodeMode = NodeMode.dag,
 ) -> None:
     """Create test file for node."""
@@ -1482,8 +1483,8 @@ def _create_node(
     name: str,
     example: bool,
     force: bool,
-    output_type: Optional[str] = None,
-    input_specs: Optional[list[str]] = None,
+    output_type: str | None = None,
+    input_specs: list[str] | None = None,
     mode: NodeMode = NodeMode.dag,
 ) -> None:
     """Create a new node with associated contracts and tests."""
@@ -1555,8 +1556,8 @@ def new(
     force: bool = typer.Option(False, "--force", help="Overwrite if exists"),
     entity: bool = typer.Option(False, "--entity", help="Create entity Contract (with id field)"),
     params: bool = typer.Option(False, "--params", help="Create Params Contract"),
-    output: Optional[str] = typer.Option(None, "--output", help="Output Contract type for node"),
-    input_specs: Optional[list[str]] = typer.Option(
+    output: str | None = typer.Option(None, "--output", help="Output Contract type for node"),
+    input_specs: list[str] | None = typer.Option(
         None, "--input", help="Input spec 'param_name:TypeName' (repeatable)"
     ),
     mode: str = typer.Option(

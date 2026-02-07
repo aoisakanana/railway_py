@@ -5,10 +5,9 @@
 - 副作用なし（ファイルシステムの読み取りのみ）
 """
 from pathlib import Path
-from typing import Optional
 
 
-def find_project_root(start_path: Optional[Path] = None) -> Optional[Path]:
+def find_project_root(start_path: Path | None = None) -> Path | None:
     """Railwayプロジェクトのルートディレクトリを探す。
 
     以下のマーカーを探索:

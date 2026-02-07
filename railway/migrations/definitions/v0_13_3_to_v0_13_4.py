@@ -12,7 +12,6 @@ from railway.migrations.changes import (
     MigrationDefinition,
 )
 
-
 MIGRATION_0_13_3_TO_0_13_4 = MigrationDefinition(
     from_version="0.13.3",
     to_version="0.13.4",

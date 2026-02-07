@@ -11,15 +11,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import typer
 
-from railway.core.dag.codegen import generate_transition_code, generate_exit_node_skeleton
+from railway.core.dag.codegen import generate_exit_node_skeleton, generate_transition_code
 from railway.core.dag.parser import ParseError, load_transition_graph
-from railway.core.dag.types import TransitionGraph, NodeDefinition
+from railway.core.dag.types import NodeDefinition, TransitionGraph
 from railway.core.dag.validator import validate_graph
-
 
 # =============================================================================
 # Issue #44: Exit Node Skeleton Generation
@@ -205,7 +203,7 @@ class SyncError(Exception):
 
 @app.command("transition")
 def sync_transition(
-    entry: Optional[str] = typer.Option(
+    entry: str | None = typer.Option(
         None,
         "--entry",
         "-e",
@@ -401,7 +399,7 @@ def _sync_entry(
     typer.echo(f"  出力: _railway/generated/{entry_name}_transitions.py")
 
 
-def find_latest_yaml(graphs_dir: Path, entry_name: str) -> Optional[Path]:
+def find_latest_yaml(graphs_dir: Path, entry_name: str) -> Path | None:
     """
     Find the latest YAML file for an entrypoint.
 

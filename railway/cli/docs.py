@@ -5,7 +5,6 @@ from pathlib import Path
 
 import typer
 
-
 PYPI_URL = "https://pypi.org/project/railway-framework/"
 GITHUB_URL = "https://github.com/aoisakanana/railway_py"
 RAW_README_URL = "https://raw.githubusercontent.com/aoisakanana/railway_py/master/readme.md"

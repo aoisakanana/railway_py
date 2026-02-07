@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import importlib
 import inspect
-from typing import Any, Callable, get_type_hints
+from collections.abc import Callable
+from typing import Any, get_type_hints
 
 from railway.core.dag.field_dependency import (
     AvailableFields,
-    EMPTY_FIELD_DEPENDENCY,
     FieldDependency,
 )
 from railway.core.dag.types import TransitionGraph

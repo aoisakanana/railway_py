@@ -6,7 +6,6 @@
 - Enumで状態を値として表現
 """
 from enum import Enum
-from typing import Optional
 
 from packaging.version import Version
 from pydantic import BaseModel, ConfigDict
@@ -31,7 +30,7 @@ class CompatibilityResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     level: CompatibilityLevel
-    project_version: Optional[str]
+    project_version: str | None
     current_version: str
 
     @property
@@ -51,7 +50,7 @@ class CompatibilityResult(BaseModel):
 
 
 def check_compatibility(
-    project_version: Optional[str],
+    project_version: str | None,
     current_version: str,
 ) -> CompatibilityResult:
     """バージョン互換性をチェックする純粋関数。
@@ -99,7 +98,7 @@ def check_compatibility(
 # メッセージ生成（純粋関数）
 # ============================================================
 
-def get_compatibility_message(level: CompatibilityLevel) -> Optional[str]:
+def get_compatibility_message(level: CompatibilityLevel) -> str | None:
     """互換性レベルに応じたメッセージを取得する純粋関数。
 
     Args:

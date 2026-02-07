@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Type
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from railway.core.contract import Contract
@@ -16,9 +16,9 @@ class ContractRegistry:
     """
 
     def __init__(self) -> None:
-        self._contracts: dict[str, Type[Contract]] = {}
+        self._contracts: dict[str, type[Contract]] = {}
 
-    def register(self, contract_cls: Type[Contract]) -> Type[Contract]:
+    def register(self, contract_cls: type[Contract]) -> type[Contract]:
         """Register a contract class.
 
         Args:
@@ -36,7 +36,7 @@ class ContractRegistry:
         self._contracts[name] = contract_cls
         return contract_cls
 
-    def get(self, name: str) -> Type[Contract]:
+    def get(self, name: str) -> type[Contract]:
         """Get a contract class by name.
 
         Args:
@@ -72,7 +72,7 @@ class ContractRegistry:
 _contract_registry = ContractRegistry()
 
 
-def register_contract(cls: Type[Contract]) -> Type[Contract]:
+def register_contract(cls: type[Contract]) -> type[Contract]:
     """Decorator to register a contract class in the global registry.
 
     Example:
@@ -83,7 +83,7 @@ def register_contract(cls: Type[Contract]) -> Type[Contract]:
     return _contract_registry.register(cls)
 
 
-def get_contract(name: str) -> Type[Contract]:
+def get_contract(name: str) -> type[Contract]:
     """Get a contract class by name from the global registry.
 
     Args:

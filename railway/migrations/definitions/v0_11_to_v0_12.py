@@ -23,7 +23,6 @@ from railway.migrations.changes import (
 )
 from railway.migrations.yaml_converter import convert_yaml_structure
 
-
 MIGRATION_0_11_TO_0_12 = MigrationDefinition(
     from_version="0.11.0",
     to_version="0.12.0",

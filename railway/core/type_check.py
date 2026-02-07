@@ -1,6 +1,7 @@
 """Type checking utilities for pipeline strict mode."""
 
-from typing import Any, Callable, Union, get_args, get_origin, get_type_hints
+from collections.abc import Callable
+from typing import Any, Union, get_args, get_origin, get_type_hints
 
 
 def check_type_compatibility(value: Any, expected_type: type) -> bool:

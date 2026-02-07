@@ -9,7 +9,7 @@ Note:
     railway/migrations/changes.py で定義される。
 """
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -54,5 +54,5 @@ class MigrationResult(BaseModel):
     success: bool
     from_version: str
     to_version: str
-    backup_path: Optional[Path] = None
-    error: Optional[str] = None
+    backup_path: Path | None = None
+    error: str | None = None

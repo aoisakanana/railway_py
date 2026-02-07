@@ -1,9 +1,7 @@
 """railway list command implementation."""
 
 import ast
-import re
 from pathlib import Path
-from typing import Optional
 
 import typer
 
@@ -208,12 +206,12 @@ def _display_all(entries: list[dict], nodes: list[dict], tests: int) -> None:
     _display_entries(entries)
     _display_nodes(nodes)
 
-    typer.echo(f"\nStatistics:")
+    typer.echo("\nStatistics:")
     typer.echo(f"  {len(entries)} entry points, {len(nodes)} nodes, {tests} tests")
 
 
 def list_components(
-    filter_type: Optional[str] = typer.Argument(None, help="Filter: entries, nodes, or contracts"),
+    filter_type: str | None = typer.Argument(None, help="Filter: entries, nodes, or contracts"),
 ) -> None:
     """
     List entry points, nodes, and contracts in the project.

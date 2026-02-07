@@ -16,7 +16,8 @@ v0.12.3: 型安全性強制
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from loguru import logger
 

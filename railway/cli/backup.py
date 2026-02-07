@@ -2,17 +2,15 @@
 
 バックアップの一覧表示、復元、クリーンアップを提供する。
 """
-from typing import Optional
 
 import typer
 
 from railway.core.project_discovery import find_project_root
 from railway.migrations.backup import (
+    clean_backups,
     list_backups,
     restore_backup,
-    clean_backups,
 )
-
 
 app = typer.Typer(help="バックアップ管理コマンド")
 
@@ -54,7 +52,7 @@ def list_cmd(
 
 @app.command()
 def restore(
-    backup_name: Optional[str] = typer.Argument(
+    backup_name: str | None = typer.Argument(
         None,
         help="復元するバックアップ名（省略時は最新）",
     ),
@@ -87,7 +85,7 @@ def restore(
         backup = matching[0]
 
     # 復元内容を表示
-    typer.echo(f"\n🔄 復元内容:")
+    typer.echo("\n🔄 復元内容:")
     typer.echo(f"   バージョン: {backup.version}")
     typer.echo(f"   作成日時:   {backup.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
     typer.echo(f"   ファイル数: {backup.manifest.file_count}")
@@ -108,7 +106,7 @@ def restore(
     result = restore_backup(project_path, backup)
 
     if result.success:
-        typer.echo(f"\n✅ 復元完了")
+        typer.echo("\n✅ 復元完了")
         typer.echo(f"   復元ファイル数: {len(result.restored_files)}")
     else:
         typer.echo(f"\n❌ 復元に失敗しました: {result.error}", err=True)

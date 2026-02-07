@@ -4,19 +4,21 @@
 - プレビュー生成は純粋関数
 - IOは別レイヤーで分離
 """
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from railway.migrations.changes import (
-    MigrationDefinition,
-    FileChange,
-    ConfigChange,
     ChangeType as MigChangeType,
+)
+from railway.migrations.changes import (
+    ConfigChange,
+    FileChange,
+    MigrationDefinition,
 )
 from railway.migrations.preview_types import (
     ChangePreview,
-    PreviewChangeType,
     MigrationPreview,
+    PreviewChangeType,
 )
 
 

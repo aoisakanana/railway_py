@@ -3,12 +3,11 @@
 import runpy
 import sys
 from pathlib import Path
-from typing import List, Optional
 
 import typer
 
 
-def _find_project_root() -> Optional[Path]:
+def _find_project_root() -> Path | None:
     """Find project root by looking for src/ directory."""
     current = Path.cwd()
 
@@ -29,7 +28,7 @@ def _find_project_root() -> Optional[Path]:
     return None
 
 
-def _list_entries(project_root: Path) -> List[str]:
+def _list_entries(project_root: Path) -> list[str]:
     """List available entries."""
     src_dir = project_root / "src"
     entries = []
@@ -86,7 +85,7 @@ def _resolve_module_path(entrypoint: str) -> str:
     return entrypoint
 
 
-def _execute_entry(project_root: Path, entry_name: str, extra_args: List[str]) -> None:
+def _execute_entry(project_root: Path, entry_name: str, extra_args: list[str]) -> None:
     """Execute the entry point."""
     # Add src/ to sys.path for imports (enables 'from contracts.x import y')
     _setup_src_path(project_root)
@@ -110,11 +109,11 @@ def _execute_entry(project_root: Path, entry_name: str, extra_args: List[str]) -
 
 def run(
     entry_name: str = typer.Argument(..., help="Name of the entry point to run"),
-    project: Optional[str] = typer.Option(
+    project: str | None = typer.Option(
         None, "--project", "-p",
         help="Path to the project root"
     ),
-    extra_args: Optional[List[str]] = typer.Argument(None, help="Arguments to pass to entry"),
+    extra_args: list[str] | None = typer.Argument(None, help="Arguments to pass to entry"),
 ) -> None:
     """
     Run an entry point.

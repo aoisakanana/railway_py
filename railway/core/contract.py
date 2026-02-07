@@ -7,7 +7,7 @@ enabling type-safe data contracts between pipeline nodes.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Type, TypeVar
+from typing import Any, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -96,14 +96,14 @@ class Tagged:
             ...
     """
 
-    contract_type: Type[Contract]
+    contract_type: type[Contract]
     source: str
 
 
 T = TypeVar("T", bound=Contract)
 
 
-def validate_contract(data: Any, contract_type: Type[T]) -> T:
+def validate_contract(data: Any, contract_type: type[T]) -> T:
     """Validate data against a contract type.
 
     Accepts either:

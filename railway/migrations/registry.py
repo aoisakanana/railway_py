@@ -8,16 +8,14 @@ Note:
     MigrationDefinition は railway/migrations/changes.py で定義。
     実際のマイグレーション定義は railway/migrations/definitions/ 以下に配置。
 """
-from typing import Optional
 
 from packaging.version import Version
 
-from railway.migrations.types import MigrationPlan
-from railway.migrations.changes import MigrationDefinition, FileChange, ConfigChange
+from railway.migrations.changes import MigrationDefinition
 from railway.migrations.definitions.v0_10_to_v0_11 import MIGRATION_0_10_TO_0_11
 from railway.migrations.definitions.v0_11_to_v0_12 import MIGRATION_0_11_TO_0_12
 from railway.migrations.definitions.v0_13_3_to_v0_13_4 import MIGRATION_0_13_3_TO_0_13_4
-
+from railway.migrations.types import MigrationPlan
 
 # ============================================================
 # マイグレーション定義（不変）
@@ -35,7 +33,7 @@ MIGRATIONS: tuple[MigrationDefinition, ...] = (
 # 純粋関数: マイグレーションパス計算
 # ============================================================
 
-def find_migration(from_ver: str, to_ver: str) -> Optional[MigrationDefinition]:
+def find_migration(from_ver: str, to_ver: str) -> MigrationDefinition | None:
     """指定されたバージョン間の直接マイグレーションを探す純粋関数。
 
     Args:
@@ -51,7 +49,7 @@ def find_migration(from_ver: str, to_ver: str) -> Optional[MigrationDefinition]:
     return None
 
 
-def find_next_migration(from_ver: str, target_ver: str) -> Optional[MigrationDefinition]:
+def find_next_migration(from_ver: str, target_ver: str) -> MigrationDefinition | None:
     """次のマイグレーションステップを探す純粋関数。
 
     Args:

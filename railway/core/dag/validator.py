@@ -6,7 +6,10 @@ and return a ValidationResult without side effects.
 """
 from __future__ import annotations
 
+import keyword
+import re as _re
 from dataclasses import dataclass
+from typing import NamedTuple
 
 from railway.core.dag.types import TransitionGraph
 
@@ -40,12 +43,12 @@ class ValidationResult:
     warnings: tuple[ValidationWarning, ...]
 
     @classmethod
-    def valid(cls) -> "ValidationResult":
+    def valid(cls) -> ValidationResult:
         """Create a valid result with no errors or warnings."""
         return cls(is_valid=True, errors=(), warnings=())
 
     @classmethod
-    def error(cls, code: str, message: str) -> "ValidationResult":
+    def error(cls, code: str, message: str) -> ValidationResult:
         """Create an invalid result with a single error."""
         return cls(
             is_valid=False,
@@ -54,7 +57,7 @@ class ValidationResult:
         )
 
     @classmethod
-    def warning(cls, code: str, message: str) -> "ValidationResult":
+    def warning(cls, code: str, message: str) -> ValidationResult:
         """Create a valid result with a warning."""
         return cls(
             is_valid=True,
@@ -329,10 +332,6 @@ def validate_no_infinite_loop(graph: TransitionGraph) -> ValidationResult:
 # =============================================================================
 # Python Identifier Validation (Pure Functions)
 # =============================================================================
-
-import keyword
-import re as _re
-from typing import NamedTuple
 
 
 class IdentifierValidation(NamedTuple):

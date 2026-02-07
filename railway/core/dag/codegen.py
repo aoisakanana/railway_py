@@ -14,11 +14,10 @@ v0.12.3:
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
-from typing import Sequence
 
 from railway.core.dag.types import NodeDefinition, TransitionGraph
-
 
 # =============================================================================
 # Helper Functions (Pure)

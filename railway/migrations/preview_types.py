@@ -5,7 +5,6 @@
 - 変更の種類を Enum で表現
 """
 from enum import Enum
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -43,7 +42,7 @@ class ChangePreview(BaseModel):
     path: str
     description: str
     details: tuple[str, ...] = Field(default_factory=tuple)
-    line_diff: Optional[LineDiff] = None
+    line_diff: LineDiff | None = None
 
     @property
     def is_file_change(self) -> bool:

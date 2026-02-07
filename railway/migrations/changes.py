@@ -7,9 +7,10 @@
 """
 import fnmatch
 import re
+from collections.abc import Callable
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Optional, Sequence
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -33,15 +34,15 @@ class FileChange(BaseModel):
     change_type: ChangeType
     path: str
     description: str
-    content: Optional[str] = None
-    template: Optional[str] = None
+    content: str | None = None
+    template: str | None = None
 
     @classmethod
     def create(
         cls,
         path: str,
         content: str,
-        description: Optional[str] = None,
+        description: str | None = None,
     ) -> "FileChange":
         """新規ファイル作成の変更を生成。
 
@@ -65,7 +66,7 @@ class FileChange(BaseModel):
         cls,
         path: str,
         template: str,
-        description: Optional[str] = None,
+        description: str | None = None,
     ) -> "FileChange":
         """ファイル更新の変更を生成。
 
@@ -88,7 +89,7 @@ class FileChange(BaseModel):
     def delete(
         cls,
         path: str,
-        description: Optional[str] = None,
+        description: str | None = None,
     ) -> "FileChange":
         """ファイル削除の変更を生成。
 

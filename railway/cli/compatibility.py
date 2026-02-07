@@ -4,9 +4,10 @@
 - 純粋なロジックは version_checker モジュールに分離
 - このモジュールはIO/UIとの統合のみ担当
 """
+from collections.abc import Callable
 from functools import wraps
 from pathlib import Path
-from typing import Callable, Optional, TypeVar
+from typing import TypeVar
 
 import typer
 
@@ -15,15 +16,15 @@ from railway.core.project_discovery import find_project_root
 from railway.core.project_metadata import load_metadata
 from railway.core.version_checker import (
     check_compatibility,
-    format_compatibility_warning,
     format_compatibility_error,
+    format_compatibility_warning,
 )
 
 F = TypeVar("F", bound=Callable)
 
 
 def check_project_compatibility(
-    project_path: Optional[Path] = None,
+    project_path: Path | None = None,
 ) -> None:
     """プロジェクトの互換性をチェックし、必要に応じてユーザーに確認する。
 

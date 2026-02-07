@@ -8,11 +8,9 @@ import hashlib
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
-
 
 # バックアップ対象パターン（定数）
 BACKUP_PATTERNS: tuple[str, ...] = (
@@ -91,7 +89,7 @@ class RestoreResult(BaseModel):
 
     success: bool
     restored_files: tuple[str, ...] = Field(default_factory=tuple)
-    error: Optional[str] = None
+    error: str | None = None
 
 
 # ============================================================

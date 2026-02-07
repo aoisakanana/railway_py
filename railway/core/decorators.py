@@ -9,17 +9,28 @@ import os
 import traceback
 from collections.abc import Callable
 from functools import wraps
-from typing import TYPE_CHECKING, Any, ParamSpec, Type, TypeVar, overload, get_type_hints, Union, get_origin, get_args
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    ParamSpec,
+    TypeVar,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+    overload,
+)
 
 import typer
 from loguru import logger
 from tenacity import (
-    retry as tenacity_retry,
+    AsyncRetrying,
+    RetryError,
     stop_after_attempt,
     wait_exponential,
-    RetryError,
-    before_sleep_log,
-    AsyncRetrying,
+)
+from tenacity import (
+    retry as tenacity_retry,
 )
 
 if TYPE_CHECKING:
@@ -55,15 +66,15 @@ def node(func: Callable[P, T]) -> Callable[P, T]: ...
 def node(
     func: None = None,
     *,
-    inputs: dict[str, Type[Contract]] | None = None,
-    output: Type[Contract] | None = None,
+    inputs: dict[str, type[Contract]] | None = None,
+    output: type[Contract] | None = None,
     requires: list[str] | None = None,
     optional: list[str] | None = None,
     provides: list[str] | None = None,
     retry: bool | Retry = False,
-    retry_policy: "RetryPolicy | None" = None,
+    retry_policy: RetryPolicy | None = None,
     retries: int | None = None,
-    retry_on: tuple[Type[Exception], ...] | None = None,
+    retry_on: tuple[type[Exception], ...] | None = None,
     retry_delay: float | None = None,
     log_input: bool = False,
     log_output: bool = False,
@@ -74,15 +85,15 @@ def node(
 def node(
     func: Callable[P, T] | None = None,
     *,
-    inputs: dict[str, Type[Contract]] | None = None,
-    output: Type[Contract] | None = None,
+    inputs: dict[str, type[Contract]] | None = None,
+    output: type[Contract] | None = None,
     requires: list[str] | None = None,
     optional: list[str] | None = None,
     provides: list[str] | None = None,
     retry: bool | Retry = False,
-    retry_policy: "RetryPolicy | None" = None,
+    retry_policy: RetryPolicy | None = None,
     retries: int | None = None,
-    retry_on: tuple[Type[Exception], ...] | None = None,
+    retry_on: tuple[type[Exception], ...] | None = None,
     retry_delay: float | None = None,
     log_input: bool = False,
     log_output: bool = False,
@@ -200,11 +211,11 @@ def node(
 
 def _resolve_retry_config(
     retry: bool | Retry,
-    retry_policy: "RetryPolicy | None",
+    retry_policy: RetryPolicy | None,
     retries: int | None,
-    retry_on: tuple[Type[Exception], ...] | None,
+    retry_on: tuple[type[Exception], ...] | None,
     retry_delay: float | None,
-) -> "RetryPolicy | None":
+) -> RetryPolicy | None:
     """Resolve retry configuration from various parameter combinations.
 
     Priority: retry_policy > shorthand (retries/retry_on/retry_delay) > None
@@ -242,7 +253,6 @@ def _infer_inputs_from_hints(func: Callable) -> dict[str, type]:
     Returns:
         パラメータ名から Contract 型へのマッピング
     """
-    from railway.core.contract import Contract
 
     try:
         hints = get_type_hints(func)
@@ -279,7 +289,7 @@ def _extract_contract_type(hint: type) -> type | None:
         Contract サブクラス、または None
     """
     import types
-    from railway.core.contract import Contract
+
 
     # Union 型の場合（Optional[X] は Union[X, None]）
     # Python 3.10+ の X | None は types.UnionType を使用
@@ -315,12 +325,12 @@ def _is_contract_type(hint: type) -> bool:
 def _create_sync_wrapper(
     f: Callable[P, T],
     node_name: str,
-    inputs_dict: dict[str, Type[Contract]],
-    output_type: Type[Contract] | None,
+    inputs_dict: dict[str, type[Contract]],
+    output_type: type[Contract] | None,
     retry: bool | Retry,
     log_input: bool,
     log_output: bool,
-    retry_policy: "RetryPolicy | None" = None,
+    retry_policy: RetryPolicy | None = None,
 ) -> Callable[P, T]:
     """Create wrapper for synchronous function."""
 
@@ -378,12 +388,12 @@ def _create_sync_wrapper(
 def _create_async_wrapper(
     f: Callable[P, T],
     node_name: str,
-    inputs_dict: dict[str, Type[Contract]],
-    output_type: Type[Contract] | None,
+    inputs_dict: dict[str, type[Contract]],
+    output_type: type[Contract] | None,
     retry: bool | Retry,
     log_input: bool,
     log_output: bool,
-    retry_policy: "RetryPolicy | None" = None,
+    retry_policy: RetryPolicy | None = None,
 ) -> Callable[P, T]:
     """Create wrapper for asynchronous function."""
 
@@ -614,7 +624,7 @@ def _execute_with_retry(
 
 def _execute_with_retry_policy(
     func: Callable[P, T],
-    policy: "RetryPolicy",
+    policy: RetryPolicy,
     node_name: str,
     args: tuple,
     kwargs: dict,
@@ -646,7 +656,7 @@ def _execute_with_retry_policy(
 
 async def _execute_async_with_retry_policy(
     func: Callable[P, T],
-    policy: "RetryPolicy",
+    policy: RetryPolicy,
     node_name: str,
     args: tuple,
     kwargs: dict,

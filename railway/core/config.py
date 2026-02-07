@@ -12,7 +12,6 @@ Features:
 
 import threading
 from collections.abc import Callable
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Protocol, cast
 

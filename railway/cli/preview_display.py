@@ -4,12 +4,12 @@
 - 表示フォーマットは純粋関数
 - 実際の出力はIO層で行う
 """
-from typing import Callable
+from collections.abc import Callable
 
 from railway.migrations.preview_types import (
     ChangePreview,
-    PreviewChangeType,
     MigrationPreview,
+    PreviewChangeType,
 )
 
 

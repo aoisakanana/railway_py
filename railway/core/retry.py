@@ -7,7 +7,6 @@ with support for exception filtering and backoff strategies.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Type
 
 
 @dataclass(frozen=True)
@@ -44,7 +43,7 @@ class RetryPolicy:
     """
 
     max_retries: int = 3
-    retry_on: tuple[Type[Exception], ...] = (Exception,)
+    retry_on: tuple[type[Exception], ...] = (Exception,)
     backoff: str = "fixed"  # "fixed", "linear", "exponential"
     base_delay: float = 1.0
     max_delay: float = 60.0

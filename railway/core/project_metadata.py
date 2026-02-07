@@ -7,10 +7,9 @@
 """
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
 import yaml
+from pydantic import BaseModel, ConfigDict
 
 
 class RailwayInfo(BaseModel):
@@ -34,7 +33,7 @@ class CompatibilityInfo(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     min_version: str
-    max_version: Optional[str] = None
+    max_version: str | None = None
 
 
 class ProjectMetadata(BaseModel):
@@ -91,7 +90,7 @@ def serialize_metadata(metadata: ProjectMetadata) -> str:
 def create_metadata(
     project_name: str,
     version: str,
-    now: Optional[datetime] = None,
+    now: datetime | None = None,
 ) -> ProjectMetadata:
     """新規プロジェクト用のメタデータを生成する純粋関数。
 
@@ -121,7 +120,7 @@ def create_metadata(
 def update_metadata_version(
     metadata: ProjectMetadata,
     new_version: str,
-    now: Optional[datetime] = None,
+    now: datetime | None = None,
 ) -> ProjectMetadata:
     """メタデータのバージョンを更新した新しいインスタンスを返す純粋関数。
 
@@ -157,7 +156,7 @@ def get_metadata_path(project_path: Path) -> Path:
     return project_path / ".railway" / "project.yaml"
 
 
-def load_metadata(project_path: Path) -> Optional[ProjectMetadata]:
+def load_metadata(project_path: Path) -> ProjectMetadata | None:
     """プロジェクトからメタデータを読み込む。
 
     Args:

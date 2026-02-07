@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Type
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 from pydantic import create_model
@@ -44,7 +44,7 @@ class DependencyResolver:
 
     def __init__(self) -> None:
         """Initialize the resolver with empty result stores."""
-        self._results: dict[Type[Contract], Contract] = {}
+        self._results: dict[type[Contract], Contract] = {}
         self._named_results: dict[str, Contract] = {}
 
     def register_result(
@@ -61,7 +61,7 @@ class DependencyResolver:
         if source_name:
             self._named_results[source_name] = result
 
-    def get_result(self, result_type: Type[Contract]) -> Contract:
+    def get_result(self, result_type: type[Contract]) -> Contract:
         """Get a result by its Contract type.
 
         Args:
@@ -224,7 +224,7 @@ def typed_pipeline(
         if isinstance(params, dict):
             # Convert dict to dynamic Params Contract
             field_definitions = {k: (type(v), v) for k, v in params.items()}
-            DynamicParams = create_model(
+            DynamicParams = create_model(  # noqa: N806
                 "DynamicParams", __base__=Params, **field_definitions
             )
             params = DynamicParams(**params)
@@ -318,7 +318,7 @@ async def typed_async_pipeline(
     if params is not None:
         if isinstance(params, dict):
             field_definitions = {k: (type(v), v) for k, v in params.items()}
-            DynamicParams = create_model(
+            DynamicParams = create_model(  # noqa: N806
                 "DynamicParams", __base__=Params, **field_definitions
             )
             params = DynamicParams(**params)

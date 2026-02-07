@@ -9,12 +9,11 @@ import typer
 from railway import __version__
 from railway.core.project_discovery import find_project_root
 from railway.core.project_metadata import load_metadata
-from railway.migrations.registry import calculate_migration_path
 from railway.migrations.executor import (
     execute_migration_plan,
     initialize_project,
 )
-
+from railway.migrations.registry import calculate_migration_path
 
 app = typer.Typer(help="プロジェクト更新コマンド")
 
@@ -72,7 +71,7 @@ def update(
         raise typer.Exit(1)
 
     # プレビュー表示
-    typer.echo(f"\n🔍 プロジェクトを分析中...\n")
+    typer.echo("\n🔍 プロジェクトを分析中...\n")
     typer.echo(f"   プロジェクト名:      {metadata.project.name}")
     typer.echo(f"   現在のバージョン:    {from_version}")
     typer.echo(f"   ターゲットバージョン: {__version__}\n")
@@ -81,7 +80,7 @@ def update(
         typer.echo("📋 適用される変更はありません\n")
         # メタデータのみ更新
         if not dry_run:
-            from railway.core.project_metadata import update_metadata_version, save_metadata
+            from railway.core.project_metadata import save_metadata, update_metadata_version
             updated = update_metadata_version(metadata, __version__)
             save_metadata(project_path, updated)
             typer.echo(f"✅ バージョン情報を更新しました: {__version__}")
@@ -118,7 +117,7 @@ def update(
     )
 
     if result.success:
-        typer.echo(f"\n✅ 更新完了")
+        typer.echo("\n✅ 更新完了")
         if result.backup_path:
             typer.echo(f"   バックアップ: {result.backup_path}")
         typer.echo(f"   新バージョン: {result.to_version}")

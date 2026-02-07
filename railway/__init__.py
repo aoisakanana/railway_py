@@ -11,7 +11,7 @@ A Railway Oriented Programming framework that provides:
 from importlib.metadata import version
 
 from railway.core.contract import Contract, Params, Tagged, validate_contract
-from railway.core.decorators import entry_point, node, Retry
+from railway.core.decorators import Retry, entry_point, node
 from railway.core.exit_contract import ExitContract
 from railway.core.pipeline import async_pipeline, pipeline
 from railway.core.registry import get_contract, register_contract
