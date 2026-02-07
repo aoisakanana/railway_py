@@ -317,3 +317,44 @@ class TestSyncOutput:
         result = runner.invoke(app, ["sync", "transition", "--entry", "entry2"])
 
         assert "_railway/generated/entry2_transitions.py" in result.stdout
+
+
+class TestSyncPyTyped:
+    """sync で py.typed が生成されるかのテスト（mypy 対応）"""
+
+    def test_creates_py_typed_in_generated(self, project_dir: Path, monkeypatch):
+        """sync で _railway/generated/py.typed が生成される"""
+        from railway.cli.main import app
+
+        monkeypatch.chdir(project_dir)
+
+        runner.invoke(app, ["sync", "transition", "--entry", "entry2"])
+
+        py_typed = project_dir / "_railway" / "generated" / "py.typed"
+        assert py_typed.exists(), "py.typed should be created in _railway/generated/"
+
+    def test_py_typed_is_empty(self, project_dir: Path, monkeypatch):
+        """py.typed は空ファイル"""
+        from railway.cli.main import app
+
+        monkeypatch.chdir(project_dir)
+
+        runner.invoke(app, ["sync", "transition", "--entry", "entry2"])
+
+        py_typed = project_dir / "_railway" / "generated" / "py.typed"
+        assert py_typed.read_text() == "", "py.typed should be empty"
+
+    def test_py_typed_not_recreated_if_exists(self, project_dir: Path, monkeypatch):
+        """py.typed が既に存在する場合は再作成しない"""
+        from railway.cli.main import app
+
+        monkeypatch.chdir(project_dir)
+
+        # 先に py.typed を作成
+        py_typed = project_dir / "_railway" / "generated" / "py.typed"
+        py_typed.write_text("existing")
+
+        runner.invoke(app, ["sync", "transition", "--entry", "entry2"])
+
+        # 上書きされていないことを確認
+        assert py_typed.read_text() == "existing"

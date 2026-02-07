@@ -352,7 +352,7 @@ app = main._typer_app
 
 
 if __name__ == "__main__":
-    main()
+    main._typer_app()  # type: ignore[union-attr]
 '''
 
 
@@ -398,7 +398,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main._typer_app()  # type: ignore[union-attr]
 '''
 
 
@@ -473,7 +473,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main._typer_app()  # type: ignore[union-attr]
 '''
 
 
@@ -585,7 +585,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main._typer_app()  # type: ignore[union-attr]
 '''
 
 
@@ -700,7 +700,7 @@ app = main._typer_app
 
 
 if __name__ == "__main__":
-    main()
+    main._typer_app()  # type: ignore[union-attr]
 '''
 
 

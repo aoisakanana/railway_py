@@ -460,6 +460,11 @@ def _sync_entry(
 
     output_path.write_text(code, encoding="utf-8")
 
+    # py.typed マーカー生成（mypy 対応）
+    py_typed_path = output_dir / "py.typed"
+    if not py_typed_path.exists():
+        py_typed_path.touch()
+
     typer.echo(f"✓ {entry_name}: 生成完了")
     typer.echo(f"  出力: _railway/generated/{entry_name}_transitions.py")
 

@@ -729,7 +729,7 @@ wheels = [
 
 [[package]]
 name = "railway-framework"
-version = "0.13.7"
+version = "0.13.9"
 source = { editable = "." }
 dependencies = [
     { name = "jinja2" },

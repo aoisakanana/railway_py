@@ -198,7 +198,7 @@ def run(
     """
     def start_wrapper():
         return START_NODE(initial_context)
-    start_wrapper._node_name = START_NODE._node_name
+    start_wrapper._node_name = START_NODE._node_name  # type: ignore[attr-defined]
     return dag_runner(
         start=start_wrapper,
         transitions=TRANSITION_TABLE,
@@ -230,7 +230,7 @@ async def run_async(
     """
     async def start_wrapper():
         return await START_NODE(initial_context)
-    start_wrapper._node_name = START_NODE._node_name
+    start_wrapper._node_name = START_NODE._node_name  # type: ignore[attr-defined]
     return await async_dag_runner(
         start=start_wrapper,
         transitions=TRANSITION_TABLE,
@@ -260,9 +260,9 @@ def generate_node_name_assignments(graph: TransitionGraph) -> str:
 
         if node.is_exit:
             alias = _node_to_alias(node)
-            lines.append(f'{alias}._node_name = "{node.name}"')
+            lines.append(f'{alias}._node_name = "{node.name}"  # type: ignore[attr-defined]')
         else:
-            lines.append(f'{node.function}._node_name = "{node.name}"')
+            lines.append(f'{node.function}._node_name = "{node.name}"  # type: ignore[attr-defined]')
 
     return "\n".join(lines)
 

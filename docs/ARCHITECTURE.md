@@ -45,6 +45,20 @@ def check_severity(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
     return ctx, Outcome.success("normal")
 ```
 
+**開始ノードのパターン（v0.13.0+）:**
+
+開始ノードは `ctx: Context | None = None` の形式で定義します。
+これにより `run()` ヘルパーから初期コンテキストを注入できます。
+
+```python
+@node
+def start(ctx: AlertContext | None = None) -> tuple[AlertContext, Outcome]:
+    """開始ノード。ctx が None の場合はデフォルト値を使用。"""
+    if ctx is None:
+        ctx = AlertContext(incident_id="default", severity="info")
+    return ctx, Outcome.success("done")
+```
+
 Node の特徴:
 - **純粋関数**: 入力を受け取り、出力を返すだけ
 - **状態を返す**: `Outcome` で「この Node がどうなったか」を表現
@@ -384,7 +398,7 @@ railway new node check_severity --output AlertContext
 
 | 機能 | 自動化内容 |
 |------|-----------|
-| コード生成 | `railway sync transition` で遷移コード生成 |
+| コード生成 | `railway sync transition` で遷移コード・ノードスケルトン生成 |
 | 実行制御 | `dag_runner` がフローを実行 |
 | 状態遷移 | Outcome に基づく自動遷移 |
 | 実行パス記録 | `execution_path` を自動記録 |
@@ -587,14 +601,20 @@ class AlertContext(Contract):
 #### 2. Node を実装（依存宣言付き）
 
 ```python
-# src/nodes/check_severity.py
+# src/nodes/alert_workflow/check_severity.py
 from railway import node
 from railway.core.dag import Outcome
 from contracts.alert import AlertContext
 
 @node(requires=["incident_id", "severity"])  # 依存を明示
-def check_severity(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
-    """重要度をチェックし、次のアクションを決定。"""
+def check_severity(ctx: AlertContext | None = None) -> tuple[AlertContext, Outcome]:
+    """重要度をチェックし、次のアクションを決定。
+
+    開始ノードとして使用可能（ctx が None の場合はデフォルト値を使用）。
+    """
+    if ctx is None:
+        ctx = AlertContext(incident_id="default", severity="info")
+
     match ctx.severity:
         case "critical":
             return ctx, Outcome.success("critical")
@@ -605,7 +625,7 @@ def check_severity(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
 ```
 
 ```python
-# src/nodes/escalate.py
+# src/nodes/alert_workflow/escalate.py
 from railway import node
 from railway.core.dag import Outcome
 from contracts.alert import AlertContext
@@ -678,8 +698,11 @@ transitions:
 #### 4. 生成と実行
 
 ```bash
-# 遷移コード生成
+# 遷移コード生成（未実装ノードのスケルトンも自動生成）
 railway sync transition --entry alert_workflow
+# → _railway/generated/alert_workflow_transitions.py
+# → src/nodes/alert_workflow/check_severity.py（未実装の場合）
+# → src/nodes/exit/success/done.py（未実装の場合）
 
 # 実行
 railway run alert_workflow
@@ -719,7 +742,7 @@ Python コードの変更は不要です。
 ## 関連ドキュメント
 
 - [readme.md](../readme.md) - クイックスタートと API リファレンス
-- [TUTORIAL.md](../test_project/TUTORIAL.md) - ハンズオンチュートリアル
+- TUTORIAL.md - ハンズオンチュートリアル（`railway init` で生成）
 - [Transition Graph リファレンス](transition_graph_reference.md) - YAML 仕様
 - [ADR-004: Exit ノードの設計](adr/004_exit_node_design.md) - 終端ノードの設計判断
 - [ADR-005: ExitContract](adr/005_exit_contract_simplification.md) - API 簡素化の設計判断

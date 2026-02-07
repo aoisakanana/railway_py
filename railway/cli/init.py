@@ -1036,14 +1036,40 @@ def _create_dag_directories(project_path: Path) -> None:
     (graphs_dir / f"hello_{timestamp}.yml").write_text(sample_yaml)
 
 
+def _get_py_typed_paths(project_path: Path) -> tuple[Path, ...]:
+    """py.typed マーカーを配置するパスを返す（純粋関数）。
+
+    Args:
+        project_path: プロジェクトディレクトリ
+
+    Returns:
+        py.typed を配置するパスのタプル
+
+    Note:
+        mypy はサブパッケージにも py.typed が必要なため、
+        src/, src/nodes/, src/contracts/ に配置する。
+    """
+    return (
+        project_path / "src" / "py.typed",
+        project_path / "src" / "nodes" / "py.typed",
+        project_path / "src" / "contracts" / "py.typed",
+    )
+
+
 def _create_py_typed(project_path: Path) -> None:
-    """Create py.typed marker for PEP 561 compliance.
+    """Create py.typed markers for PEP 561 compliance.
+
+    Creates py.typed markers in:
+    - src/py.typed (package root)
+    - src/nodes/py.typed (nodes subpackage)
+    - src/contracts/py.typed (contracts subpackage)
 
     This enables type checking tools (mypy, pyright) to recognize
     the user's project as a typed package.
     """
-    content = "# PEP 561 marker - this package supports type checking\n"
-    _write_file(project_path / "src" / "py.typed", content)
+    for path in _get_py_typed_paths(project_path):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()  # 空ファイル（PEP 561 準拠）
 
 
 def _create_init_files(project_path: Path) -> None:
@@ -1117,7 +1143,7 @@ def hello():
 
 
 if __name__ == "__main__":
-    hello()
+    hello._typer_app()  # type: ignore[union-attr]
 '''
     _write_file(project_path / "src" / "hello.py", content)
 
@@ -1164,7 +1190,7 @@ def hello(name: str = "World"):
 
 
 if __name__ == "__main__":
-    hello()
+    hello._typer_app()  # type: ignore[union-attr]
 '''
     _write_file(project_path / "src" / "hello.py", content)
 
