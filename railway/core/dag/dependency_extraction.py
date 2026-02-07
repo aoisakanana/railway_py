@@ -43,7 +43,10 @@ def extract_field_dependency(node_func: Callable[..., Any]) -> FieldDependency |
     """
     # _field_dependency 属性があれば直接返す
     if hasattr(node_func, "_field_dependency"):
-        return node_func._field_dependency
+        dep = node_func._field_dependency
+        if isinstance(dep, FieldDependency):
+            return dep
+        return None
 
     # _requires, _optional, _provides 属性から構築
     if hasattr(node_func, "_requires"):
@@ -83,7 +86,14 @@ def import_node_function(module_path: str, function_name: str) -> Callable[..., 
         raise ImportError(
             f"関数 '{function_name}' がモジュール '{module_path}' に見つかりません"
         )
-    return getattr(module, function_name)
+    func: Any = getattr(module, function_name)
+    if not callable(func):
+        raise ImportError(
+            f"'{function_name}' は呼び出し可能ではありません"
+        )
+    # Cast to Callable since we verified it's callable
+    result: Callable[..., Any] = func
+    return result
 
 
 def load_node_dependencies(

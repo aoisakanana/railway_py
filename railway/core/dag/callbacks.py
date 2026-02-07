@@ -39,10 +39,10 @@ class StepRecord:
 
     node_name: str
     state: str
-    context_snapshot: dict
+    context_snapshot: dict[str, Any]
     timestamp: datetime
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization.
 
         Returns:
@@ -108,7 +108,7 @@ class StepRecorder:
         """
         return tuple(self._history)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Export history for serialization.
 
         Returns:

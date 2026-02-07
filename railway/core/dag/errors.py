@@ -59,7 +59,7 @@ class DependencyRuntimeError(RuntimeError):
         node_name: str,
         requires: frozenset[str],
         available: set[str],
-        missing: set[str],
+        missing: frozenset[str] | set[str],
     ) -> None:
         self.node_name = node_name
         self.requires = requires

@@ -132,8 +132,8 @@ def apply_migration(project_path: Path, migration: MigrationDefinition) -> None:
         apply_file_change(project_path, change)
 
     # 設定変更を適用
-    for change in migration.config_changes:
-        apply_config_change(project_path, change)
+    for config_change in migration.config_changes:
+        apply_config_change(project_path, config_change)
 
     # YAML 変換を適用
     for transform in migration.yaml_transforms:

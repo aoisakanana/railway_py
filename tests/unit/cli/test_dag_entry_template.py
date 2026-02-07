@@ -70,11 +70,12 @@ class TestGetDagEntryTemplatePendingSync:
 
         assert "--no-sync" in py_content
 
-    def test_raises_not_implemented_error(self) -> None:
-        """NotImplementedError を raise する。"""
+    def test_has_entry_point_decorator(self) -> None:
+        """@entry_point デコレータがある（コメントアウトされていない）。"""
         py_content = _get_dag_entry_template_pending_sync("greeting")
 
-        assert "NotImplementedError" in py_content
+        assert "@entry_point" in py_content
+        assert "# @entry_point" not in py_content
 
     def test_generated_code_is_valid_python(self) -> None:
         """生成されたコードは構文的に正しい。"""
@@ -82,8 +83,11 @@ class TestGetDagEntryTemplatePendingSync:
 
         compile(py_content, "<string>", "exec")
 
-    def test_commented_code_shows_expected_structure(self) -> None:
-        """コメントアウトされたコードが期待される構造を示す。"""
+    def test_provides_helpful_error_when_transitions_missing(self) -> None:
+        """transitions がない場合、分かりやすいエラーメッセージを出す。"""
         py_content = _get_dag_entry_template_pending_sync("greeting")
 
-        assert "# from _railway.generated.greeting_transitions import run" in py_content
+        # ModuleNotFoundError をキャッチして案内する
+        assert "ModuleNotFoundError" in py_content
+        # エラーメッセージで次のステップを案内
+        assert "railway sync transition" in py_content

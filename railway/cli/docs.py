@@ -39,7 +39,10 @@ def _read_readme_from_package() -> str | None:
     try:
         from importlib import resources
 
-        return resources.files("railway").joinpath("readme.md").read_text(encoding="utf-8")
+        content_result = resources.files("railway").joinpath("readme.md").read_text(encoding="utf-8")
+        if content_result:
+            return str(content_result)
+        return None
     except Exception:
         return None
 
@@ -53,7 +56,8 @@ def _fetch_readme_from_github() -> str | None:
     try:
         import urllib.request
         with urllib.request.urlopen(RAW_README_URL, timeout=5) as response:
-            return response.read().decode("utf-8")
+            content: bytes = response.read()
+            return content.decode("utf-8")
     except Exception:
         return None
 

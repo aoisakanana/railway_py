@@ -109,7 +109,9 @@ def _analyze_function(func: ast.FunctionDef) -> NodeAnalysis:
                             keyword.value, ast.Dict
                         ):
                             for key in keyword.value.keys:
-                                if isinstance(key, ast.Constant):
+                                if isinstance(key, ast.Constant) and isinstance(
+                                    key.value, str
+                                ):
                                     writes.add(key.value)
             self.generic_visit(node)
 

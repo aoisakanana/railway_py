@@ -2,6 +2,7 @@
 
 import ast
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -11,7 +12,7 @@ def _is_railway_project() -> bool:
     return (Path.cwd() / "src").exists()
 
 
-def _extract_node_info(file_path: Path) -> dict | None:
+def _extract_node_info(file_path: Path) -> dict[str, Any] | None:
     """Extract node information from a Python file."""
     try:
         content = file_path.read_text()
@@ -22,7 +23,7 @@ def _extract_node_info(file_path: Path) -> dict | None:
                 # Check if function has @node decorator
                 for decorator in node.decorator_list:
                     is_node = False
-                    decorator_args = {}
+                    decorator_args: dict[str, Any] = {}
 
                     if isinstance(decorator, ast.Name) and decorator.id == "node":
                         is_node = True
@@ -36,10 +37,10 @@ def _extract_node_info(file_path: Path) -> dict | None:
                                         decorator_args["output"] = kw.value.id
                                 elif kw.arg == "inputs":
                                     if isinstance(kw.value, ast.Dict):
-                                        inputs = {}
+                                        inputs: dict[str, str] = {}
                                         for k, v in zip(kw.value.keys, kw.value.values):
                                             if isinstance(k, ast.Constant) and isinstance(v, ast.Name):
-                                                inputs[k.value] = v.id
+                                                inputs[str(k.value)] = v.id
                                         decorator_args["inputs"] = inputs
 
                     if is_node:
@@ -76,7 +77,7 @@ def _extract_node_info(file_path: Path) -> dict | None:
         return None
 
 
-def _find_node(name: str) -> dict | None:
+def _find_node(name: str) -> dict[str, Any] | None:
     """Find a node by name in src/nodes/."""
     nodes_dir = Path.cwd() / "src" / "nodes"
 
@@ -90,7 +91,7 @@ def _find_node(name: str) -> dict | None:
     return None
 
 
-def _display_node_info(info: dict) -> None:
+def _display_node_info(info: dict[str, Any]) -> None:
     """Display node information."""
     typer.echo(f"\nNode: {info['name']}")
     typer.echo(f"File: {info['path']}")

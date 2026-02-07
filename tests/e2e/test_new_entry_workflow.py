@@ -130,10 +130,15 @@ class TestNewEntryNoSyncWorkflow:
         # transitions ファイルは生成されない
         assert not (project_dir / "_railway/generated/greeting_transitions.py").exists()
 
-        # エントリポイントは pending 状態
+        # エントリポイントは pending 状態（実行可能だが sync を促す）
         entrypoint = (project_dir / "src/greeting.py").read_text()
-        assert "NotImplementedError" in entrypoint
+        # 実行可能なコード（コメントアウトされていない）
+        assert "@entry_point" in entrypoint
+        assert "# @entry_point" not in entrypoint
+        # sync を促すメッセージがある
         assert "railway sync transition" in entrypoint
+        # transitions がない場合のエラーハンドリング
+        assert "ModuleNotFoundError" in entrypoint
 
         # 終端ノードは生成される（sync とは独立）
         assert (project_dir / "src/nodes/exit/success/done.py").exists()

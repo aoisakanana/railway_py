@@ -7,7 +7,7 @@
 from collections.abc import Callable
 from functools import wraps
 from pathlib import Path
-from typing import TypeVar
+from typing import Any
 
 import typer
 
@@ -19,8 +19,6 @@ from railway.core.version_checker import (
     format_compatibility_error,
     format_compatibility_warning,
 )
-
-F = TypeVar("F", bound=Callable)
 
 
 def check_project_compatibility(
@@ -69,7 +67,7 @@ def check_project_compatibility(
             raise typer.Exit(0)
 
 
-def require_compatible_project(func: F) -> F:
+def require_compatible_project(func: Callable[..., Any]) -> Callable[..., Any]:
     """コマンド実行前に互換性チェックを行うデコレータ。
 
     Args:
@@ -79,7 +77,7 @@ def require_compatible_project(func: F) -> F:
         ラップされた関数
     """
     @wraps(func)
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         # --force オプションがあればスキップ
         if kwargs.get("force", False):
             return func(*args, **kwargs)
@@ -87,4 +85,4 @@ def require_compatible_project(func: F) -> F:
         check_project_compatibility()
         return func(*args, **kwargs)
 
-    return wrapper  # type: ignore
+    return wrapper

@@ -2,6 +2,7 @@
 
 import ast
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -24,7 +25,7 @@ def _extract_module_docstring(content: str) -> str | None:
         return None
 
 
-def _analyze_entry_file(file_path: Path) -> dict | None:
+def _analyze_entry_file(file_path: Path) -> dict[str, Any] | None:
     """Analyze a Python file for @entry_point decorator."""
     try:
         content = file_path.read_text()
@@ -45,7 +46,7 @@ def _analyze_entry_file(file_path: Path) -> dict | None:
         return None
 
 
-def _analyze_node_file(file_path: Path) -> dict | None:
+def _analyze_node_file(file_path: Path) -> dict[str, Any] | None:
     """Analyze a Python file for @node decorator."""
     try:
         content = file_path.read_text()
@@ -66,7 +67,7 @@ def _analyze_node_file(file_path: Path) -> dict | None:
         return None
 
 
-def _analyze_contract_file(file_path: Path) -> list[dict]:
+def _analyze_contract_file(file_path: Path) -> list[dict[str, Any]]:
     """Analyze a Python file for Contract/Params classes."""
     results = []
     try:
@@ -98,7 +99,7 @@ def _analyze_contract_file(file_path: Path) -> list[dict]:
         return []
 
 
-def _find_entries() -> list[dict]:
+def _find_entries() -> list[dict[str, Any]]:
     """Find all entry points in src/."""
     src_dir = Path.cwd() / "src"
     skip_files = {"__init__.py", "settings.py"}
@@ -111,7 +112,7 @@ def _find_entries() -> list[dict]:
     return [e for e in entries if e is not None]
 
 
-def _find_nodes() -> list[dict]:
+def _find_nodes() -> list[dict[str, Any]]:
     """Find all nodes in src/nodes/."""
     nodes_dir = Path.cwd() / "src" / "nodes"
 
@@ -126,7 +127,7 @@ def _find_nodes() -> list[dict]:
     return [n for n in nodes if n is not None]
 
 
-def _find_contracts() -> tuple[list[dict], list[dict]]:
+def _find_contracts() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Find all contracts in src/contracts/.
 
     Returns:
@@ -162,7 +163,7 @@ def _count_tests() -> int:
     return sum(1 for _ in tests_dir.rglob("test_*.py"))
 
 
-def _display_entries(entries: list[dict]) -> None:
+def _display_entries(entries: list[dict[str, Any]]) -> None:
     """Display entry points."""
     typer.echo("\nEntry Points:")
     if not entries:
@@ -173,7 +174,7 @@ def _display_entries(entries: list[dict]) -> None:
         typer.echo(f"  * {entry['name']:20} {entry['description']}")
 
 
-def _display_nodes(nodes: list[dict]) -> None:
+def _display_nodes(nodes: list[dict[str, Any]]) -> None:
     """Display nodes."""
     typer.echo("\nNodes:")
     if not nodes:
@@ -184,7 +185,7 @@ def _display_nodes(nodes: list[dict]) -> None:
         typer.echo(f"  * {node['name']:20} {node['description']}")
 
 
-def _display_contracts(contracts: list[dict], params: list[dict]) -> None:
+def _display_contracts(contracts: list[dict[str, Any]], params: list[dict[str, Any]]) -> None:
     """Display contracts and params."""
     typer.echo("\nContracts:")
     if not contracts:
@@ -201,7 +202,7 @@ def _display_contracts(contracts: list[dict], params: list[dict]) -> None:
             typer.echo(f"  * {param['name']:25} {param['path']}")
 
 
-def _display_all(entries: list[dict], nodes: list[dict], tests: int) -> None:
+def _display_all(entries: list[dict[str, Any]], nodes: list[dict[str, Any]], tests: int) -> None:
     """Display all components."""
     _display_entries(entries)
     _display_nodes(nodes)

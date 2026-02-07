@@ -49,7 +49,7 @@ def check_type_compatibility(value: Any, expected_type: type) -> bool:
         return True
 
 
-def get_function_input_type(func: Callable) -> type | None:
+def get_function_input_type(func: Callable[..., Any]) -> type | None:
     """
     Get the input type of a function's first parameter.
 
@@ -67,13 +67,14 @@ def get_function_input_type(func: Callable) -> type | None:
         # Get first parameter's type (excluding 'return')
         params = [k for k in hints.keys() if k != "return"]
         if params:
-            return hints[params[0]]
+            hint = hints[params[0]]
+            return hint if isinstance(hint, type) else None
     except Exception:
         pass
-    return Any
+    return None
 
 
-def get_function_output_type(func: Callable) -> type | None:
+def get_function_output_type(func: Callable[..., Any]) -> type | None:
     """
     Get the return type of a function.
 
@@ -88,9 +89,10 @@ def get_function_output_type(func: Callable) -> type | None:
 
     try:
         hints = get_type_hints(original)
-        return hints.get("return", Any)
+        hint = hints.get("return")
+        return hint if isinstance(hint, type) else None
     except Exception:
-        return Any
+        return None
 
 
 def format_type_error(

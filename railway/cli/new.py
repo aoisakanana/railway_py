@@ -411,37 +411,69 @@ def _get_dag_entry_template_pending_sync(name: str) -> str:
         name: エントリーポイント名
 
     Returns:
-        Python コード文字列（次のステップを案内）
+        Python コード文字列（実行可能だが sync を促すメッセージを表示）
+
+    Note:
+        コメントアウトではなく、実行可能なコードを生成する。
+        transitions が見つからない場合は分かりやすいエラーメッセージを表示。
     """
+    class_name = _to_pascal_case(name)
     return f'''"""
 {name} エントリーポイント
 
-このファイルは `railway new entry {name}` で --no-sync オプションを
-使用したため、まだ実行できません。
-
-次のステップ:
-    railway sync transition --entry {name}
+Usage:
     railway run {name}
+    # または
+    python -m src.{name}
+
+Note:
+    このファイルは `railway new entry {name} --no-sync` で作成されました。
+    実行前に以下のコマンドで遷移コードを生成してください:
+
+        railway sync transition --entry {name}
 """
 from railway import entry_point
 
-# TODO: sync 実行後、以下のコメントを解除してください
-# from _railway.generated.{name}_transitions import run
-#
-# @entry_point
-# def main() -> None:
-#     result = run({{}})
-#     if result.is_success:
-#         print(f"完了: {{result.exit_state}}")
-#     else:
-#         raise SystemExit(result.exit_code)
-#
-# if __name__ == "__main__":
-#     main()
 
-raise NotImplementedError(
-    "先に `railway sync transition --entry {name}` を実行してください。"
-)
+def _check_transitions_exist() -> bool:
+    """遷移コードが存在するか確認する。"""
+    try:
+        from _railway.generated.{name}_transitions import run  # noqa: F401
+        return True
+    except ModuleNotFoundError:
+        return False
+
+
+@entry_point
+def main() -> None:
+    """ワークフローを実行する。"""
+    if not _check_transitions_exist():
+        print("エラー: 遷移コードが見つかりません。")
+        print("")
+        print("以下のコマンドを実行してください:")
+        print("    railway sync transition --entry {name}")
+        print("")
+        print("その後、再度実行:")
+        print("    railway run {name}")
+        raise SystemExit(1)
+
+    from _railway.generated.{name}_transitions import run
+
+    # TODO: 初期コンテキストを設定してください
+    # from contracts.{name}_context import {class_name}Context
+    # initial_context = {class_name}Context(...)
+
+    result = run({{}})
+
+    if result.is_success:
+        print(f"完了: {{result.exit_state}}")
+    else:
+        print(f"失敗: {{result.exit_state}}")
+        raise SystemExit(result.exit_code)
+
+
+if __name__ == "__main__":
+    main()
 '''
 
 

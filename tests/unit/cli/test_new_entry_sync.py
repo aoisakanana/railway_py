@@ -113,7 +113,7 @@ class TestNewEntryNoSyncOption:
     def test_no_sync_uses_pending_template(
         self, runner: CliRunner, tmp_path: Path
     ) -> None:
-        """--no-sync でエントリポイントは pending 状態。"""
+        """--no-sync でエントリポイントは pending 状態（実行可能だが sync を促す）。"""
         from railway.cli.main import app
         import os
 
@@ -127,8 +127,13 @@ class TestNewEntryNoSyncOption:
 
             assert result.exit_code == 0, f"Failed: {result.stdout}"
             entrypoint = (tmp_path / "src/greeting.py").read_text()
-            assert "NotImplementedError" in entrypoint
+            # 実行可能なコード（コメントアウトされていない）
+            assert "@entry_point" in entrypoint
+            assert "# @entry_point" not in entrypoint
+            # sync を促すメッセージがある
             assert "railway sync transition" in entrypoint
+            # transitions がない場合のエラーハンドリング
+            assert "ModuleNotFoundError" in entrypoint
         finally:
             os.chdir(old_cwd)
 

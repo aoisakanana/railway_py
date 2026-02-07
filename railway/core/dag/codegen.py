@@ -519,7 +519,9 @@ def detect_context_type(module_path: str, function_name: str) -> str | None:
             return None
 
         ctx_type = hints[first_param]
-        return ctx_type.__name__
+        if hasattr(ctx_type, "__name__"):
+            return str(ctx_type.__name__)
+        return None
 
     except Exception:
         return None

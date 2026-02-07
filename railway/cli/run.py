@@ -126,6 +126,7 @@ def run(
         railway run --project /path/to/project my_entry
     """
     # Determine project root
+    project_root: Path | None
     if project:
         project_root = Path(project).resolve()
     else:

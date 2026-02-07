@@ -396,7 +396,7 @@ def _build_graph(data: dict[str, Any]) -> TransitionGraph:
     )
 
 
-def _require_field(data: dict, field: str) -> None:
+def _require_field(data: dict[str, Any], field: str) -> None:
     """Validate that a required field exists (with detailed error message)."""
     if field not in data:
         raise ParseError(_format_field_error(field))

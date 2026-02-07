@@ -7,7 +7,7 @@ from __future__ import annotations
 import inspect
 import os
 import traceback
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from functools import wraps
 from typing import (
     TYPE_CHECKING,
@@ -15,6 +15,7 @@ from typing import (
     ParamSpec,
     TypeVar,
     Union,
+    cast,
     get_args,
     get_origin,
     get_type_hints,
@@ -184,11 +185,14 @@ def node(
         # Resolve inputs: explicit inputs take precedence, otherwise infer from hints
         resolved_inputs = inputs_dict if inputs_dict else _infer_inputs_from_hints(f)
 
+        wrapper: Callable[P, T]
         if is_async:
-            wrapper = _create_async_wrapper(
-                f, node_name, resolved_inputs, output, retry, log_input, log_output,
+            async_wrapper = _create_async_wrapper(
+                cast(Callable[P, Awaitable[T]], f),
+                node_name, resolved_inputs, output, retry, log_input, log_output,
                 resolved_retry_policy
             )
+            wrapper = cast(Callable[P, T], async_wrapper)
         else:
             wrapper = _create_sync_wrapper(
                 f, node_name, resolved_inputs, output, retry, log_input, log_output,
@@ -241,7 +245,7 @@ def _resolve_retry_config(
     return None
 
 
-def _infer_inputs_from_hints(func: Callable) -> dict[str, type]:
+def _infer_inputs_from_hints(func: Callable[..., Any]) -> dict[str, type[Any]]:
     """型ヒントから inputs を推論する純粋関数
 
     Contract のサブクラスである型ヒントのみを inputs として抽出します。
@@ -261,7 +265,7 @@ def _infer_inputs_from_hints(func: Callable) -> dict[str, type]:
         return {}
 
     sig = inspect.signature(func)
-    result: dict[str, type] = {}
+    result: dict[str, type[Any]] = {}
 
     for param_name in sig.parameters:
         if param_name not in hints:
@@ -276,7 +280,7 @@ def _infer_inputs_from_hints(func: Callable) -> dict[str, type]:
     return result
 
 
-def _extract_contract_type(hint: type) -> type | None:
+def _extract_contract_type(hint: Any) -> type[Any] | None:
     """型ヒントから Contract 型を抽出する
 
     Union 型（Optional を含む）の場合は、Contract サブクラスを抽出します。
@@ -302,12 +306,12 @@ def _extract_contract_type(hint: type) -> type | None:
             if arg is type(None):
                 continue
             if _is_contract_type(arg):
-                return arg
+                return cast(type[Any], arg)
         return None
 
     # 直接の Contract 型
     if _is_contract_type(hint):
-        return hint
+        return cast(type[Any], hint)
 
     return None
 
@@ -386,7 +390,7 @@ def _create_sync_wrapper(
 
 
 def _create_async_wrapper(
-    f: Callable[P, T],
+    f: Callable[P, Awaitable[T]],
     node_name: str,
     inputs_dict: dict[str, type[Contract]],
     output_type: type[Contract] | None,
@@ -394,7 +398,7 @@ def _create_async_wrapper(
     log_input: bool,
     log_output: bool,
     retry_policy: RetryPolicy | None = None,
-) -> Callable[P, T]:
+) -> Callable[P, Awaitable[T]]:
     """Create wrapper for asynchronous function."""
 
     @wraps(f)
@@ -409,7 +413,7 @@ def _create_async_wrapper(
             # Use RetryPolicy if provided, otherwise fall back to legacy retry
             if retry_policy is not None:
                 result = await _execute_async_with_retry_policy(
-                    f, retry_policy, node_name, args, kwargs
+                    cast(Callable[P, T], f), retry_policy, node_name, args, kwargs
                 )
             else:
                 # Determine legacy retry configuration
@@ -417,7 +421,7 @@ def _create_async_wrapper(
                 if retry_config is not None:
                     # Execute with legacy retry
                     result = await _execute_async_with_retry(
-                        f, retry_config, node_name, args, kwargs
+                        cast(Callable[P, T], f), retry_config, node_name, args, kwargs
                     )
                 else:
                     # Execute without retry
@@ -456,12 +460,13 @@ async def _execute_async_with_retry(
     func: Callable[P, T],
     retry_config: Retry,
     node_name: str,
-    args: tuple,
-    kwargs: dict,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
 ) -> T:
     """Execute async function with retry logic."""
     max_attempts = retry_config.max_attempts
     attempt_count = 0
+    result: T | None = None
 
     async for attempt in AsyncRetrying(
         stop=stop_after_attempt(retry_config.max_attempts),
@@ -478,7 +483,12 @@ async def _execute_async_with_retry(
                 logger.warning(
                     f"[{node_name}] リトライ中... (試行 {attempt_count}/{max_attempts})"
                 )
-            return await func(*args, **kwargs)
+            result = await func(*args, **kwargs)  # type: ignore[misc]
+            return result
+
+    # This line should never be reached due to tenacity's reraise=True,
+    # but is needed for type completeness
+    raise RuntimeError("Unexpected retry loop termination")
 
 
 def _get_retry_configuration(retry_param: bool | Retry, node_name: str) -> Retry | None:
@@ -588,14 +598,14 @@ def _execute_with_retry(
     func: Callable[P, T],
     retry_config: Retry,
     node_name: str,
-    args: tuple,
-    kwargs: dict,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
 ) -> T:
     """Execute function with retry logic."""
     attempt_count = 0
     max_attempts = retry_config.max_attempts
 
-    def before_retry(retry_state):
+    def before_retry(retry_state: Any) -> None:
         nonlocal attempt_count
         attempt_count = retry_state.attempt_number
         logger.warning(f"[{node_name}] リトライ中... (試行 {attempt_count}/{max_attempts})")
@@ -614,11 +624,13 @@ def _execute_with_retry(
     retryable_func = retry_decorator(func)
 
     try:
-        return retryable_func(*args, **kwargs)
+        result: T = retryable_func(*args, **kwargs)
+        return result
     except RetryError as e:
         # Extract original exception
-        if e.last_attempt.exception() is not None:
-            raise e.last_attempt.exception() from None
+        exc = e.last_attempt.exception()
+        if exc is not None:
+            raise exc from None
         raise
 
 
@@ -626,8 +638,8 @@ def _execute_with_retry_policy(
     func: Callable[P, T],
     policy: RetryPolicy,
     node_name: str,
-    args: tuple,
-    kwargs: dict,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
 ) -> T:
     """Execute function with RetryPolicy-based retry logic."""
     import time
@@ -658,8 +670,8 @@ async def _execute_async_with_retry_policy(
     func: Callable[P, T],
     policy: RetryPolicy,
     node_name: str,
-    args: tuple,
-    kwargs: dict,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
 ) -> T:
     """Execute async function with RetryPolicy-based retry logic."""
     import asyncio
@@ -668,7 +680,10 @@ async def _execute_async_with_retry_policy(
 
     for attempt in range(1, policy.max_retries + 2):
         try:
-            return await func(*args, **kwargs)
+            # func is an async function, so func(*args, **kwargs) returns an awaitable
+            awaitable: Any = func(*args, **kwargs)
+            result: T = await awaitable
+            return result
         except Exception as e:
             if not policy.should_retry(e, attempt):
                 raise

@@ -8,13 +8,15 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from loguru import logger
 from pydantic import create_model
 
+from railway.core.contract import Contract
+
 if TYPE_CHECKING:
-    from railway.core.contract import Contract
+    pass
 
 
 class DependencyError(Exception):
@@ -95,7 +97,7 @@ class DependencyResolver:
             raise DependencyError(f"No result from node '{source_name}'")
         return self._named_results[source_name]
 
-    def resolve_inputs(self, node_func: Callable) -> dict[str, Contract]:
+    def resolve_inputs(self, node_func: Callable[..., Any]) -> dict[str, Contract]:
         """Resolve inputs for a node from registered results.
 
         Uses the node's _node_inputs metadata to determine which Contract
@@ -141,8 +143,8 @@ class DependencyResolver:
 
 
 def typed_pipeline(
-    *nodes: Callable,
-    params: Contract | dict | None = None,
+    *nodes: Callable[..., Any],
+    params: Contract | dict[str, Any] | None = None,
     on_error: Callable[[Exception, str], Any] | None = None,
     on_step: Callable[[str, Any], None] | None = None,
 ) -> Contract:
@@ -223,12 +225,16 @@ def typed_pipeline(
     if params is not None:
         if isinstance(params, dict):
             # Convert dict to dynamic Params Contract
-            field_definitions = {k: (type(v), v) for k, v in params.items()}
-            DynamicParams = create_model(  # noqa: N806
-                "DynamicParams", __base__=Params, **field_definitions
+            # Note: Using type: ignore since create_model signature is complex
+            DynamicParams = create_model(  # type: ignore[call-overload]  # noqa: N806
+                "DynamicParams",
+                __base__=Params,
+                **{k: (type(v), v) for k, v in params.items()},
             )
-            params = DynamicParams(**params)
-        resolver.register_result(params, source_name="_params")
+            params_instance = cast(Contract, DynamicParams(**params))
+            resolver.register_result(params_instance, source_name="_params")
+        else:
+            resolver.register_result(params, source_name="_params")
 
     logger.debug(f"型付きパイプライン開始: {len(nodes)} ノード")
 
@@ -281,8 +287,8 @@ def typed_pipeline(
 
 
 async def typed_async_pipeline(
-    *nodes: Callable,
-    params: Contract | dict | None = None,
+    *nodes: Callable[..., Any],
+    params: Contract | dict[str, Any] | None = None,
 ) -> Contract:
     """Execute an async pipeline of typed nodes with automatic dependency resolution.
 
@@ -317,12 +323,16 @@ async def typed_async_pipeline(
     # Register initial params
     if params is not None:
         if isinstance(params, dict):
-            field_definitions = {k: (type(v), v) for k, v in params.items()}
-            DynamicParams = create_model(  # noqa: N806
-                "DynamicParams", __base__=Params, **field_definitions
+            # Note: Using type: ignore since create_model signature is complex
+            DynamicParams = create_model(  # type: ignore[call-overload]  # noqa: N806
+                "DynamicParams",
+                __base__=Params,
+                **{k: (type(v), v) for k, v in params.items()},
             )
-            params = DynamicParams(**params)
-        resolver.register_result(params, source_name="_params")
+            params_instance = cast(Contract, DynamicParams(**params))
+            resolver.register_result(params_instance, source_name="_params")
+        else:
+            resolver.register_result(params, source_name="_params")
 
     logger.debug(f"非同期型付きパイプライン開始: {len(nodes)} ノード")
 

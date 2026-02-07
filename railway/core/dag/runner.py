@@ -85,7 +85,7 @@ def _derive_exit_state(node_name: str) -> str:
     return node_name
 
 
-def _get_node_name(func: Callable) -> str:
+def _get_node_name(func: Callable[..., Any]) -> str:
     """Get node name from function.
 
     Supports:
@@ -101,17 +101,19 @@ def _get_node_name(func: Callable) -> str:
     """
     # Check for @node decorator metadata
     if hasattr(func, "_node_name"):
-        return func._node_name
+        name = func._node_name
+        return str(name) if name else "unknown"
 
     # For wrapped functions, try to get original name
     if hasattr(func, "__wrapped__"):
         return _get_node_name(func.__wrapped__)
 
-    return getattr(func, "__name__", "unknown")
+    name = getattr(func, "__name__", "unknown")
+    return str(name)
 
 
 def _execute_exit_node(
-    exit_node: Callable,
+    exit_node: Callable[..., Any],
     context: Any,
     node_name: str,
     execution_path: list[str],
@@ -149,7 +151,7 @@ def _execute_exit_node(
 
 
 async def _execute_exit_node_async(
-    exit_node: Callable,
+    exit_node: Callable[..., Any],
     context: Any,
     node_name: str,
     execution_path: list[str],
@@ -217,7 +219,7 @@ def _get_available_fields(context: Any) -> set[str]:
 
 
 def _check_node_dependencies(
-    node_func: Callable,
+    node_func: Callable[..., Any],
     available_fields: set[str],
     node_name: str,
 ) -> None:
@@ -243,12 +245,12 @@ def _check_node_dependencies(
             node_name=node_name,
             requires=dep.requires,
             available=available_fields,
-            missing=missing,
+            missing=frozenset(missing),
         )
 
 
 def _update_available_fields(
-    node_func: Callable,
+    node_func: Callable[..., Any],
     context: Any,
     available_fields: set[str],
 ) -> set[str]:
@@ -291,7 +293,7 @@ def _check_legacy_exit_format(next_step: Any, state_string: str) -> None:
 
 def dag_runner(
     start: Callable[[], tuple[Any, Outcome]],
-    transitions: dict[str, Callable | str],
+    transitions: dict[str, Callable[..., Any] | str],
     max_iterations: int = 100,
     strict: bool = True,
     on_step: Callable[[str, str, Any], None] | None = None,
@@ -378,13 +380,21 @@ def dag_runner(
         # Check for legacy exit format (v0.12.3: raise error)
         _check_legacy_exit_format(next_step, state_string)
 
+        # Type narrowing: next_step should be callable at this point
+        if isinstance(next_step, str):
+            raise UndefinedStateError(
+                f"遷移先が文字列です: {next_step} (ノード: {node_name})"
+            )
+
+        next_node_func: Callable[..., Any] = next_step
+
         # Execute next node
         iteration += 1
-        next_node_name = _get_node_name(next_step)
+        next_node_name = _get_node_name(next_node_func)
 
         # 依存チェック（オプション）
         if check_dependencies:
-            _check_node_dependencies(next_step, available_fields, next_node_name)
+            _check_node_dependencies(next_node_func, available_fields, next_node_name)
 
         # Check if it's an exit node
         if _is_exit_node(next_node_name):
@@ -392,7 +402,7 @@ def dag_runner(
             logger.debug(f"DAGワークフロー終了（終端ノード）: {next_node_name}")
 
             result = _execute_exit_node(
-                exit_node=next_step,
+                exit_node=next_node_func,
                 context=context,
                 node_name=next_node_name,
                 execution_path=execution_path,
@@ -405,7 +415,7 @@ def dag_runner(
             return result
 
         # Regular node returns (context, Outcome)
-        context, outcome = next_step(context)
+        context, outcome = next_node_func(context)
         node_name = next_node_name
         state_string = outcome.to_state_string(node_name)
 
@@ -414,7 +424,7 @@ def dag_runner(
         # 利用可能フィールドを更新
         if check_dependencies:
             available_fields = _update_available_fields(
-                next_step, context, available_fields
+                next_node_func, context, available_fields
             )
 
         logger.debug(f"[{iteration}] {node_name} -> {state_string}")
@@ -431,7 +441,7 @@ def dag_runner(
 
 async def async_dag_runner(
     start: Callable[[], tuple[Any, Outcome]],
-    transitions: dict[str, Callable | str],
+    transitions: dict[str, Callable[..., Any] | str],
     max_iterations: int = 100,
     strict: bool = True,
     on_step: Callable[[str, str, Any], None] | None = None,
@@ -491,15 +501,23 @@ async def async_dag_runner(
         # Check for legacy exit format (v0.12.3: raise error)
         _check_legacy_exit_format(next_step, state_string)
 
+        # Type narrowing: next_step should be callable at this point
+        if isinstance(next_step, str):
+            raise UndefinedStateError(
+                f"遷移先が文字列です: {next_step} (ノード: {node_name})"
+            )
+
+        next_node_func: Callable[..., Any] = next_step
+
         iteration += 1
-        next_node_name = _get_node_name(next_step)
+        next_node_name = _get_node_name(next_node_func)
 
         # Check if it's an exit node
         if _is_exit_node(next_node_name):
             execution_path.append(next_node_name)
 
             result = await _execute_exit_node_async(
-                exit_node=next_step,
+                exit_node=next_node_func,
                 context=context,
                 node_name=next_node_name,
                 execution_path=execution_path,
@@ -512,10 +530,10 @@ async def async_dag_runner(
             return result
 
         # Regular node returns (context, Outcome)
-        if asyncio.iscoroutinefunction(next_step):
-            context, outcome = await next_step(context)
+        if asyncio.iscoroutinefunction(next_node_func):
+            context, outcome = await next_node_func(context)
         else:
-            context, outcome = next_step(context)
+            context, outcome = next_node_func(context)
 
         node_name = next_node_name
         state_string = outcome.to_state_string(node_name)
