@@ -261,7 +261,7 @@ class ErrorInfo:
 
 
 # ドキュメントベースURL
-DOC_BASE_URL = "https://github.com/your-org/railway-framework/wiki/errors"
+DOC_BASE_URL = "https://github.com/aoisakanana/railway-framework/docs/errors"
 
 
 # エラーカタログ（イミュータブル）
