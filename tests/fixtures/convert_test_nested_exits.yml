@@ -1,0 +1,28 @@
+version: "1.0"
+entrypoint: convert_test
+description: "変換テスト用ワークフロー"
+
+start: step1
+
+nodes:
+  step1:
+    description: "ステップ1"
+    transitions:
+      success::done: step2
+      failure::error: exit.failure.error
+
+  step2:
+    description: "ステップ2"
+    transitions:
+      success::done: exit.success.done
+      failure::error: exit.failure.error
+
+exits:
+  success:
+    done:
+      description: "正常終了"
+      exit_code: 0
+  failure:
+    error:
+      description: "エラー終了"
+      exit_code: 1

@@ -1,0 +1,21 @@
+version: "1.0"
+entrypoint: convert_test_new
+description: "新形式（変換不要）テスト"
+
+start: step1
+
+nodes:
+  step1:
+    description: "ステップ1"
+  exit:
+    success:
+      done:
+        description: "正常終了"
+    failure:
+      error:
+        description: "エラー終了"
+
+transitions:
+  step1:
+    success::done: exit.success.done
+    failure::error: exit.failure.error

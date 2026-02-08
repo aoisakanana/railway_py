@@ -261,6 +261,20 @@ transitions:
     failure::error: exit::error
 ```
 
+**レガシー形式からの変換:**
+
+```bash
+# 旧形式 YAML を自動検出して新形式に変換
+railway sync transition --entry my_workflow --convert
+
+# プレビュー（変更なし）
+railway sync transition --entry my_workflow --convert --dry-run
+```
+
+v0.13.11+ では以下の形式を自動検出して変換します:
+- v0.11.x フラット形式（`exits` + `code` キー）
+- v0.12.x〜v0.13.x ネスト形式（`exits` + カテゴリネスト）
+
 ---
 
 ## start セクション

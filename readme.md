@@ -362,9 +362,34 @@ railway docs --browser           # ブラウザでドキュメントを開く
 railway sync transition --entry <name>  # 遷移コード生成（デフォルトで上書き）  
 railway sync transition --all           # 全遷移コード生成  
 railway sync transition --entry <name> --no-overwrite  # 既存ファイルをスキップ  
-railway sync transition --entry <name> --convert       # 旧形式YAMLを新形式に変換  
-railway sync transition --entry <name> --dry-run       # プレビューのみ  
-```  
+railway sync transition --entry <name> --convert       # 旧形式YAMLを新形式に変換
+railway sync transition --entry <name> --convert --dry-run  # 変換プレビュー
+railway sync transition --entry <name> --dry-run       # プレビューのみ
+```
+
+#### 旧形式 YAML の変換
+
+v0.11.x〜v0.13.x の `exits` セクションを使用している YAML を新形式に変換できます:
+
+```bash
+# プレビュー（変更なし）
+railway sync transition --entry my_workflow --convert --dry-run
+
+# 変換実行
+railway sync transition --entry my_workflow --convert
+```
+
+**対応する旧形式:**
+
+| 形式 | 例 | 対応 |
+|------|-----|------|
+| v0.11.x フラット | `exits: { green_success: { code: 0 } }` | v0.13.3+ |
+| v0.12.x ネスト | `exits: { success: { done: { ... } } }` | **v0.13.11+** |
+
+変換は安全に行われます:
+- 変換前にファイルの内容をバックアップ
+- 変換後にスキーマ検証を実施
+- 検証失敗時は自動的にロールバック
 
 ### Contract（型契約）  
 ```bash  

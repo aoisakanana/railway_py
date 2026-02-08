@@ -24,9 +24,64 @@ Example conversion:
 """
 from __future__ import annotations
 
+import copy
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
+
+# =============================================================================
+# Exits Format Detection (Pure Functions)
+# =============================================================================
+
+ExitsFormat = Literal["legacy_flat", "nested", "unknown"]
+
+
+@dataclass(frozen=True)
+class ExitsFormatDetection:
+    """exits 形式の判別結果（イミュータブル）。"""
+
+    format: ExitsFormat
+
+
+def _detect_exits_format(exits: dict[str, Any]) -> ExitsFormatDetection:
+    """exits セクションの形式を検出する（純粋関数）。
+
+    全エントリをスキャンし、一貫した形式を判定する。
+    混合フォーマット（フラットとネストが混在）は "unknown" として返す。
+
+    Args:
+        exits: YAML の exits セクション
+
+    Returns:
+        ExitsFormatDetection: 検出された形式
+    """
+    if not exits:
+        return ExitsFormatDetection(format="unknown")
+
+    detected: ExitsFormat | None = None
+
+    for _key, value in exits.items():
+        if not isinstance(value, dict):
+            return ExitsFormatDetection(format="unknown")
+
+        # 各エントリの形式を判定
+        entry_format: ExitsFormat
+        if "code" in value:
+            entry_format = "legacy_flat"
+        elif any(isinstance(v, dict) for v in value.values()):
+            entry_format = "nested"
+        elif "description" in value:
+            entry_format = "legacy_flat"
+        else:
+            return ExitsFormatDetection(format="unknown")
+
+        # 一貫性チェック
+        if detected is None:
+            detected = entry_format
+        elif detected != entry_format:
+            return ExitsFormatDetection(format="unknown")
+
+    return ExitsFormatDetection(format=detected or "unknown")
 
 
 @dataclass(frozen=True)
@@ -336,6 +391,221 @@ def _build_exit_tree(
 
 
 # =============================================================================
+# Nested Exits Conversion (Pure Functions)
+# =============================================================================
+
+
+def _convert_nested_exits(
+    exits: dict[str, Any],
+) -> tuple[dict[str, Any], tuple[str, ...]]:
+    """ネスト形式の exits を nodes.exit ツリーに変換する（純粋関数）。
+
+    ネスト形式はカテゴリ（success/failure/warning）をキーとし、
+    配下にリーフノード定義を持つ。exit_code は ExitContract で
+    管理されるため削除する。
+
+    リーフノード判定: description キーを持つノードはリーフとして扱う。
+
+    Args:
+        exits: ネスト形式の exits セクション
+
+    Returns:
+        (exit_tree, warnings): 変換後のツリーと警告の tuple
+    """
+    warnings: list[str] = []
+
+    def _strip_exit_code(node: dict[str, Any]) -> dict[str, Any]:
+        """exit_code を除いた dict を返す（純粋関数）。"""
+        return {k: v for k, v in node.items() if k != "exit_code"}
+
+    def _process_level(data: dict[str, Any]) -> dict[str, Any]:
+        """再帰的にネスト構造を処理する（純粋関数）。
+
+        判定ルール:
+        1. dict でない値 → スキップ
+        2. description あり → リーフノード（exit_code 除去）
+        3. description なし & ネスト dict あり → 中間ノード（再帰）
+        """
+        result: dict[str, Any] = {}
+        for key, value in data.items():
+            if not isinstance(value, dict):
+                continue
+            if "description" in value:
+                result[key] = _strip_exit_code(value)
+            else:
+                result[key] = _process_level(value)
+        return result
+
+    exit_tree = _process_level(exits)
+    return exit_tree, tuple(warnings)
+
+
+# =============================================================================
+# Transition Extraction from Nodes (Pure Functions)
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class TransitionExtractionResult:
+    """transitions 抽出の結果（イミュータブル）。
+
+    Attributes:
+        nodes: transitions を除いた nodes
+        transitions: 抽出された transitions
+        extracted: 抽出が行われたか
+    """
+
+    nodes: dict[str, Any]
+    transitions: dict[str, Any]
+    extracted: bool
+
+
+def _extract_transitions_from_nodes(
+    nodes: dict[str, Any],
+) -> TransitionExtractionResult:
+    """nodes 内のネストされた transitions をトップレベルに抽出する（純粋関数）。
+
+    nodes 内に transitions キーがある場合、それらをトップレベル形式に変換する。
+    元の nodes dict は変更せず、新しい dict を返す。
+
+    Args:
+        nodes: YAML の nodes セクション
+
+    Returns:
+        TransitionExtractionResult: 抽出結果
+    """
+    transitions: dict[str, Any] = {}
+    cleaned_nodes: dict[str, Any] = {}
+    extracted = False
+
+    for node_name, node_data in nodes.items():
+        # exit ノードはスキップ
+        if node_name == "exit":
+            cleaned_nodes[node_name] = node_data
+            continue
+
+        if not isinstance(node_data, dict):
+            cleaned_nodes[node_name] = node_data
+            continue
+
+        if "transitions" in node_data:
+            transitions[node_name] = node_data["transitions"]
+            # transitions を除いた新しい dict を作成（イミュータブル操作）
+            cleaned_nodes[node_name] = {
+                k: v for k, v in node_data.items() if k != "transitions"
+            }
+            extracted = True
+        else:
+            cleaned_nodes[node_name] = node_data
+
+    return TransitionExtractionResult(
+        nodes=cleaned_nodes,
+        transitions=transitions,
+        extracted=extracted,
+    )
+
+
+# =============================================================================
+# Format-specific Conversion Functions (Pure Functions)
+# =============================================================================
+
+
+def _convert_legacy_flat(
+    yaml_data: dict[str, Any],
+    exits: dict[str, Any],
+) -> ConversionResult:
+    """レガシーフラット形式の YAML を変換する（純粋関数）。
+
+    既存の convert_yaml_structure ロジックを抽出。
+
+    Args:
+        yaml_data: 元の YAML データ
+        exits: フラット形式の exits セクション
+
+    Returns:
+        ConversionResult with converted data
+    """
+    result = copy.deepcopy(yaml_data)
+
+    mappings = _extract_exit_mappings(exits)
+    name_to_path: dict[str, str] = {m.old_name: m.new_path for m in mappings}
+    exit_tree = _build_exit_tree(mappings)
+
+    del result["exits"]
+
+    nodes = result.get("nodes", {})
+    nodes["exit"] = exit_tree
+    result["nodes"] = nodes
+
+    if "transitions" in result:
+        result["transitions"] = _convert_transitions(
+            result["transitions"],
+            name_to_path,
+        )
+
+    return ConversionResult.ok(result)
+
+
+def _convert_nested(
+    yaml_data: dict[str, Any],
+    exits: dict[str, Any],
+) -> ConversionResult:
+    """ネスト形式の YAML を変換する（純粋関数）。
+
+    変換パイプライン:
+    1. exits → nodes.exit に変換
+    2. nodes 内 transitions をトップレベルに抽出
+    3. 既存トップレベル transitions とマージ（競合時はノード内優先 + 警告）
+
+    Args:
+        yaml_data: 元の YAML データ
+        exits: ネスト形式の exits セクション
+
+    Returns:
+        ConversionResult with converted data
+    """
+    result = copy.deepcopy(yaml_data)
+    all_warnings: list[str] = []
+
+    # 1. exits → nodes.exit に変換
+    exit_tree, exit_warnings = _convert_nested_exits(exits)
+    all_warnings.extend(exit_warnings)
+    del result["exits"]
+
+    nodes = result.get("nodes", {})
+    nodes["exit"] = exit_tree
+
+    # 2. nodes 内 transitions をトップレベルに抽出
+    extraction = _extract_transitions_from_nodes(nodes)
+    result["nodes"] = extraction.nodes
+
+    if extraction.extracted:
+        existing = result.get("transitions", {})
+
+        # キー単位マージ: ノード内 transitions を優先しつつ、
+        # トップレベルにしかないキーも保持する
+        merged: dict[str, Any] = dict(existing)
+        for node_name, node_trans in extraction.transitions.items():
+            if node_name in merged:
+                # 同一ノードの競合をキー単位で検出
+                conflicting_keys = set(merged[node_name]) & set(node_trans)
+                if conflicting_keys:
+                    all_warnings.append(
+                        f"ノード '{node_name}' の transitions がトップレベルと"
+                        f"ノード内の両方に存在します。競合キー "
+                        f"{sorted(conflicting_keys)} はノード内の定義を"
+                        f"優先しました。"
+                    )
+                # キー単位でマージ（ノード内が優先、トップレベル固有は保持）
+                merged[node_name] = {**merged[node_name], **node_trans}
+            else:
+                merged[node_name] = node_trans
+        result["transitions"] = merged
+
+    return ConversionResult.ok(result, warnings=tuple(all_warnings))
+
+
+# =============================================================================
 # Main Conversion Function
 # =============================================================================
 
@@ -345,7 +615,8 @@ def convert_yaml_structure(
 ) -> ConversionResult:
     """Convert YAML from old exits format to new nested exit format.
 
-    This is the main entry point for YAML structure conversion.
+    形式を検出して適切な変換関数に委譲する。
+    入力の yaml_data は変更しない（純粋関数）。
 
     Converts:
     - `exits` section → `nodes.exit` nested structure
@@ -365,31 +636,13 @@ def convert_yaml_structure(
     if not exits:
         return ConversionResult.ok(yaml_data)
 
-    # Extract mappings
-    mappings = _extract_exit_mappings(exits)
+    format_type = _detect_exits_format(exits)
 
-    # Build name → path mapping for transition conversion
-    name_to_path: dict[str, str] = {m.old_name: m.new_path for m in mappings}
-
-    # Build new exit tree
-    exit_tree = _build_exit_tree(mappings)
-
-    # Start building result
-    result = dict(yaml_data)
-
-    # Remove old exits section
-    del result["exits"]
-
-    # Add exit tree to nodes
-    nodes = dict(result.get("nodes", {}))
-    nodes["exit"] = exit_tree
-    result["nodes"] = nodes
-
-    # Convert transitions
-    if "transitions" in result:
-        result["transitions"] = _convert_transitions(
-            result["transitions"],
-            name_to_path,
+    if format_type.format == "legacy_flat":
+        return _convert_legacy_flat(yaml_data, exits)
+    elif format_type.format == "nested":
+        return _convert_nested(yaml_data, exits)
+    else:
+        return ConversionResult.fail(
+            "未知の exits 形式です。手動で変換してください。"
         )
-
-    return ConversionResult.ok(result)

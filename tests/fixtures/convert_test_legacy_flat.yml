@@ -1,0 +1,22 @@
+version: "1.0"
+entrypoint: convert_test_legacy
+description: "レガシー変換テスト"
+
+start: step1
+
+nodes:
+  step1:
+    description: "ステップ1"
+
+transitions:
+  step1:
+    success::done: exit::green_success
+    failure::error: exit::red_error
+
+exits:
+  green_success:
+    code: 0
+    description: "正常終了"
+  red_error:
+    code: 1
+    description: "エラー終了"

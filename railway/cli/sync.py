@@ -16,6 +16,7 @@ import typer
 
 from railway.core.dag.codegen import generate_exit_node_skeleton, generate_transition_code
 from railway.core.dag.parser import ParseError, load_transition_graph
+from railway.core.dag.schema import validate_yaml_schema
 from railway.core.dag.skeleton import (
     compute_file_path,
     compute_skeleton_specs,
@@ -24,6 +25,7 @@ from railway.core.dag.skeleton import (
 )
 from railway.core.dag.types import NodeDefinition, TransitionGraph
 from railway.core.dag.validator import validate_graph
+from railway.migrations.yaml_converter import convert_yaml_structure
 
 # =============================================================================
 # Issue #44: Exit Node Skeleton Generation
@@ -35,53 +37,82 @@ from railway.core.dag.validator import validate_graph
 # =============================================================================
 
 
-def _is_old_format_yaml(yaml_path: Path) -> bool:
-    """YAML が旧形式（exits セクションあり）か判定（純粋関数）。"""
-    import yaml
-
-    content = yaml_path.read_text()
-    data = yaml.safe_load(content)
-    return "exits" in data
-
-
-def _convert_yaml_if_old_format(yaml_path: Path) -> bool:
+def _convert_yaml_if_old_format(
+    yaml_path: Path, *, dry_run: bool = False
+) -> bool:
     """旧形式 YAML を新形式に変換（副作用あり）。
+
+    変換後にスキーマ検証を行い、検証成功時のみファイルに書き込む。
+    例外発生時は元の内容に復元する。
+
+    フロー:
+    1. 元の内容をバックアップ（read）
+    2. 変換（純粋関数）
+    3. スキーマ検証（純粋関数）
+    4. ファイル書き込み（副作用 - 検証成功時のみ、dry_run=False の場合）
 
     Args:
         yaml_path: YAML ファイルパス
+        dry_run: True の場合、変換結果をプレビューのみ（ファイル変更なし）
 
     Returns:
-        変換した場合 True、既に新形式の場合 False
-
-    Note:
-        「既に新形式」メッセージは、スキーマ検証が成功した場合のみ表示する。
-        スキーマエラーがある場合は何も表示せず、後続の処理でエラーを報告させる。
+        変換した（またはプレビュー成功）場合 True、変換不要 or 失敗の場合 False
     """
     import yaml
 
-    from railway.core.dag.schema import validate_yaml_schema
-    from railway.migrations.yaml_converter import convert_yaml_structure
-
-    content = yaml_path.read_text()
-    data = yaml.safe_load(content)
+    # 元の内容をバックアップ
+    original_content = yaml_path.read_text()
+    data = yaml.safe_load(original_content)
 
     if "exits" not in data:
         # 新形式だが、スキーマ検証が成功した場合のみメッセージ表示
         validation = validate_yaml_schema(data)
         if validation.is_valid:
             typer.echo(f"  既に新形式: {yaml_path.name}")
-        # スキーマエラーがある場合は何も表示しない（後続でエラー報告）
         return False
 
-    result = convert_yaml_structure(data)
+    try:
+        result = convert_yaml_structure(data)
 
-    if result.success:
-        new_content = yaml.safe_dump(result.data, allow_unicode=True, sort_keys=False)
+        if not result.success:
+            typer.echo(
+                f"  警告: YAML 変換に失敗しました: {result.error}",
+                err=True,
+            )
+            return False
+
+        # 変換結果のスキーマ検証（書き込み前に検証）
+        assert result.data is not None  # success=True なら data は non-None
+        validation = validate_yaml_schema(result.data)
+        if not validation.is_valid:
+            errors = ", ".join(validation.errors)
+            typer.echo(
+                f"  警告: 変換結果が無効なためロールバックしました: {errors}",
+                err=True,
+            )
+            return False
+
+        # 検証成功
+        if dry_run:
+            typer.echo(
+                f"  プレビュー: {yaml_path.name}（旧形式 → 新形式に変換可能）"
+            )
+            return True
+
+        # ファイルに書き込み
+        new_content = yaml.safe_dump(
+            result.data, allow_unicode=True, sort_keys=False
+        )
         yaml_path.write_text(new_content)
         typer.echo(f"  変換: {yaml_path.name}（旧形式 → 新形式）")
         return True
-    else:
-        typer.echo(f"  警告: YAML 変換に失敗しました: {result.error}", err=True)
+
+    except Exception as e:
+        # 例外発生時は元の内容に復元
+        yaml_path.write_text(original_content)
+        typer.echo(
+            f"  エラー: 変換中に例外が発生しました: {e}", err=True
+        )
         return False
 
 
@@ -402,7 +433,7 @@ def _sync_entry(
 
     # Convert YAML if requested
     if convert:
-        _convert_yaml_if_old_format(yaml_path)
+        _convert_yaml_if_old_format(yaml_path, dry_run=dry_run)
 
     # Parse YAML (pure function via IO boundary)
     try:

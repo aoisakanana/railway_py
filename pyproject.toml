@@ -1,6 +1,6 @@
 [project]
 name = "railway-framework"
-version = "0.13.10"
+version = "0.13.11"
 description = "Railway Oriented Programming framework for Python"
 readme = "readme.md"
 requires-python = ">=3.10"
