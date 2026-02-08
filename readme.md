@@ -617,7 +617,7 @@ Error [E001]: 開始ノードの引数エラー
 Hint:  
   def start(ctx: Context | None = None) -> tuple[Context, Outcome]:  
 
-詳細: https://github.com/your-org/railway-framework/wiki/errors/E001  
+詳細: https://github.com/aoisakanana/railway-framework/wiki/errors/E001  
 ```  
 
 ---  
