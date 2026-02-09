@@ -343,6 +343,113 @@ class TestCodegenWithFixtures:
         assert "FINALIZE" in code
 
 
+class TestDeepNestedNodeCodegen:
+    """深いネストノード（sub.deep.process 等）のコード生成テスト。
+
+    バグ: ドット付きノード名がそのまま Python 識別子に使われ SyntaxError。
+    """
+
+    def _make_deep_nested_graph(self) -> "TransitionGraph":
+        from railway.core.dag.types import (
+            GraphOptions,
+            NodeDefinition,
+            StateTransition,
+            TransitionGraph,
+        )
+
+        return TransitionGraph(
+            version="1.0",
+            entrypoint="deep_test",
+            description="深いネストテスト",
+            nodes=(
+                NodeDefinition("start", "nodes.deep_test.start", "start", "開始"),
+                NodeDefinition(
+                    "sub.deep.process",
+                    "nodes.deep_test.sub.deep.process",
+                    "process",
+                    "深い処理",
+                ),
+                NodeDefinition(
+                    "exit.success.done",
+                    "nodes.exit.success.done",
+                    "done",
+                    "正常終了",
+                    is_exit=True,
+                    exit_code=0,
+                ),
+            ),
+            exits=(),
+            transitions=(
+                StateTransition("start", "success::done", "sub.deep.process"),
+                StateTransition(
+                    "sub.deep.process", "success::done", "exit.success.done"
+                ),
+            ),
+            start_node="start",
+            options=GraphOptions(),
+        )
+
+    def test_full_code_is_valid_python(self) -> None:
+        """深いネストノードを含む完全な生成コードが有効な Python であること。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = self._make_deep_nested_graph()
+        code = generate_transition_code(graph, "test.yml")
+
+        # SyntaxError が発生しないこと
+        ast.parse(code)
+
+    def test_imports_use_leaf_function_name(self) -> None:
+        """import 文が葉の関数名を使用すること。"""
+        from railway.core.dag.codegen import generate_imports
+
+        graph = self._make_deep_nested_graph()
+        code = generate_imports(graph)
+
+        # ドット付き名がそのまま import されないこと
+        assert "import sub.deep.process" not in code
+        # 葉の関数名でインポート（エイリアス付き）
+        assert "from nodes.deep_test.sub.deep.process import process" in code
+
+    def test_node_name_assignments_valid_python(self) -> None:
+        """_node_name 代入が有効な Python であること。"""
+        from railway.core.dag.codegen import generate_node_name_assignments
+
+        graph = self._make_deep_nested_graph()
+        code = generate_node_name_assignments(graph)
+
+        ast.parse(code)
+        # ドット付き名がそのまま左辺に使われないこと
+        assert "sub.deep.process._node_name" not in code
+        # エイリアスで代入されること
+        assert '_node_name = "sub.deep.process"' in code
+
+    def test_state_enum_valid_python(self) -> None:
+        """状態 enum がドットを含まない有効な Python であること。"""
+        from railway.core.dag.codegen import generate_state_enum
+
+        graph = self._make_deep_nested_graph()
+        code = generate_state_enum(graph)
+
+        ast.parse(code)
+        # ドットが含まれないこと
+        assert "SUB.DEEP" not in code
+        # アンダースコアで正しく置換されること
+        assert "SUB_DEEP_PROCESS_SUCCESS_DONE" in code
+
+    def test_transition_table_valid_python(self) -> None:
+        """遷移テーブルが有効な Python であること。"""
+        from railway.core.dag.codegen import generate_transition_table
+
+        graph = self._make_deep_nested_graph()
+        code = generate_transition_table(graph)
+
+        ast.parse(code)
+        # ドット付き名がそのまま値に使われないこと（文字列キーは OK）
+        assert '"start::success::done": process' not in code or \
+               '"start::success::done": _sub_deep_process' in code
+
+
 class TestCodegenHelpers:
     """Test helper functions."""
 
@@ -356,6 +463,15 @@ class TestCodegenHelpers:
             == "CHECK_SESSION_FAILURE_HTTP"
         )
         assert _to_enum_name("a", "success::type_a") == "A_SUCCESS_TYPE_A"
+
+    def test_to_enum_name_with_dots(self):
+        """ドット付きノード名の enum 名変換。"""
+        from railway.core.dag.codegen import _to_enum_name
+
+        assert (
+            _to_enum_name("sub.deep.process", "success::done")
+            == "SUB_DEEP_PROCESS_SUCCESS_DONE"
+        )
 
     def test_to_class_name(self):
         """Should convert entrypoint to valid class name."""

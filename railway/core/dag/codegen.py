@@ -55,6 +55,24 @@ def _node_to_alias(node: NodeDefinition) -> str:
     return "_" + node.name.replace(".", "_")
 
 
+def _get_python_ref(node: NodeDefinition) -> str:
+    """Get Python reference name for a node (pure function).
+
+    Nodes with dots in their name need aliases to avoid invalid Python
+    identifiers. Exit nodes always use aliases. Regular nodes with dots
+    (e.g., "sub.deep.process") also use aliases.
+
+    Args:
+        node: Node definition
+
+    Returns:
+        Valid Python identifier to reference this node
+    """
+    if node.is_exit or "." in node.name:
+        return _node_to_alias(node)
+    return node.function
+
+
 def generate_transition_code(graph: TransitionGraph, source_file: str) -> str:
     """Generate complete transition code file.
 
@@ -76,7 +94,7 @@ def generate_transition_code(graph: TransitionGraph, source_file: str) -> str:
     # Get start node function name
     start_node = graph.get_node(graph.start_node)
     start_function = (
-        start_node.function if start_node else "None  # ERROR: start node not found"
+        _get_python_ref(start_node) if start_node else "None  # ERROR: start node not found"
     )
 
     parts = [
@@ -142,10 +160,10 @@ def generate_imports(graph: TransitionGraph) -> str:
         if not node.has_handler:
             continue
 
-        if node.is_exit:
-            # Exit nodes use alias (e.g., done as _exit_success_done)
-            alias = _node_to_alias(node)
-            lines.append(f"from {node.module} import {node.function} as {alias}")
+        ref = _get_python_ref(node)
+        if ref != node.function:
+            # Nodes with dots use alias (exit nodes, deep nested nodes)
+            lines.append(f"from {node.module} import {node.function} as {ref}")
         else:
             # Regular nodes
             lines.append(f"from {node.module} import {node.function}")
@@ -166,7 +184,8 @@ def generate_start_node_constant(graph: TransitionGraph) -> str:
     if start_node is None:
         return "# START_NODE: not found"
 
-    return f"# Start node (from YAML: start: {graph.start_node})\nSTART_NODE = {start_node.function}"
+    ref = _get_python_ref(start_node)
+    return f"# Start node (from YAML: start: {graph.start_node})\nSTART_NODE = {ref}"
 
 
 def generate_run_helper() -> str:
@@ -258,11 +277,8 @@ def generate_node_name_assignments(graph: TransitionGraph) -> str:
         if not node.has_handler:
             continue
 
-        if node.is_exit:
-            alias = _node_to_alias(node)
-            lines.append(f'{alias}._node_name = "{node.name}"  # type: ignore[attr-defined]')
-        else:
-            lines.append(f'{node.function}._node_name = "{node.name}"  # type: ignore[attr-defined]')
+        ref = _get_python_ref(node)
+        lines.append(f'{ref}._node_name = "{node.name}"  # type: ignore[attr-defined]')
 
     return "\n".join(lines)
 
@@ -352,8 +368,8 @@ def generate_transition_table(graph: TransitionGraph) -> str:
             target_node = _find_node_by_name(graph.nodes, target)
             if target_node and target_node.has_handler:
                 # Exit node with handler - use alias
-                alias = _node_to_alias(target_node)
-                lines.append(f'    "{state_key}": {alias},')
+                ref = _get_python_ref(target_node)
+                lines.append(f'    "{state_key}": {ref},')
             continue
 
         # Legacy format: exit::name (generate as string for runner to handle)
@@ -371,7 +387,7 @@ def generate_transition_table(graph: TransitionGraph) -> str:
         # Regular node target
         target_node = graph.get_node(target)
         if target_node:
-            target_ref = target_node.function
+            target_ref = _get_python_ref(target_node)
         else:
             target_ref = f'"# ERROR: unknown node {target}"'
         lines.append(f'    "{state_key}": {target_ref},')
@@ -448,7 +464,7 @@ def _to_enum_name(node_name: str, state: str) -> str:
     Example: ("fetch", "success::done") -> "FETCH_SUCCESS_DONE"
     """
     combined = f"{node_name}_{state}"
-    return combined.upper().replace("::", "_").replace("-", "_")
+    return combined.upper().replace("::", "_").replace("-", "_").replace(".", "_")
 
 
 def _to_class_name(entrypoint: str) -> str:
