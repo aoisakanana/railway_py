@@ -348,6 +348,160 @@ class TestConvertEndToEnd:
         assert result2.data == result1.data
 
 
+class TestRegressionMissingVersionField:
+    """回帰テスト: v0.11.x YAML に version フィールドがないケース。
+
+    バグ: 変換関数が version を補完しないため、変換後の
+    スキーマ検証で「必須フィールド 'version' がありません」で失敗する。
+    """
+
+    def test_legacy_flat_without_version_converts_successfully(self) -> None:
+        """version なしレガシーフラット形式が変換成功する。"""
+        yaml_data = {
+            "entrypoint": "test",
+            "start": "step1",
+            "nodes": {"step1": {"description": "test"}},
+            "transitions": {
+                "step1": {"success::done": "exit::green_success"},
+            },
+            "exits": {
+                "green_success": {"code": 0, "description": "正常終了"},
+            },
+        }
+
+        result = convert_yaml_structure(yaml_data)
+
+        assert result.success is True
+        assert result.data["version"] == "1.0"
+        assert "exits" not in result.data
+
+    def test_nested_without_version_converts_successfully(self) -> None:
+        """version なしネスト形式が変換成功する。"""
+        yaml_data = {
+            "entrypoint": "test",
+            "start": "step1",
+            "nodes": {
+                "step1": {
+                    "description": "test",
+                    "transitions": {
+                        "success::done": "exit.success.done",
+                    },
+                },
+            },
+            "exits": {
+                "success": {
+                    "done": {"description": "正常終了", "exit_code": 0},
+                },
+            },
+        }
+
+        result = convert_yaml_structure(yaml_data)
+
+        assert result.success is True
+        assert result.data["version"] == "1.0"
+        assert "exits" not in result.data
+
+    def test_converted_without_version_passes_schema(self) -> None:
+        """version なし YAML を変換した結果がスキーマ検証を通過する。"""
+        yaml_data = {
+            "entrypoint": "test",
+            "start": "step1",
+            "nodes": {"step1": {"description": "test"}},
+            "transitions": {
+                "step1": {"success::done": "exit::green_success"},
+            },
+            "exits": {
+                "green_success": {"code": 0, "description": "正常終了"},
+            },
+        }
+
+        result = convert_yaml_structure(yaml_data)
+        assert result.success is True
+
+        validation = validate_yaml_schema(result.data)
+        assert validation.is_valid, f"スキーマ検証失敗: {validation.errors}"
+
+    def test_existing_version_preserved(self) -> None:
+        """version が既にある場合は上書きしない。"""
+        yaml_data = {
+            "version": "2.0",
+            "entrypoint": "test",
+            "start": "step1",
+            "nodes": {"step1": {"description": "test"}},
+            "transitions": {
+                "step1": {"success::done": "exit::green_success"},
+            },
+            "exits": {
+                "green_success": {"code": 0, "description": "正常終了"},
+            },
+        }
+
+        result = convert_yaml_structure(yaml_data)
+
+        assert result.success is True
+        assert result.data["version"] == "2.0"
+
+    def test_cli_convert_without_version(self, tmp_path: Path) -> None:
+        """CLI レベルで version なし YAML の変換が成功する。"""
+        yaml_content = {
+            "entrypoint": "cli_test",
+            "start": "step1",
+            "nodes": {"step1": {"description": "test"}},
+            "transitions": {
+                "step1": {"success::done": "exit::green_success"},
+            },
+            "exits": {
+                "green_success": {"code": 0, "description": "正常終了"},
+            },
+        }
+
+        yaml_path = tmp_path / "cli_test_20260210000000.yml"
+        yaml_path.write_text(
+            yaml.safe_dump(yaml_content, allow_unicode=True, sort_keys=False)
+        )
+
+        from railway.cli.sync import _convert_yaml_if_old_format
+
+        result = _convert_yaml_if_old_format(yaml_path)
+
+        assert result.converted is True
+
+        new_data = yaml.safe_load(yaml_path.read_text())
+        assert new_data["version"] == "1.0"
+        assert "exits" not in new_data
+
+    def test_cli_convert_dry_run_without_version(self, tmp_path: Path) -> None:
+        """CLI レベルで version なし YAML の --convert --dry-run が成功する。"""
+        yaml_content = {
+            "entrypoint": "cli_test",
+            "start": "step1",
+            "nodes": {"step1": {"description": "test"}},
+            "transitions": {
+                "step1": {"success::done": "exit::green_success"},
+            },
+            "exits": {
+                "green_success": {"code": 0, "description": "正常終了"},
+            },
+        }
+
+        yaml_path = tmp_path / "cli_test_20260210000000.yml"
+        yaml_path.write_text(
+            yaml.safe_dump(yaml_content, allow_unicode=True, sort_keys=False)
+        )
+
+        from railway.cli.sync import _convert_yaml_if_old_format
+
+        result = _convert_yaml_if_old_format(yaml_path, dry_run=True)
+
+        assert result.converted is True
+        assert result.data is not None
+        assert result.data["version"] == "1.0"
+
+        # dry_run なのでファイルは変更されていない
+        original_data = yaml.safe_load(yaml_path.read_text())
+        assert "exits" in original_data  # 元のまま
+
+
 class TestConvertCliIntegration:
     """CLI レベルの統合テスト: _convert_yaml_if_old_format の全フロー。"""
 
