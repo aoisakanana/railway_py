@@ -262,7 +262,7 @@ transitions:
 
         result = _convert_yaml_if_old_format(yaml_path)
 
-        assert result is False
+        assert result.converted is False
         captured = capsys.readouterr()
         assert "既に新形式" in captured.out
 
@@ -285,7 +285,7 @@ transitions: {}
 
         result = _convert_yaml_if_old_format(yaml_path)
 
-        assert result is False
+        assert result.converted is False
         captured = capsys.readouterr()
         # スキーマエラーがあるので「既に新形式」は表示されない
         assert "既に新形式" not in captured.out

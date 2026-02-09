@@ -25,32 +25,50 @@ from railway.migrations.changes import (
     ChangeType,
     ConfigChange,
     FileChange,
+    InteractiveMode,
     MigrationDefinition,
     YamlTransform,
+    should_confirm_change,
 )
 from railway.migrations.config_merger import merge_config
-from railway.migrations.types import MigrationPlan, MigrationResult
+from railway.migrations.types import ConfirmCallback, MigrationPlan, MigrationResult
 
 # ============================================================
 # ファイル変更アクション（IO）
 # ============================================================
 
-def apply_file_change(project_path: Path, change: FileChange) -> None:
+def apply_file_change(
+    project_path: Path,
+    change: FileChange,
+    *,
+    on_confirm: ConfirmCallback | None = None,
+    mode: InteractiveMode = "auto",
+) -> bool:
     """ファイル変更を適用する。
 
     Args:
         project_path: プロジェクトルートパス
         change: 適用するファイル変更
+        on_confirm: ユーザー確認コールバック（省略時は確認なし）
+        mode: インタラクティブモード（"auto", "interactive", "lazy"）
+
+    Returns:
+        True if applied, False if skipped
 
     Raises:
         IOError: ファイル操作失敗時
     """
+    if should_confirm_change(change.path, mode) and on_confirm is not None:
+        if not on_confirm(change.path, change.description):
+            return False
+
     file_path = project_path / change.path
 
     match change.change_type:
         case ChangeType.FILE_CREATE:
             file_path.parent.mkdir(parents=True, exist_ok=True)
-            file_path.write_text(change.content or "", encoding="utf-8")
+            if not file_path.exists():
+                file_path.write_text(change.content or "", encoding="utf-8")
 
         case ChangeType.FILE_DELETE:
             if file_path.exists():
@@ -62,6 +80,8 @@ def apply_file_change(project_path: Path, change: FileChange) -> None:
             if change.content:
                 file_path.parent.mkdir(parents=True, exist_ok=True)
                 file_path.write_text(change.content, encoding="utf-8")
+
+    return True
 
 
 def apply_config_change(project_path: Path, change: ConfigChange) -> None:
@@ -120,16 +140,24 @@ def apply_yaml_transform(project_path: Path, transform: YamlTransform) -> None:
                 )
 
 
-def apply_migration(project_path: Path, migration: MigrationDefinition) -> None:
+def apply_migration(
+    project_path: Path,
+    migration: MigrationDefinition,
+    *,
+    on_confirm: ConfirmCallback | None = None,
+    mode: InteractiveMode = "auto",
+) -> None:
     """マイグレーションを適用する。
 
     Args:
         project_path: プロジェクトルートパス
         migration: 適用するマイグレーション定義
+        on_confirm: ユーザー確認コールバック（省略時は確認なし）
+        mode: インタラクティブモード
     """
     # ファイル変更を適用
     for change in migration.file_changes:
-        apply_file_change(project_path, change)
+        apply_file_change(project_path, change, on_confirm=on_confirm, mode=mode)
 
     # 設定変更を適用
     for config_change in migration.config_changes:
@@ -149,6 +177,8 @@ def execute_migration_plan(
     plan: MigrationPlan,
     create_backup_flag: bool = True,
     on_progress: Callable[[str], None] | None = None,
+    on_confirm: ConfirmCallback | None = None,
+    mode: InteractiveMode = "auto",
 ) -> MigrationResult:
     """マイグレーション計画を実行する。
 
@@ -157,6 +187,8 @@ def execute_migration_plan(
         plan: 実行するマイグレーション計画
         create_backup_flag: バックアップを作成するか
         on_progress: 進捗コールバック
+        on_confirm: ユーザー確認コールバック（省略時は確認なし）
+        mode: インタラクティブモード
 
     Returns:
         MigrationResult with success status and details
@@ -183,7 +215,9 @@ def execute_migration_plan(
             if on_progress:
                 on_progress(f"⏳ {migration.description}...")
 
-            apply_migration(project_path, migration)
+            apply_migration(
+                project_path, migration, on_confirm=on_confirm, mode=mode,
+            )
             current_version = migration.to_version
 
         # メタデータ更新

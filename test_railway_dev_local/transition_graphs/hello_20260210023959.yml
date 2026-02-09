@@ -1,0 +1,27 @@
+version: "1.0"
+entrypoint: hello
+description: "サンプルワークフロー"
+
+nodes:
+  greet:
+    module: nodes.greet
+    function: greet
+    description: "挨拶を出力"
+
+  exit:
+    success:
+      done:
+        description: "正常終了"
+    failure:
+      error:
+        description: "異常終了"
+
+start: greet
+
+transitions:
+  greet:
+    success::done: exit.success.done
+    failure::error: exit.failure.error
+
+options:
+  max_iterations: 10

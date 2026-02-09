@@ -1,4 +1,4 @@
-"""回帰テスト: --convert オプションのファイル破損バグ (v0.13.11)。
+"""回帰テスト: --convert オプションのファイル破損バグ (v0.13.10rc3)。
 
 バグ報告の再現ケースをテスト化。
 """
@@ -385,7 +385,7 @@ class TestConvertCliIntegration:
 
         result = _convert_yaml_if_old_format(yaml_path)
 
-        assert result is True
+        assert result.converted is True
 
         # 書き込まれた内容を検証
         new_data = yaml.safe_load(yaml_path.read_text())

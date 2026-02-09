@@ -8,10 +8,14 @@ Note:
     詳細な変更定義（FileChange, ConfigChange, CodeGuidance）は
     railway/migrations/changes.py で定義される。
 """
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
+
+# ユーザー確認コールバック型: (path, description) -> bool
+ConfirmCallback = Callable[[str, str], bool]
 
 
 class MigrationPlan(BaseModel):

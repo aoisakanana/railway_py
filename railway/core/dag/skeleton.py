@@ -153,9 +153,36 @@ def compute_file_path(spec: SkeletonSpec, src_dir: Path) -> Path:
         rel_path = Path("nodes") / spec.node_name.replace(".", "/")
     else:
         # check_time → src/nodes/{entrypoint}/check_time.py
-        rel_path = Path("nodes") / spec.entrypoint / spec.node_name
+        # sub.deep.process → src/nodes/{entrypoint}/sub/deep/process.py
+        rel_path = Path("nodes") / spec.entrypoint / spec.node_name.replace(".", "/")
 
     return src_dir / f"{rel_path}.py"
+
+
+def compute_init_py_paths(file_path: Path, src_dir: Path) -> tuple[Path, ...]:
+    """スケルトンファイルパスから必要な __init__.py パスを計算する（純粋関数）。
+
+    ファイルの親ディレクトリから src_dir までの各階層に必要な __init__.py を列挙する。
+    src_dir 自体には __init__.py を含めない。
+
+    Args:
+        file_path: スケルトンファイルパス（例: src/nodes/myflow/process.py）
+        src_dir: src ディレクトリ（例: src）
+
+    Returns:
+        __init__.py パスのタプル（浅い順）
+
+    Examples:
+        >>> compute_init_py_paths(Path("src/nodes/myflow/process.py"), Path("src"))
+        (Path("src/nodes/__init__.py"), Path("src/nodes/myflow/__init__.py"))
+    """
+    init_paths: list[Path] = []
+    current = file_path.parent
+    while current != src_dir and current != src_dir.parent:
+        init_py = current / "__init__.py"
+        init_paths.append(init_py)
+        current = current.parent
+    return tuple(reversed(init_paths))
 
 
 def filter_regular_nodes(yaml_nodes: tuple[str, ...]) -> tuple[str, ...]:

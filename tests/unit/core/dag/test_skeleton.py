@@ -12,6 +12,7 @@ from railway.core.dag.skeleton import (
     generate_skeleton_spec,
     generate_regular_node_content,
     compute_file_path,
+    compute_init_py_paths,
     filter_regular_nodes,
     compute_skeleton_specs,
 )
@@ -172,6 +173,109 @@ class TestComputeFilePath:
         path = compute_file_path(spec, Path("src"))
 
         assert path == Path("src/nodes/exit/failure/ssh/handshake.py")
+
+
+class TestComputeFilePathDeepNested:
+    """compute_file_path のドット→スラッシュ変換テスト（Issue 14-01）。"""
+
+    def test_deep_regular_node_path(self) -> None:
+        """深いネストの通常ノードパス計算。"""
+        spec = SkeletonSpec(
+            node_name="sub.deep.process",
+            module_path="nodes.myflow.sub.deep.process",
+            entrypoint="myflow",
+            is_exit_node=False,
+        )
+        path = compute_file_path(spec, Path("src"))
+        assert path == Path("src/nodes/myflow/sub/deep/process.py")
+
+    def test_two_level_regular_node_path(self) -> None:
+        """2段ネストの通常ノードパス計算。"""
+        spec = SkeletonSpec(
+            node_name="check.db",
+            module_path="nodes.myflow.check.db",
+            entrypoint="myflow",
+            is_exit_node=False,
+        )
+        path = compute_file_path(spec, Path("src"))
+        assert path == Path("src/nodes/myflow/check/db.py")
+
+    def test_simple_node_name_unchanged(self) -> None:
+        """ドットなしのノード名は変わらない。"""
+        spec = SkeletonSpec(
+            node_name="process",
+            module_path="nodes.myflow.process",
+            entrypoint="myflow",
+            is_exit_node=False,
+        )
+        path = compute_file_path(spec, Path("src"))
+        assert path == Path("src/nodes/myflow/process.py")
+
+    def test_consistency_with_exit_node(self) -> None:
+        """終端ノードと通常ノードの一貫性。"""
+        exit_spec = SkeletonSpec(
+            node_name="exit.failure.ssh.handshake",
+            module_path="nodes.exit.failure.ssh.handshake",
+            entrypoint="myflow",
+            is_exit_node=True,
+        )
+        regular_spec = SkeletonSpec(
+            node_name="ssh.handshake.check",
+            module_path="nodes.myflow.ssh.handshake.check",
+            entrypoint="myflow",
+            is_exit_node=False,
+        )
+        exit_path = compute_file_path(exit_spec, Path("src"))
+        regular_path = compute_file_path(regular_spec, Path("src"))
+        assert exit_path == Path("src/nodes/exit/failure/ssh/handshake.py")
+        assert regular_path == Path("src/nodes/myflow/ssh/handshake/check.py")
+
+
+class TestComputeInitPyPaths:
+    """compute_init_py_paths のテスト（Issue 14-02）。"""
+
+    def test_single_level_node(self) -> None:
+        """1段階のノード。"""
+        paths = compute_init_py_paths(
+            Path("src/nodes/myflow/process.py"), Path("src")
+        )
+        assert Path("src/nodes/__init__.py") in paths
+        assert Path("src/nodes/myflow/__init__.py") in paths
+
+    def test_deep_nested_node(self) -> None:
+        """深いネストのノード。"""
+        paths = compute_init_py_paths(
+            Path("src/nodes/myflow/sub/deep/process.py"), Path("src")
+        )
+        assert Path("src/nodes/__init__.py") in paths
+        assert Path("src/nodes/myflow/__init__.py") in paths
+        assert Path("src/nodes/myflow/sub/__init__.py") in paths
+        assert Path("src/nodes/myflow/sub/deep/__init__.py") in paths
+
+    def test_pure_function_no_side_effects(self) -> None:
+        """純粋関数: 存在しないパスでも動作する。"""
+        paths = compute_init_py_paths(
+            Path("/nonexistent/src/nodes/flow/a/b/c.py"),
+            Path("/nonexistent/src"),
+        )
+        assert len(paths) > 0
+
+    def test_returns_tuple(self) -> None:
+        """イミュータブルなタプルを返す。"""
+        paths = compute_init_py_paths(
+            Path("src/nodes/myflow/process.py"), Path("src")
+        )
+        assert isinstance(paths, tuple)
+
+    def test_paths_are_ordered_top_down(self) -> None:
+        """パスはトップダウン順（浅い→深い）。"""
+        paths = compute_init_py_paths(
+            Path("src/nodes/myflow/sub/process.py"), Path("src")
+        )
+        path_list = list(paths)
+        assert path_list[0] == Path("src/nodes/__init__.py")
+        assert path_list[1] == Path("src/nodes/myflow/__init__.py")
+        assert path_list[2] == Path("src/nodes/myflow/sub/__init__.py")
 
 
 class TestFilterRegularNodes:

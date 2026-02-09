@@ -295,6 +295,43 @@ exits:
         assert "exits" in not_matched
 
 
+class TestApplyFileChangeCreateSemantics:
+    """FILE_CREATE の上書き防止テスト（Issue 18-01）。"""
+
+    def test_create_does_not_overwrite_existing(self, tmp_path: Path) -> None:
+        """FILE_CREATE は既存ファイルを上書きしない。"""
+        existing = tmp_path / "test.txt"
+        existing.write_text("original content")
+        change = FileChange.create(path="test.txt", content="new content", description="test")
+        apply_file_change(tmp_path, change)
+        assert existing.read_text() == "original content"
+
+    def test_update_overwrites_existing(self, tmp_path: Path) -> None:
+        """FILE_UPDATE は既存ファイルを上書きする。"""
+        existing = tmp_path / "test.txt"
+        existing.write_text("original")
+        change = FileChange(
+            change_type=ChangeType.FILE_UPDATE,
+            path="test.txt",
+            content="updated",
+            description="test",
+        )
+        apply_file_change(tmp_path, change)
+        assert existing.read_text() == "updated"
+
+    def test_create_new_file_still_works(self, tmp_path: Path) -> None:
+        """FILE_CREATE は新規ファイルを正常に作成する。"""
+        change = FileChange.create(path="new.txt", content="hello", description="test")
+        apply_file_change(tmp_path, change)
+        assert (tmp_path / "new.txt").read_text() == "hello"
+
+    def test_create_with_nested_dirs_still_works(self, tmp_path: Path) -> None:
+        """FILE_CREATE はネストされたディレクトリも作成する。"""
+        change = FileChange.create(path="a/b/c.txt", content="deep", description="test")
+        apply_file_change(tmp_path, change)
+        assert (tmp_path / "a" / "b" / "c.txt").read_text() == "deep"
+
+
 class TestApplyMigrationWithYamlTransform:
     """apply_migration が yaml_transforms を適用することのテスト（Issue #34）。"""
 
