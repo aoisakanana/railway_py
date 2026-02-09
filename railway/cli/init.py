@@ -9,6 +9,30 @@ from railway import __version__
 from railway.core.project_metadata import create_metadata, save_metadata
 
 
+def _compute_version_constraint(version: str) -> str:
+    """バージョン文字列から互換性制約を計算する（純粋関数）。
+
+    Args:
+        version: バージョン文字列（例: "0.13.11", "0.13.10rc2"）
+
+    Returns:
+        互換性制約文字列（例: ">=0.13.11,<0.14.0"）
+
+    Note:
+        プレリリース版の場合、lower bound に完全なバージョン文字列を使用する。
+        PEP 440 では 0.13.10rc2 < 0.13.10 であるため、
+        >=0.13.10 は 0.13.10rc2 を含まない。
+    """
+    from packaging.version import Version
+
+    v = Version(version)
+    base = f"{v.major}.{v.minor}.{v.micro}"
+    next_minor = v.minor + 1
+    # プレリリース版ではフルバージョンを lower bound に使用
+    lower = str(v) if v.pre is not None else base
+    return f">={lower},<{v.major}.{next_minor}.0"
+
+
 def _validate_project_name(name: str) -> str:
     """
     Validate and normalize project name.
@@ -33,13 +57,14 @@ def _write_file(path: Path, content: str) -> None:
 
 def _create_pyproject_toml(project_path: Path, project_name: str, python_version: str) -> None:
     """Create pyproject.toml file."""
+    version_constraint = _compute_version_constraint(__version__)
     content = f'''[project]
 name = "{project_name}"
 version = "0.1.0"
 description = "Railway framework automation project"
 requires-python = ">={python_version}"
 dependencies = [
-    "railway-framework>=0.1.0",
+    "railway-framework{version_constraint}",
     "loguru>=0.7.0",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
@@ -65,6 +90,11 @@ packages = ["src"]
 # src/ プレフィックスを取り除く設定
 [tool.hatch.build.targets.wheel.sources]
 "src" = ""
+
+[tool.mypy]
+mypy_path = "src"
+explicit_package_bases = true
+ignore_missing_imports = true
 '''
     _write_file(project_path / "pyproject.toml", content)
 
@@ -399,7 +429,7 @@ def check_time(ctx: TimeContext | None = None) -> tuple[TimeContext, Outcome]:
 
 これにより、**テスト時に任意の初期状態を注入できます**。
 
-`src/nodes/greeting/greet.py`:
+`src/nodes/greeting/greet_morning.py`:
 
 ```python
 from railway import node
@@ -412,6 +442,14 @@ def greet_morning(ctx: TimeContext) -> tuple[TimeContext, Outcome]:
     \"\"\"朝の挨拶\"\"\"
     print("おはようございます！")
     return ctx, Outcome.success("done")
+```
+
+`src/nodes/greeting/greet_afternoon.py`:
+
+```python
+from railway import node
+from railway.core.dag import Outcome
+from nodes.greeting.check_time import TimeContext
 
 
 @node
@@ -419,6 +457,14 @@ def greet_afternoon(ctx: TimeContext) -> tuple[TimeContext, Outcome]:
     \"\"\"午後の挨拶\"\"\"
     print("こんにちは！")
     return ctx, Outcome.success("done")
+```
+
+`src/nodes/greeting/greet_evening.py`:
+
+```python
+from railway import node
+from railway.core.dag import Outcome
+from nodes.greeting.check_time import TimeContext
 
 
 @node
@@ -426,6 +472,28 @@ def greet_evening(ctx: TimeContext) -> tuple[TimeContext, Outcome]:
     \"\"\"夜の挨拶\"\"\"
     print("こんばんは！")
     return ctx, Outcome.success("done")
+```
+
+**ポイント:**
+- `module/function` を省略すると、ノード名からファイルが自動解決される
+- 例: `greet_morning` → `nodes.greeting.greet_morning` モジュールの `greet_morning` 関数
+
+**応用: module 明示パターン**
+
+1ファイルに複数関数を配置したい場合は、YAML で `module` を明示できます:
+
+```yaml
+# YAML で module を明示すれば、1 ファイルに複数関数を配置可能
+nodes:
+  greet_morning:
+    module: nodes.greeting.greet
+    function: greet_morning
+  greet_afternoon:
+    module: nodes.greeting.greet
+    function: greet_afternoon
+  greet_evening:
+    module: nodes.greeting.greet
+    function: greet_evening
 ```
 
 ### 4.3 コード生成と実行
@@ -992,20 +1060,20 @@ nodes:
     function: greet
     description: "挨拶を出力"
 
-exits:
-  success:
-    code: 0
-    description: "正常終了"
-  error:
-    code: 1
-    description: "異常終了"
+  exit:
+    success:
+      done:
+        description: "正常終了"
+    failure:
+      error:
+        description: "異常終了"
 
 start: greet
 
 transitions:
   greet:
-    success::done: exit::success
-    failure::error: exit::error
+    success::done: exit.success.done
+    failure::error: exit.failure.error
 
 options:
   max_iterations: 10
@@ -1079,6 +1147,7 @@ def _create_init_files(project_path: Path) -> None:
         (project_path / "src" / "nodes" / "__init__.py", '"""Node modules."""\n'),
         (project_path / "src" / "common" / "__init__.py", '"""Common utilities."""\n'),
         (project_path / "tests" / "__init__.py", ""),
+        (project_path / "tests" / "nodes" / "__init__.py", ""),
     ]
     for path, content in init_files:
         _write_file(path, content)

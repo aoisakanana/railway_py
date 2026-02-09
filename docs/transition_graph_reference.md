@@ -103,6 +103,18 @@ nodes:
 
 **Note:** 終端ノード（`exit.*`）は `entrypoint` を含みません。
 
+### 深いネスト通常ノード（v0.13.10rc3+）
+
+ドット区切りのノード名はディレクトリ階層に変換されます:
+
+| ノードパス | entrypoint | 生成ファイル |
+|-----------|-----------|-------------|
+| `sub.deep.process` | `my_wf` | `src/nodes/my_wf/sub/deep/process.py` |
+| `check.db` | `my_wf` | `src/nodes/my_wf/check/db.py` |
+| `process` | `my_wf` | `src/nodes/my_wf/process.py` |
+
+**Note:** 終端ノードは既に対応済みです（`exit.failure.ssh.handshake` → `src/nodes/exit/failure/ssh/handshake.py`）。
+
 ---
 
 ## nodes.exit セクション（終端ノード）
@@ -271,7 +283,7 @@ railway sync transition --entry my_workflow --convert
 railway sync transition --entry my_workflow --convert --dry-run
 ```
 
-v0.13.11+ では以下の形式を自動検出して変換します:
+v0.13.10rc3+ では以下の形式を自動検出して変換します:
 - v0.11.x フラット形式（`exits` + `code` キー）
 - v0.12.x〜v0.13.x ネスト形式（`exits` + カテゴリネスト）
 

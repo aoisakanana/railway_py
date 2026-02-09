@@ -9,8 +9,8 @@ import fnmatch
 import re
 from collections.abc import Callable
 from enum import Enum
-from pathlib import Path
-from typing import Any
+from pathlib import Path, PurePosixPath
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -221,3 +221,71 @@ class MigrationDefinition(BaseModel):
     def has_breaking_changes(self) -> bool:
         """破壊的変更があるかどうか。"""
         return len(self.warnings) > 0 or len(self.code_guidance) > 0
+
+
+# ============================================================
+# インタラクティブモード
+# ============================================================
+
+InteractiveMode = Literal["auto", "interactive", "lazy"]
+
+# lazy モードで自動適用されるパターン
+_LAZY_AUTO_PATTERNS: tuple[str, ...] = (
+    "_railway/generated/**",
+    ".railway/**",
+    "**/.gitkeep",
+    "**/__init__.py",
+)
+
+# lazy モードで確認が必要なパターン
+_LAZY_CONFIRM_PATTERNS: tuple[str, ...] = (
+    "pyproject.toml",
+    "TUTORIAL.md",
+)
+
+
+def _match_pattern(path: str, pattern: str) -> bool:
+    """パスがパターンにマッチするか判定する（純粋関数）。
+
+    Args:
+        path: チェックするパス
+        pattern: glob パターン
+
+    Returns:
+        マッチすれば True
+    """
+    return PurePosixPath(path).match(pattern)
+
+
+def should_confirm_change(
+    path: str,
+    mode: InteractiveMode,
+) -> bool:
+    """変更にユーザー確認が必要かどうかを判定する（純粋関数）。
+
+    Args:
+        path: ファイルパス
+        mode: インタラクティブモード
+
+    Returns:
+        確認が必要なら True
+    """
+    if mode == "auto":
+        return False
+
+    if mode == "interactive":
+        return True
+
+    # lazy モード
+    for auto_pattern in _LAZY_AUTO_PATTERNS:
+        if _match_pattern(path, auto_pattern):
+            return False
+
+    for confirm_pattern in _LAZY_CONFIRM_PATTERNS:
+        if _match_pattern(path, confirm_pattern):
+            return True
+
+    if path.endswith(".py"):
+        return True
+
+    return False

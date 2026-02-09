@@ -1199,7 +1199,7 @@ def _create_entry(
         _create_linear_entry(name)
 
     # Create test file (only if not exists)
-    test_path = Path.cwd() / "tests" / "nodes" / f"test_{name}.py"
+    test_path = Path.cwd() / "tests" / f"test_{name}.py"
     if not test_path.exists():
         _create_entry_test(name)
 

@@ -11,11 +11,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import typer
 
 from railway.core.dag.codegen import generate_exit_node_skeleton, generate_transition_code
-from railway.core.dag.parser import ParseError, load_transition_graph
+from railway.core.dag.parser import ParseError, load_transition_graph, parse_transition_graph
 from railway.core.dag.schema import validate_yaml_schema
 from railway.core.dag.skeleton import (
     compute_file_path,
@@ -37,9 +38,22 @@ from railway.migrations.yaml_converter import convert_yaml_structure
 # =============================================================================
 
 
+@dataclass(frozen=True)
+class ConvertFileResult:
+    """YAML変換結果（イミュータブル）。
+
+    Attributes:
+        converted: 変換が行われた（またはプレビュー成功）場合 True
+        data: 変換後のデータ（変換成功時のみ）
+    """
+
+    converted: bool
+    data: dict[str, Any] | None = None
+
+
 def _convert_yaml_if_old_format(
     yaml_path: Path, *, dry_run: bool = False
-) -> bool:
+) -> ConvertFileResult:
     """旧形式 YAML を新形式に変換（副作用あり）。
 
     変換後にスキーマ検証を行い、検証成功時のみファイルに書き込む。
@@ -56,7 +70,7 @@ def _convert_yaml_if_old_format(
         dry_run: True の場合、変換結果をプレビューのみ（ファイル変更なし）
 
     Returns:
-        変換した（またはプレビュー成功）場合 True、変換不要 or 失敗の場合 False
+        ConvertFileResult: 変換結果（converted=True/False, data=変換後データ or None）
     """
     import yaml
 
@@ -69,7 +83,7 @@ def _convert_yaml_if_old_format(
         validation = validate_yaml_schema(data)
         if validation.is_valid:
             typer.echo(f"  既に新形式: {yaml_path.name}")
-        return False
+        return ConvertFileResult(converted=False)
 
     try:
         result = convert_yaml_structure(data)
@@ -79,7 +93,7 @@ def _convert_yaml_if_old_format(
                 f"  警告: YAML 変換に失敗しました: {result.error}",
                 err=True,
             )
-            return False
+            return ConvertFileResult(converted=False)
 
         # 変換結果のスキーマ検証（書き込み前に検証）
         assert result.data is not None  # success=True なら data は non-None
@@ -90,14 +104,14 @@ def _convert_yaml_if_old_format(
                 f"  警告: 変換結果が無効なためロールバックしました: {errors}",
                 err=True,
             )
-            return False
+            return ConvertFileResult(converted=False)
 
         # 検証成功
         if dry_run:
             typer.echo(
                 f"  プレビュー: {yaml_path.name}（旧形式 → 新形式に変換可能）"
             )
-            return True
+            return ConvertFileResult(converted=True, data=result.data)
 
         # ファイルに書き込み
         new_content = yaml.safe_dump(
@@ -105,7 +119,7 @@ def _convert_yaml_if_old_format(
         )
         yaml_path.write_text(new_content)
         typer.echo(f"  変換: {yaml_path.name}（旧形式 → 新形式）")
-        return True
+        return ConvertFileResult(converted=True, data=result.data)
 
     except Exception as e:
         # 例外発生時は元の内容に復元
@@ -113,7 +127,7 @@ def _convert_yaml_if_old_format(
         typer.echo(
             f"  エラー: 変換中に例外が発生しました: {e}", err=True
         )
-        return False
+        return ConvertFileResult(converted=False)
 
 
 @dataclass(frozen=True)
@@ -432,12 +446,21 @@ def _sync_entry(
     typer.echo(f"処理中: {yaml_path.name}")
 
     # Convert YAML if requested
+    convert_result = ConvertFileResult(converted=False)
     if convert:
-        _convert_yaml_if_old_format(yaml_path, dry_run=dry_run)
+        convert_result = _convert_yaml_if_old_format(yaml_path, dry_run=dry_run)
 
     # Parse YAML (pure function via IO boundary)
     try:
-        graph = load_transition_graph(yaml_path)
+        if dry_run and convert_result.converted and convert_result.data is not None:
+            import yaml as yaml_mod
+
+            yaml_str = yaml_mod.safe_dump(
+                convert_result.data, allow_unicode=True, sort_keys=False
+            )
+            graph = parse_transition_graph(yaml_str)
+        else:
+            graph = load_transition_graph(yaml_path)
     except ParseError as e:
         raise SyncError(f"パースエラー:\n  {e}")
 

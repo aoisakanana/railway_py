@@ -9,6 +9,7 @@ import typer
 from railway import __version__
 from railway.core.project_discovery import find_project_root
 from railway.core.project_metadata import load_metadata
+from railway.migrations.changes import InteractiveMode
 from railway.migrations.executor import (
     execute_migration_plan,
     initialize_project,
@@ -25,6 +26,12 @@ def update(
     force: bool = typer.Option(False, "--force", "-f", help="確認なしで実行"),
     no_backup: bool = typer.Option(False, "--no-backup", help="バックアップを作成しない"),
     verbose: bool = typer.Option(False, "-v", "--verbose", help="詳細出力"),
+    interactive: bool = typer.Option(
+        False, "--interactive", help="全ファイル変更を個別に確認"
+    ),
+    lazy_interactive: bool = typer.Option(
+        False, "--lazy-interactive", help="重要なファイル変更のみ確認"
+    ),
 ) -> None:
     """プロジェクトを最新バージョンに更新する。"""
     project_path = find_project_root()
@@ -105,6 +112,17 @@ def update(
             typer.echo("中止しました")
             raise typer.Exit(0)
 
+    # インタラクティブモード判定
+    mode: InteractiveMode = "auto"
+    if interactive:
+        mode = "interactive"
+    elif lazy_interactive:
+        mode = "lazy"
+
+    # 確認コールバック
+    def confirm_callback(path: str, description: str) -> bool:
+        return typer.confirm(f"  適用しますか? {path}: {description}")
+
     # マイグレーション実行
     def progress_callback(message: str) -> None:
         typer.echo(message)
@@ -114,6 +132,8 @@ def update(
         plan,
         create_backup_flag=not no_backup,
         on_progress=progress_callback,
+        on_confirm=confirm_callback if mode != "auto" else None,
+        mode=mode,
     )
 
     if result.success:

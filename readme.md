@@ -70,7 +70,7 @@ def main():
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)  
 [![Test Coverage](https://img.shields.io/badge/coverage-90%25+-brightgreen.svg)]()  
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)  
-[![Tests](https://img.shields.io/badge/tests-1282%20passing-success.svg)]()  
+[![Tests](https://img.shields.io/badge/tests-1465%20passing-success.svg)]()  
 
 ---  
 
@@ -363,7 +363,7 @@ railway sync transition --entry <name>  # 遷移コード生成（デフォル�
 railway sync transition --all           # 全遷移コード生成  
 railway sync transition --entry <name> --no-overwrite  # 既存ファイルをスキップ  
 railway sync transition --entry <name> --convert       # 旧形式YAMLを新形式に変換
-railway sync transition --entry <name> --convert --dry-run  # 変換プレビュー
+railway sync transition --entry <name> --convert --dry-run  # 変換プレビュー（変換後データで検証）
 railway sync transition --entry <name> --dry-run       # プレビューのみ
 ```
 
@@ -384,7 +384,7 @@ railway sync transition --entry my_workflow --convert
 | 形式 | 例 | 対応 |
 |------|-----|------|
 | v0.11.x フラット | `exits: { green_success: { code: 0 } }` | v0.13.3+ |
-| v0.12.x ネスト | `exits: { success: { done: { ... } } }` | **v0.13.11+** |
+| v0.12.x ネスト | `exits: { success: { done: { ... } } }` | **v0.13.10rc3+** |
 
 変換は安全に行われます:
 - 変換前にファイルの内容をバックアップ
@@ -830,13 +830,29 @@ def test_check_severity_critical():
     assert result_ctx.severity == "critical"  
 ```  
 
-```bash  
-# テスト実行  
-pytest -v  
-pytest --cov=src --cov-report=html  
-```  
+```bash
+# テスト実行
+pytest -v
+pytest --cov=src --cov-report=html
+```
 
----  
+### テストの配置
+
+| テストタイプ | 配置先 | 生成コマンド |
+|-------------|--------|-------------|
+| エントリポイントテスト | `tests/test_{entry}.py` | `railway new entry` |
+| ノードテスト | `tests/nodes/test_{node}.py` | `railway new node` |
+
+```
+tests/
+├── __init__.py
+├── test_my_workflow.py       # エントリポイントテスト
+└── nodes/
+    ├── __init__.py
+    └── test_check_status.py  # ノードテスト
+```
+
+---
 
 ## 実例: アラート処理ワークフロー  
 
