@@ -103,7 +103,7 @@ nodes:
 
 **Note:** 終端ノード（`exit.*`）は `entrypoint` を含みません。
 
-### 深いネスト通常ノード（v0.13.10rc3+）
+### 深いネスト通常ノード（v0.13.11rc1+）
 
 ドット区切りのノード名はディレクトリ階層に変換されます:
 
@@ -283,7 +283,7 @@ railway sync transition --entry my_workflow --convert
 railway sync transition --entry my_workflow --convert --dry-run
 ```
 
-v0.13.10rc3+ では以下の形式を自動検出して変換します:
+v0.13.11rc1+ では以下の形式を自動検出して変換します:
 - v0.11.x フラット形式（`exits` + `code` キー）
 - v0.12.x〜v0.13.x ネスト形式（`exits` + カテゴリネスト）
 

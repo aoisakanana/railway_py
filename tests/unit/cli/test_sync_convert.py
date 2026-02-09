@@ -1,4 +1,4 @@
-"""変換+ロールバックのテスト（v0.13.10rc3）。"""
+"""変換+ロールバックのテスト（v0.13.11rc1）。"""
 
 from pathlib import Path
 from unittest.mock import patch
