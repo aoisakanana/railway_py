@@ -14,7 +14,7 @@ from railway.migrations.executor import (
     execute_migration_plan,
     initialize_project,
 )
-from railway.migrations.registry import calculate_migration_path
+from railway.migrations.registry import _base_release, calculate_migration_path
 
 app = typer.Typer(help="プロジェクト更新コマンド")
 
@@ -65,8 +65,8 @@ def update(
 
     from_version = metadata.railway.version
 
-    # 既に最新の場合
-    if from_version == __version__:
+    # 既に最新の場合（ベースリリース比較でプレリリースも同一扱い）
+    if _base_release(from_version) >= _base_release(__version__):
         typer.echo(f"✅ プロジェクトは最新です (v{__version__})")
         raise typer.Exit(0)
 

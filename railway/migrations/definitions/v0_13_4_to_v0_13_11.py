@@ -1,4 +1,7 @@
-"""Migration from v0.13.10 to v0.13.10rc3.
+"""Migration from v0.13.4 to v0.13.11.
+
+範囲マッチにより、0.13.4 以降（0.13.10rc2 等のプレリリース含む）の
+すべてのバージョンから 0.13.11 へマイグレーション可能。
 
 Changes:
 - pyproject.toml に [tool.mypy] セクション追加
@@ -16,8 +19,8 @@ from railway.migrations.changes import (
     MigrationDefinition,
 )
 
-MIGRATION_0_13_10_TO_0_13_11 = MigrationDefinition(
-    from_version="0.13.10",
+MIGRATION_0_13_4_TO_0_13_11 = MigrationDefinition(
+    from_version="0.13.4",
     to_version="0.13.11",
     description="プロジェクト品質改善（mypy 設定、バージョン固定、テスト構造、バグ修正）",
     file_changes=(

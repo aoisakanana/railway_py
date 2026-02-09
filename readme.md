@@ -384,7 +384,7 @@ railway sync transition --entry my_workflow --convert
 | 形式 | 例 | 対応 |
 |------|-----|------|
 | v0.11.x フラット | `exits: { green_success: { code: 0 } }` | v0.13.3+ |
-| v0.12.x ネスト | `exits: { success: { done: { ... } } }` | **v0.13.10rc3+** |
+| v0.12.x ネスト | `exits: { success: { done: { ... } } }` | **v0.13.11rc1+** |
 
 変換は安全に行われます:
 - 変換前にファイルの内容をバックアップ
