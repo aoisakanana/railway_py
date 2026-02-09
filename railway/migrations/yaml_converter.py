@@ -510,6 +510,23 @@ def _extract_transitions_from_nodes(
 # =============================================================================
 
 
+def _ensure_version_field(data: dict[str, Any]) -> None:
+    """変換結果に version フィールドを補完する（破壊的更新）。
+
+    旧形式 YAML は version フィールドを持たないことがあるため、
+    変換後の新形式 YAML で version が必須であることを保証する。
+
+    Note:
+        この関数は deepcopy 済みの dict に対して呼ばれるため、
+        元データの純粋性は保たれる。
+
+    Args:
+        data: 変換結果の dict（deepcopy 済み）
+    """
+    if "version" not in data:
+        data["version"] = "1.0"
+
+
 def _convert_legacy_flat(
     yaml_data: dict[str, Any],
     exits: dict[str, Any],
@@ -543,6 +560,7 @@ def _convert_legacy_flat(
             name_to_path,
         )
 
+    _ensure_version_field(result)
     return ConversionResult.ok(result)
 
 
@@ -602,6 +620,7 @@ def _convert_nested(
                 merged[node_name] = node_trans
         result["transitions"] = merged
 
+    _ensure_version_field(result)
     return ConversionResult.ok(result, warnings=tuple(all_warnings))
 
 
