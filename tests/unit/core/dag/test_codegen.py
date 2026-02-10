@@ -308,6 +308,46 @@ class TestGenerateMetadata:
         assert ns["GRAPH_METADATA"]["description"] == "it's a workflow"
 
 
+class TestGenerateRunHelper:
+    """Test run() / run_async() helper generation."""
+
+    def test_default_max_iterations_from_yaml_options(self):
+        """YAML options.max_iterations が run() のデフォルト引数に反映されること。
+
+        INC-1: generate_run_helper() は常に max_iterations=100 をハードコードしていた。
+        YAML options の値を反映すべき。
+        """
+        from railway.core.dag.codegen import generate_run_helper
+
+        code = generate_run_helper(max_iterations=50)
+
+        assert "max_iterations: int = 50" in code
+        assert "max_iterations: int = 100" not in code
+
+    def test_default_max_iterations_is_100_without_options(self):
+        """options 未指定時は max_iterations=100 がデフォルト。"""
+        from railway.core.dag.codegen import generate_run_helper
+
+        code = generate_run_helper()
+
+        assert "max_iterations: int = 100" in code
+
+    def test_run_async_also_uses_yaml_max_iterations(self):
+        """run_async() も同じ max_iterations デフォルトを使用すること。"""
+        from railway.core.dag.codegen import generate_run_helper
+
+        code = generate_run_helper(max_iterations=30)
+
+        # run() と run_async() 両方に反映
+        lines_with_max_iter = [
+            line.strip()
+            for line in code.splitlines()
+            if "max_iterations: int =" in line
+        ]
+        assert len(lines_with_max_iter) == 2
+        assert all("= 30" in line for line in lines_with_max_iter)
+
+
 class TestGenerateFullCode:
     """Test full code generation."""
 
@@ -363,6 +403,40 @@ class TestGenerateFullCode:
         assert "TRANSITION_TABLE" in code
         assert "GRAPH_METADATA" in code
         assert "def get_next_step" in code
+
+    def test_run_helper_uses_yaml_max_iterations(self):
+        """INC-1: generate_transition_code の run() が YAML options を反映すること。"""
+        from railway.core.dag.codegen import generate_transition_code
+        from railway.core.dag.types import (
+            ExitDefinition,
+            GraphOptions,
+            NodeDefinition,
+            StateTransition,
+            TransitionGraph,
+        )
+
+        graph = TransitionGraph(
+            version="1.0",
+            entrypoint="my_workflow",
+            description="テスト",
+            nodes=(
+                NodeDefinition("start", "nodes.start", "start_node", "開始"),
+            ),
+            exits=(ExitDefinition("success", 0, "成功"),),
+            transitions=(
+                StateTransition("start", "success::done", "exit::success"),
+            ),
+            start_node="start",
+            options=GraphOptions(max_iterations=50),
+        )
+
+        code = generate_transition_code(graph, "test.yml")
+
+        # GRAPH_METADATA と run() の両方で max_iterations=50
+        assert '"max_iterations": 50' in code
+        assert "max_iterations: int = 50" in code
+        # 100 がハードコードされていないこと
+        assert "max_iterations: int = 100" not in code
 
     def test_generated_code_is_executable(self):
         """Generated code should be syntactically valid."""
@@ -655,6 +729,37 @@ class TestCodegenHelpers:
         assert _to_class_name("my_workflow") == "MyWorkflow"
         assert _to_class_name("entry2") == "Entry2"
         assert _to_class_name("session_manager") == "SessionManager"
+
+    def test_exit_path_to_contract_name_basic(self):
+        """基本的なパスから PascalCase Contract 名を生成。"""
+        from railway.core.dag.codegen import _exit_path_to_contract_name
+
+        assert _exit_path_to_contract_name("exit.success.done") == "SuccessDoneResult"
+        assert (
+            _exit_path_to_contract_name("exit.failure.ssh.handshake")
+            == "FailureSshHandshakeResult"
+        )
+
+    def test_exit_path_to_contract_name_with_underscore(self):
+        """アンダースコア入りパーツが正しく PascalCase に変換されること。
+
+        BUG-3: capitalize() は 'ssh_error' → 'Ssh_error' にする。
+        正しくは 'SshError' であるべき。
+        """
+        from railway.core.dag.codegen import _exit_path_to_contract_name
+
+        assert (
+            _exit_path_to_contract_name("exit.failure.ssh_error")
+            == "FailureSshErrorResult"
+        )
+        assert (
+            _exit_path_to_contract_name("exit.failure.api_timeout")
+            == "FailureApiTimeoutResult"
+        )
+        assert (
+            _exit_path_to_contract_name("exit.success.all_done_ok")
+            == "SuccessAllDoneOkResult"
+        )
 
     def test_to_exit_enum_name(self):
         """Should convert exit name to enum name."""

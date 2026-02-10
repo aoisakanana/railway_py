@@ -127,7 +127,9 @@ def generate_transition_code(graph: TransitionGraph, source_file: str) -> str:
         "",
         _generate_helper_functions(class_name, start_function),
         "",
-        generate_run_helper(),
+        generate_run_helper(
+            max_iterations=graph.options.max_iterations if graph.options else 100,
+        ),
     ]
 
     return "\n".join(parts)
@@ -201,19 +203,22 @@ def generate_start_node_constant(graph: TransitionGraph) -> str:
     return f"# Start node (from YAML: start: {graph.start_node})\nSTART_NODE = {ref}"
 
 
-def generate_run_helper() -> str:
+def generate_run_helper(max_iterations: int = 100) -> str:
     """Generate run() and run_async() helper functions (pure function).
+
+    Args:
+        max_iterations: Default max_iterations value from YAML options
 
     Returns:
         Helper function definitions
     """
-    return '''
+    return f'''
 def run(
     initial_context: Any,
     *,
     on_step: Callable[[str, str, Any], None] | None = None,
     strict: bool = True,
-    max_iterations: int = 100,
+    max_iterations: int = {max_iterations},
 ) -> ExitContract:
     """Execute this workflow (synchronous).
 
@@ -223,7 +228,7 @@ def run(
         initial_context: Initial context to pass to start node
         on_step: Callback called for each step
         strict: Raise error on undefined states (default: True)
-        max_iterations: Maximum iterations (default: 100)
+        max_iterations: Maximum iterations (default: {max_iterations})
 
     Returns:
         ExitContract: Execution result with exit_code, exit_state, context
@@ -245,7 +250,7 @@ async def run_async(
     *,
     on_step: Callable[[str, str, Any], None] | None = None,
     strict: bool = True,
-    max_iterations: int = 100,
+    max_iterations: int = {max_iterations},
 ) -> ExitContract:
     """Execute this workflow (asynchronous).
 
@@ -255,7 +260,7 @@ async def run_async(
         initial_context: Initial context to pass to start node
         on_step: Callback called for each step
         strict: Raise error on undefined states (default: True)
-        max_iterations: Maximum iterations (default: 100)
+        max_iterations: Maximum iterations (default: {max_iterations})
 
     Returns:
         ExitContract: Execution result with exit_code, exit_state, context
@@ -561,6 +566,26 @@ def detect_context_type(module_path: str, function_name: str) -> str | None:
 # =============================================================================
 
 
+def _to_pascal_case(snake: str) -> str:
+    """snake_case 文字列を PascalCase に変換（純粋関数）。
+
+    Args:
+        snake: "ssh_error" 形式の文字列
+
+    Returns:
+        "SshError" 形式の文字列
+
+    Examples:
+        >>> _to_pascal_case("ssh_error")
+        'SshError'
+        >>> _to_pascal_case("done")
+        'Done'
+        >>> _to_pascal_case("all_done_ok")
+        'AllDoneOk'
+    """
+    return "".join(segment.capitalize() for segment in snake.split("_"))
+
+
 def _exit_path_to_contract_name(exit_path: str) -> str:
     """終端ノードパスから Contract クラス名を生成（純粋関数）。
 
@@ -575,10 +600,12 @@ def _exit_path_to_contract_name(exit_path: str) -> str:
         'SuccessDoneResult'
         >>> _exit_path_to_contract_name("exit.failure.ssh.handshake")
         'FailureSshHandshakeResult'
+        >>> _exit_path_to_contract_name("exit.failure.ssh_error")
+        'FailureSshErrorResult'
     """
     # "exit." を除去し、各パートを PascalCase に変換
     parts = exit_path.replace("exit.", "", 1).split(".")
-    pascal_parts = [part.capitalize() for part in parts]
+    pascal_parts = [_to_pascal_case(part) for part in parts]
     return "".join(pascal_parts) + "Result"
 
 
