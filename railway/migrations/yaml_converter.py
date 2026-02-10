@@ -299,7 +299,7 @@ def _convert_transition_target(
     target: str,
     name_to_path: dict[str, str],
 ) -> str:
-    """Convert a single transition target.
+    """Convert a single transition target (legacy flat format).
 
     Converts "exit::old_name" format to "exit.category.detail" format.
     Non-exit targets are returned unchanged.
@@ -317,6 +317,30 @@ def _convert_transition_target(
     # Extract old exit name
     old_name = target[6:]  # Remove "exit::" prefix
     return name_to_path.get(old_name, target)
+
+
+def _convert_nested_transition_target(target: str) -> str:
+    """ネスト形式の遷移先を変換する（純粋関数）。
+
+    v0.12.x 形式の exit::category::detail を
+    v1.0 形式の exit.category.detail に変換する。
+
+    非 exit 遷移先はそのまま返す。
+
+    Examples:
+        "exit::success::done"             → "exit.success.done"
+        "exit::failure::ssh::handshake"   → "exit.failure.ssh.handshake"
+        "process"                         → "process"
+
+    Args:
+        target: 遷移先文字列
+
+    Returns:
+        変換後の遷移先
+    """
+    if not target.startswith("exit::"):
+        return target
+    return target.replace("::", ".")
 
 
 def _convert_transitions(
@@ -660,6 +684,19 @@ def _convert_nested(
             else:
                 merged[node_name] = node_trans
         result["transitions"] = merged
+
+    # 3. 遷移先の exit:: 形式を exit. 形式に変換
+    if "transitions" in result:
+        converted_transitions: dict[str, Any] = {}
+        for node_name, node_trans in result["transitions"].items():
+            if isinstance(node_trans, dict):
+                converted_transitions[node_name] = {
+                    state: _convert_nested_transition_target(target)
+                    for state, target in node_trans.items()
+                }
+            else:
+                converted_transitions[node_name] = node_trans
+        result["transitions"] = converted_transitions
 
     _ensure_version_field(result)
     return ConversionResult.ok(_order_yaml_keys(result), warnings=tuple(all_warnings))

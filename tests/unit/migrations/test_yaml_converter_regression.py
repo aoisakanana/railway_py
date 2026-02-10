@@ -672,6 +672,130 @@ class TestRegressionNestedExitsCodeField:
         assert yaml_data == original
 
 
+class TestRegressionNestedTransitionTargets:
+    """v0.12.x ネスト形式で遷移先 exit::category::detail が変換されないバグ。
+
+    変換前: exit::success::done（v0.12.x 形式）
+    変換後: exit.success.done（v1.0 形式）
+
+    _convert_nested() が transitions 内の遷移先を変換していなかった。
+    """
+
+    def _make_nested_yaml_with_colon_targets(self) -> dict:
+        """v0.12.x ネスト形式（exit:: 遷移先付き）の YAML データ。"""
+        return {
+            "version": "1.0",
+            "entrypoint": "nested_convert",
+            "description": "v0.12.x ネスト形式テスト",
+            "start": "start",
+            "nodes": {
+                "start": {
+                    "module": "nodes.nested_convert.start",
+                    "function": "start",
+                    "description": "開始ノード",
+                },
+            },
+            "exits": {
+                "success": {
+                    "done": {
+                        "code": 0,
+                        "description": "正常終了",
+                    },
+                },
+                "failure": {
+                    "error": {
+                        "code": 1,
+                        "description": "エラー終了",
+                    },
+                },
+            },
+            "transitions": {
+                "start": {
+                    "success::done": "exit::success::done",
+                    "failure::error": "exit::failure::error",
+                },
+            },
+        }
+
+    def test_transition_targets_converted_to_dot_format(self) -> None:
+        """exit::success::done が exit.success.done に変換されること。"""
+        yaml_data = self._make_nested_yaml_with_colon_targets()
+        result = convert_yaml_structure(yaml_data)
+
+        assert result.success
+        transitions = result.data["transitions"]["start"]
+        assert transitions["success::done"] == "exit.success.done"
+        assert transitions["failure::error"] == "exit.failure.error"
+
+    def test_non_exit_targets_unchanged(self) -> None:
+        """exit:: でない遷移先は変更されないこと。"""
+        yaml_data = self._make_nested_yaml_with_colon_targets()
+        yaml_data["transitions"]["start"]["success::retry"] = "start"
+        result = convert_yaml_structure(yaml_data)
+
+        assert result.success
+        assert result.data["transitions"]["start"]["success::retry"] == "start"
+
+    def test_deep_nested_exit_target_converted(self) -> None:
+        """exit::failure::ssh::handshake も変換されること。"""
+        yaml_data = self._make_nested_yaml_with_colon_targets()
+        yaml_data["exits"]["failure"]["ssh"] = {
+            "handshake": {"code": 1, "description": "SSHハンドシェイク失敗"},
+        }
+        yaml_data["transitions"]["start"]["failure::ssh"] = "exit::failure::ssh::handshake"
+        result = convert_yaml_structure(yaml_data)
+
+        assert result.success
+        assert result.data["transitions"]["start"]["failure::ssh"] == "exit.failure.ssh.handshake"
+
+    def test_converted_yaml_passes_schema(self) -> None:
+        """遷移先変換後のYAMLがスキーマ検証を通過すること。"""
+        yaml_data = self._make_nested_yaml_with_colon_targets()
+        result = convert_yaml_structure(yaml_data)
+
+        assert result.success
+        validation = validate_yaml_schema(result.data)
+        assert validation.is_valid, f"スキーマ検証失敗: {validation.errors}"
+
+    def test_node_embedded_transitions_also_converted(self) -> None:
+        """ノード内に埋め込まれた transitions の遷移先も変換されること。"""
+        yaml_data = {
+            "version": "1.0",
+            "entrypoint": "test",
+            "start": "step1",
+            "nodes": {
+                "step1": {
+                    "description": "ステップ1",
+                    "transitions": {
+                        "success::done": "exit::success::done",
+                        "failure::error": "exit::failure::error",
+                    },
+                },
+            },
+            "exits": {
+                "success": {
+                    "done": {"code": 0, "description": "正常終了"},
+                },
+                "failure": {
+                    "error": {"code": 1, "description": "エラー終了"},
+                },
+            },
+        }
+        result = convert_yaml_structure(yaml_data)
+
+        assert result.success
+        transitions = result.data["transitions"]["step1"]
+        assert transitions["success::done"] == "exit.success.done"
+        assert transitions["failure::error"] == "exit.failure.error"
+
+    def test_purity(self) -> None:
+        """元の dict が変更されないこと。"""
+        yaml_data = self._make_nested_yaml_with_colon_targets()
+        original = copy.deepcopy(yaml_data)
+        convert_yaml_structure(yaml_data)
+        assert yaml_data == original
+
+
 class TestConvertedYamlKeyOrder:
     """変換後 YAML のキー順序テスト。
 
