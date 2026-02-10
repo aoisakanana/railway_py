@@ -216,7 +216,10 @@ def _parse_leaf_node(
         yaml_path, entrypoint, is_exit, data.get("module")
     )
 
-    function = data.get("function") or key
+    # Function name must be a valid Python identifier (leaf name).
+    # Flat dotted keys like "sub.deep.process" → leaf "process"
+    default_function = key.rsplit(".", 1)[-1] if "." in key else key
+    function = data.get("function") or default_function
 
     # Exit code resolution
     exit_code = _resolve_exit_code(yaml_path, data) if is_exit else None

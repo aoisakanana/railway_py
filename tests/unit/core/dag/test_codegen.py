@@ -450,6 +450,94 @@ class TestDeepNestedNodeCodegen:
                '"start::success::done": _sub_deep_process' in code
 
 
+class TestCodegenDottedFunctionName:
+    """node.function にドットが含まれるケースのテスト。
+
+    パーサーが function を葉の名前に正規化していても、
+    codegen 側は防御的にドット付き function を処理できるべき。
+    """
+
+    def _make_graph_with_dotted_function(self) -> "TransitionGraph":
+        """function フィールドにドット付き名前を持つグラフ。"""
+        from railway.core.dag.types import (
+            GraphOptions,
+            NodeDefinition,
+            StateTransition,
+            TransitionGraph,
+        )
+
+        return TransitionGraph(
+            version="1.0",
+            entrypoint="deep_test",
+            description="ドット付き function テスト",
+            nodes=(
+                NodeDefinition("start", "nodes.deep_test.start", "start", "開始"),
+                NodeDefinition(
+                    "sub.deep.process",
+                    "nodes.deep_test.sub.deep.process",
+                    "sub.deep.process",  # function にもドットが含まれる
+                    "深い処理",
+                ),
+                NodeDefinition(
+                    "exit.success.done",
+                    "nodes.exit.success.done",
+                    "done",
+                    "正常終了",
+                    is_exit=True,
+                    exit_code=0,
+                ),
+            ),
+            exits=(),
+            transitions=(
+                StateTransition("start", "success::done", "sub.deep.process"),
+                StateTransition(
+                    "sub.deep.process", "success::done", "exit.success.done"
+                ),
+            ),
+            start_node="start",
+            options=GraphOptions(),
+        )
+
+    def test_import_uses_leaf_not_dotted_function(self) -> None:
+        """import 文が葉の名前を使用すること（ドット付き function でも）。"""
+        import ast
+
+        from railway.core.dag.codegen import generate_imports
+
+        graph = self._make_graph_with_dotted_function()
+        code = generate_imports(graph)
+
+        # SyntaxError にならないこと
+        ast.parse(code)
+        # ドット付き function がそのまま import されないこと
+        assert "import sub.deep.process" not in code
+
+    def test_full_code_valid_python(self) -> None:
+        """ドット付き function でも完全な生成コードが有効な Python であること。"""
+        import ast
+
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = self._make_graph_with_dotted_function()
+        code = generate_transition_code(graph, "test.yml")
+
+        # SyntaxError が発生しないこと
+        ast.parse(code)
+
+    def test_node_name_assignment_valid(self) -> None:
+        """_node_name 代入が有効な Python であること。"""
+        import ast
+
+        from railway.core.dag.codegen import generate_node_name_assignments
+
+        graph = self._make_graph_with_dotted_function()
+        code = generate_node_name_assignments(graph)
+
+        ast.parse(code)
+        # ドットが左辺に現れないこと
+        assert "sub.deep.process._node_name" not in code
+
+
 class TestCodegenHelpers:
     """Test helper functions."""
 

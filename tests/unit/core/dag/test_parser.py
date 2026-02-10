@@ -558,3 +558,67 @@ class TestLoadTransitionGraph:
 
         error_msg = str(exc_info.value).lower()
         assert "存在しません" in str(exc_info.value) or "not found" in error_msg
+
+
+class TestFlatDottedNodeFunction:
+    """フラットなドット付きキーの function フィールドテスト。
+
+    YAML で `sub.deep.process:` のように平坦にドット付きキーを書いた場合、
+    function は葉の名前（`process`）になるべき。フルパス（`sub.deep.process`）
+    では Python の import 文が SyntaxError になる。
+    """
+
+    def test_flat_dotted_key_function_is_leaf(self):
+        """フラットなドット付きキーの function は葉の名前であるべき。"""
+        from railway.core.dag.parser import _parse_leaf_node
+
+        node = _parse_leaf_node(
+            key="sub.deep.process",
+            data={"description": "深い処理"},
+            yaml_path="nodes.sub.deep.process",
+            entrypoint="my_wf",
+        )
+
+        # function は葉の名前（Python 識別子として有効）
+        assert node.function == "process"
+        assert "." not in node.function
+
+    def test_flat_dotted_key_name_is_full_path(self):
+        """name はフルパスのまま保持されるべき。"""
+        from railway.core.dag.parser import _parse_leaf_node
+
+        node = _parse_leaf_node(
+            key="sub.deep.process",
+            data={"description": "深い処理"},
+            yaml_path="nodes.sub.deep.process",
+            entrypoint="my_wf",
+        )
+
+        # name はフルパス（ドット付き）
+        assert node.name == "sub.deep.process"
+
+    def test_explicit_function_overrides_key(self):
+        """明示的な function 指定はキーより優先されるべき。"""
+        from railway.core.dag.parser import _parse_leaf_node
+
+        node = _parse_leaf_node(
+            key="sub.deep.process",
+            data={"description": "深い処理", "function": "custom_func"},
+            yaml_path="nodes.sub.deep.process",
+            entrypoint="my_wf",
+        )
+
+        assert node.function == "custom_func"
+
+    def test_simple_key_function_unchanged(self):
+        """ドットなしキーの function はそのまま。"""
+        from railway.core.dag.parser import _parse_leaf_node
+
+        node = _parse_leaf_node(
+            key="start",
+            data={"description": "開始"},
+            yaml_path="nodes.start",
+            entrypoint="my_wf",
+        )
+
+        assert node.function == "start"
