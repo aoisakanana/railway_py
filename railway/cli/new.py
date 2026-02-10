@@ -1459,6 +1459,7 @@ def _create_single_contract(
     """
     file_path = contracts_dir / f"{file_name}.py"
     if not file_path.exists() or force:
+        file_path.parent.mkdir(parents=True, exist_ok=True)
         _write_file(file_path, content)
 
 
@@ -1473,7 +1474,14 @@ def _create_node_test(
     if not tests_dir.exists():
         tests_dir.mkdir(parents=True)
 
-    test_file = tests_dir / f"test_{name}.py"
+    # サブディレクトリ付き名前（greeting/farewell）の場合、
+    # テストファイルは tests/nodes/greeting/test_farewell.py に配置
+    if "/" in name:
+        parts = name.rsplit("/", 1)
+        test_file = tests_dir / parts[0] / f"test_{parts[1]}.py"
+    else:
+        test_file = tests_dir / f"test_{name}.py"
+
     if test_file.exists():
         return  # Don't overwrite existing tests
 
@@ -1484,6 +1492,7 @@ def _create_node_test(
     else:
         content = _get_linear_node_test_standalone_template(name)
 
+    test_file.parent.mkdir(parents=True, exist_ok=True)
     _write_file(test_file, content)
 
 
@@ -1547,6 +1556,7 @@ def _create_node(
         content = _get_linear_node_standalone_template(name)
         _create_node_contract(name, mode, force)
 
+    file_path.parent.mkdir(parents=True, exist_ok=True)
     _write_file(file_path, content)
 
     # Create test file
