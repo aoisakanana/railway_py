@@ -235,10 +235,12 @@ railway run greeting
 
 **期待される出力:**
 ```
-[start] 開始...
-[start] ✓ 完了 (success::done)
+[start] 完了 (start::success::done)
 ワークフロー完了: exit.success.done
+完了: success.done
 ```
+
+> **Note:** 実際の出力にはタイムスタンプとログレベルが含まれます。
 
 🎉 **1コマンドで動くワークフローが完成！**
 
@@ -509,12 +511,10 @@ railway run greeting
 出力例:
 
 ```
-[check_time] 開始...
-[check_time] ✓ 完了 (success::morning)
-[greet_morning] 開始...
-おはようございます！
-[greet_morning] ✓ 完了 (success::done)
-ワークフロー完了: 2 ステップ
+[check_time] 完了 (check_time::success::morning)
+[greet_morning] 完了 (greet_morning::success::done)
+ワークフロー完了: exit.success.done
+完了: success.done
 ```
 
 ---

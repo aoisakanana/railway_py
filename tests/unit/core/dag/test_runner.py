@@ -562,6 +562,75 @@ class TestDagRunnerAsync:
             )
 
 
+class TestDagRunnerInfoLogging:
+    """INFO レベルでステップ情報が出力されるテスト。
+
+    loguru は stderr に出力するため capsys ではなく capfd を使用。
+    """
+
+    def _run_simple_workflow(self):
+        """テスト用のシンプルなワークフローを実行する。"""
+        from railway import ExitContract
+        from railway.core.dag.outcome import Outcome
+        from railway.core.dag.runner import dag_runner
+
+        class DoneResult(ExitContract):
+            exit_state: str = "success.done"
+
+        def start():
+            return {"value": 1}, Outcome.success("done")
+
+        start._node_name = "start"  # type: ignore[attr-defined]
+
+        def exit_done(ctx) -> DoneResult:
+            return DoneResult()
+
+        exit_done._node_name = "exit.success.done"  # type: ignore[attr-defined]
+
+        transitions = {"start::success::done": exit_done}
+        return dag_runner(start=start, transitions=transitions)
+
+    def test_info_log_includes_outcome(self) -> None:
+        """INFO レベルのログに Outcome 情報が含まれること。"""
+        from loguru import logger
+
+        messages: list[str] = []
+        handler_id = logger.add(
+            lambda m: messages.append(m.record["message"]),
+            level="INFO",
+            filter="railway.core.dag.runner",
+        )
+        try:
+            self._run_simple_workflow()
+        finally:
+            logger.remove(handler_id)
+
+        # start ノードの完了ログに outcome 情報が含まれること
+        assert any("start" in m and "success::done" in m for m in messages), (
+            f"INFO ログに Outcome 情報がない: {messages}"
+        )
+
+    def test_info_log_includes_exit(self) -> None:
+        """INFO レベルのログに終端ノード情報が含まれること。"""
+        from loguru import logger
+
+        messages: list[str] = []
+        handler_id = logger.add(
+            lambda m: messages.append(m.record["message"]),
+            level="INFO",
+            filter="railway.core.dag.runner",
+        )
+        try:
+            self._run_simple_workflow()
+        finally:
+            logger.remove(handler_id)
+
+        # 終端ノードのログが含まれること
+        assert any("exit.success.done" in m for m in messages), (
+            f"INFO ログに終端ノード情報がない: {messages}"
+        )
+
+
 class TestDagRunnerIntegration:
     """Integration tests using test YAML fixtures."""
 
