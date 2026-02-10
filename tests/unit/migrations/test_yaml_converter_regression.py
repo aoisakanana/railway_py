@@ -551,3 +551,238 @@ class TestConvertCliIntegration:
         # スキーマ検証もパスすること
         validation = validate_yaml_schema(new_data)
         assert validation.is_valid
+
+
+class TestRegressionNestedExitsCodeField:
+    """v0.12.x ネスト形式 exits の `code` フィールドが残留するバグ。
+
+    v0.12.x 形式:
+        exits:
+          success:
+            done:
+              code: 0
+              description: "正常終了"
+
+    `code` フィールドが変換後の nodes.exit に残ると、パーサーが
+    リーフ判定に失敗し AttributeError が発生する。
+    """
+
+    def _make_nested_exits_with_code(self) -> dict:
+        """v0.12.x ネスト形式（code フィールド付き）の YAML データ。"""
+        return {
+            "version": "1.0",
+            "entrypoint": "nested_convert_test",
+            "description": "ネスト変換テスト",
+            "start": "step1",
+            "nodes": {
+                "step1": {
+                    "description": "ステップ1",
+                },
+            },
+            "exits": {
+                "success": {
+                    "done": {
+                        "code": 0,
+                        "description": "正常終了",
+                    },
+                },
+                "failure": {
+                    "error": {
+                        "code": 1,
+                        "description": "異常終了",
+                    },
+                    "timeout": {
+                        "code": 1,
+                        "description": "タイムアウト",
+                    },
+                },
+            },
+            "transitions": {
+                "step1": {
+                    "success::done": "exit::success",
+                    "failure::error": "exit::error",
+                },
+            },
+        }
+
+    def test_convert_strips_code_field(self) -> None:
+        """変換後の nodes.exit に code フィールドが残らないこと。"""
+        from railway.migrations.yaml_converter import _convert_nested_exits
+
+        exits = {
+            "success": {
+                "done": {
+                    "code": 0,
+                    "description": "正常終了",
+                },
+            },
+            "failure": {
+                "error": {
+                    "code": 1,
+                    "description": "異常終了",
+                },
+            },
+        }
+
+        exit_tree, warnings = _convert_nested_exits(exits)
+
+        # code フィールドが除去されていること
+        assert "code" not in exit_tree["success"]["done"]
+        assert "code" not in exit_tree["failure"]["error"]
+        # description は残ること
+        assert exit_tree["success"]["done"]["description"] == "正常終了"
+        assert exit_tree["failure"]["error"]["description"] == "異常終了"
+
+    def test_full_conversion_no_crash(self) -> None:
+        """code フィールド付きネスト exits の完全な変換がクラッシュしないこと。"""
+        yaml_data = self._make_nested_exits_with_code()
+        result = convert_yaml_structure(yaml_data)
+
+        assert result.success, f"変換に失敗: {result.warnings}"
+
+    def test_converted_data_passes_schema(self) -> None:
+        """変換後データがスキーマ検証を通過すること。"""
+        yaml_data = self._make_nested_exits_with_code()
+        result = convert_yaml_structure(yaml_data)
+
+        assert result.success
+        validation = validate_yaml_schema(result.data)
+        assert validation.is_valid, f"スキーマ検証失敗: {validation.errors}"
+
+    def test_converted_data_parseable(self) -> None:
+        """変換後データがパーサーでパース可能なこと。"""
+        from railway.core.dag.parser import parse_transition_graph
+
+        yaml_data = self._make_nested_exits_with_code()
+        result = convert_yaml_structure(yaml_data)
+
+        assert result.success
+        # パーサーがクラッシュしないこと（AttributeError が発生しない）
+        yaml_str = yaml.dump(result.data, allow_unicode=True)
+        graph = parse_transition_graph(yaml_str)
+        assert graph is not None
+
+    def test_original_data_not_modified(self) -> None:
+        """元の dict が変更されないこと（純粋関数）。"""
+        yaml_data = self._make_nested_exits_with_code()
+        original = copy.deepcopy(yaml_data)
+
+        convert_yaml_structure(yaml_data)
+
+        assert yaml_data == original
+
+
+class TestConvertedYamlKeyOrder:
+    """変換後 YAML のキー順序テスト。
+
+    変換後の dict は transition_graph_reference.md の標準順序に従うべき:
+    version → entrypoint → description → nodes → start → transitions → options
+    """
+
+    _CANONICAL_ORDER = (
+        "version",
+        "entrypoint",
+        "description",
+        "nodes",
+        "start",
+        "transitions",
+        "options",
+    )
+
+    def test_legacy_flat_key_order(self) -> None:
+        """フラット形式変換後のキー順序が標準順であること。"""
+        yaml_data = {
+            "entrypoint": "test",
+            "description": "テスト",
+            "start": "step1",
+            "nodes": {"step1": {"description": "ステップ1"}},
+            "exits": {
+                "green_success": {"code": 0, "description": "成功"},
+                "red_error": {"code": 1, "description": "失敗"},
+            },
+            "transitions": {
+                "step1": {
+                    "success::done": "exit::green_success",
+                    "failure::error": "exit::red_error",
+                },
+            },
+        }
+
+        result = convert_yaml_structure(yaml_data)
+        assert result.success
+
+        keys = list(result.data.keys())
+        # 標準順序のうち存在するキーだけを取得
+        expected = [k for k in self._CANONICAL_ORDER if k in result.data]
+        assert keys == expected, f"キー順序が不正: {keys} != {expected}"
+
+    def test_nested_key_order(self) -> None:
+        """ネスト形式変換後のキー順序が標準順であること。"""
+        yaml_data = {
+            "entrypoint": "test",
+            "description": "テスト",
+            "start": "step1",
+            "nodes": {"step1": {"description": "ステップ1"}},
+            "exits": {
+                "success": {
+                    "done": {"code": 0, "description": "正常終了"},
+                },
+                "failure": {
+                    "error": {"code": 1, "description": "異常終了"},
+                },
+            },
+            "transitions": {
+                "step1": {
+                    "success::done": "exit::success",
+                    "failure::error": "exit::error",
+                },
+            },
+        }
+
+        result = convert_yaml_structure(yaml_data)
+        assert result.success
+
+        keys = list(result.data.keys())
+        expected = [k for k in self._CANONICAL_ORDER if k in result.data]
+        assert keys == expected, f"キー順序が不正: {keys} != {expected}"
+
+    def test_version_is_first_key(self) -> None:
+        """version がない旧形式でも、変換後は先頭にあること。"""
+        yaml_data = {
+            "entrypoint": "test",
+            "start": "step1",
+            "nodes": {"step1": {"description": "ステップ1"}},
+            "exits": {
+                "green_success": {"code": 0, "description": "成功"},
+            },
+            "transitions": {
+                "step1": {"success::done": "exit::green_success"},
+            },
+        }
+
+        result = convert_yaml_structure(yaml_data)
+        assert result.success
+
+        keys = list(result.data.keys())
+        assert keys[0] == "version", f"先頭キーが version でない: {keys[0]}"
+
+    def test_serialized_yaml_version_at_top(self) -> None:
+        """safe_dump 出力で version が先頭行にあること。"""
+        yaml_data = {
+            "entrypoint": "test",
+            "start": "step1",
+            "nodes": {"step1": {"description": "ステップ1"}},
+            "exits": {
+                "green_success": {"code": 0, "description": "成功"},
+            },
+            "transitions": {
+                "step1": {"success::done": "exit::green_success"},
+            },
+        }
+
+        result = convert_yaml_structure(yaml_data)
+        assert result.success
+
+        output = yaml.safe_dump(result.data, allow_unicode=True, sort_keys=False)
+        first_line = output.strip().split("\n")[0]
+        assert first_line.startswith("version:"), f"先頭行: {first_line}"
