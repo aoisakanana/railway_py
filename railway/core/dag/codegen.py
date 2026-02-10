@@ -427,7 +427,7 @@ def generate_metadata(graph: TransitionGraph, source_file: str) -> str:
     return f'''GRAPH_METADATA = {{
     "version": "{graph.version}",
     "entrypoint": "{graph.entrypoint}",
-    "description": "{graph.description}",
+    "description": {repr(graph.description)},
     "source_file": "{source_file}",
     "generated_at": "{timestamp}",
     "start_node": "{graph.start_node}",

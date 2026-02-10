@@ -221,6 +221,93 @@ class TestGenerateMetadata:
         assert "entry2_20250125.yml" in code
 
 
+    def test_generate_metadata_description_with_double_quotes(self):
+        """Should escape double quotes in description to produce valid Python."""
+        from railway.core.dag.codegen import generate_metadata
+        from railway.core.dag.types import (
+            GraphOptions,
+            NodeDefinition,
+            TransitionGraph,
+        )
+
+        graph = TransitionGraph(
+            version="1.0",
+            entrypoint="entry2",
+            description='He said "hello" to the workflow',
+            nodes=(NodeDefinition("a", "m", "f", "d"),),
+            exits=(),
+            transitions=(),
+            start_node="a",
+            options=GraphOptions(max_iterations=20),
+        )
+
+        code = generate_metadata(graph, "test.yml")
+
+        # Must be valid Python
+        ast.parse(code)
+        # Evaluate and check the actual value is preserved
+        ns: dict = {}
+        exec(code, ns)  # noqa: S102
+        assert ns["GRAPH_METADATA"]["description"] == 'He said "hello" to the workflow'
+
+    def test_generate_metadata_description_with_backslash(self):
+        """Should escape backslashes in description to preserve the value."""
+        from railway.core.dag.codegen import generate_metadata
+        from railway.core.dag.types import (
+            GraphOptions,
+            NodeDefinition,
+            TransitionGraph,
+        )
+
+        graph = TransitionGraph(
+            version="1.0",
+            entrypoint="entry2",
+            description="path\\to\\file",
+            nodes=(NodeDefinition("a", "m", "f", "d"),),
+            exits=(),
+            transitions=(),
+            start_node="a",
+            options=GraphOptions(max_iterations=20),
+        )
+
+        code = generate_metadata(graph, "test.yml")
+
+        # Must be valid Python
+        ast.parse(code)
+        # Evaluate and check the actual value is preserved
+        ns: dict = {}
+        exec(code, ns)  # noqa: S102
+        assert ns["GRAPH_METADATA"]["description"] == "path\\to\\file"
+
+    def test_generate_metadata_description_with_single_quotes(self):
+        """Should handle single quotes in description."""
+        from railway.core.dag.codegen import generate_metadata
+        from railway.core.dag.types import (
+            GraphOptions,
+            NodeDefinition,
+            TransitionGraph,
+        )
+
+        graph = TransitionGraph(
+            version="1.0",
+            entrypoint="entry2",
+            description="it's a workflow",
+            nodes=(NodeDefinition("a", "m", "f", "d"),),
+            exits=(),
+            transitions=(),
+            start_node="a",
+            options=GraphOptions(max_iterations=20),
+        )
+
+        code = generate_metadata(graph, "test.yml")
+
+        # Must be valid Python
+        ast.parse(code)
+        ns: dict = {}
+        exec(code, ns)  # noqa: S102
+        assert ns["GRAPH_METADATA"]["description"] == "it's a workflow"
+
+
 class TestGenerateFullCode:
     """Test full code generation."""
 
