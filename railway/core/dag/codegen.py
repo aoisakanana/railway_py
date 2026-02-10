@@ -55,6 +55,17 @@ def _node_to_alias(node: NodeDefinition) -> str:
     return "_" + node.name.replace(".", "_")
 
 
+def _leaf_function_name(function: str) -> str:
+    """Extract leaf function name from possibly dotted function name (pure function).
+
+    Defensive measure: even if parser normalizes function to leaf,
+    codegen should handle dots in function names gracefully.
+
+    Example: "sub.deep.process" → "process", "start" → "start"
+    """
+    return function.rsplit(".", 1)[-1] if "." in function else function
+
+
 def _get_python_ref(node: NodeDefinition) -> str:
     """Get Python reference name for a node (pure function).
 
@@ -161,12 +172,14 @@ def generate_imports(graph: TransitionGraph) -> str:
             continue
 
         ref = _get_python_ref(node)
-        if ref != node.function:
+        # Import name must be a valid Python identifier (leaf name only)
+        import_name = _leaf_function_name(node.function)
+        if ref != import_name:
             # Nodes with dots use alias (exit nodes, deep nested nodes)
-            lines.append(f"from {node.module} import {node.function} as {ref}")
+            lines.append(f"from {node.module} import {import_name} as {ref}")
         else:
             # Regular nodes
-            lines.append(f"from {node.module} import {node.function}")
+            lines.append(f"from {node.module} import {import_name}")
 
     return "\n".join(lines)
 
