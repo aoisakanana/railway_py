@@ -1669,6 +1669,13 @@ def _create_node(
     # Create test file
     _create_node_test(path_form, output_type, inputs, mode, module_path=module_path)
 
+    # Build test file display path (mirrors _create_node_test logic)
+    if "/" in path_form:
+        prefix, leaf = path_form.rsplit("/", 1)
+        test_display_path = f"tests/nodes/{prefix}/test_{leaf}.py"
+    else:
+        test_display_path = f"tests/nodes/test_{func_name}.py"
+
     # Output messages
     typer.echo(f"Created src/nodes/{path_form}.py")
     if not output_type:
@@ -1677,7 +1684,7 @@ def _create_node(
         else:
             typer.echo(f"Created src/contracts/{path_form}_input.py")
             typer.echo(f"Created src/contracts/{path_form}_output.py")
-    typer.echo(f"Created tests/nodes/test_{func_name}.py\n")
+    typer.echo(f"Created {test_display_path}\n")
 
     if output_type:
         typer.echo("To use in a typed pipeline:")
@@ -1685,8 +1692,8 @@ def _create_node(
         typer.echo(f"  result = typed_pipeline({func_name})")
     else:
         typer.echo("TDD style workflow:")
-        typer.echo(f"   1. Define tests in tests/nodes/test_{func_name}.py")
-        typer.echo(f"   2. Run: uv run pytest tests/nodes/test_{func_name}.py -v")
+        typer.echo(f"   1. Define tests in {test_display_path}")
+        typer.echo(f"   2. Run: uv run pytest {test_display_path} -v")
         typer.echo(f"   3. Implement src/nodes/{path_form}.py")
         typer.echo("   4. Run tests again\n")
         typer.echo("To use in an entry point:")

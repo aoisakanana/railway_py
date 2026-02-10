@@ -70,7 +70,7 @@ def main():
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)  
 [![Test Coverage](https://img.shields.io/badge/coverage-90%25+-brightgreen.svg)]()  
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)  
-[![Tests](https://img.shields.io/badge/tests-1581%20passing-success.svg)]()  
+[![Tests](https://img.shields.io/badge/tests-1588%20passing-success.svg)]()  
 
 ---  
 
