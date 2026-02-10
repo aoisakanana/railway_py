@@ -415,8 +415,12 @@ def _convert_nested_exits(
     warnings: list[str] = []
 
     def _strip_exit_code(node: dict[str, Any]) -> dict[str, Any]:
-        """exit_code を除いた dict を返す（純粋関数）。"""
-        return {k: v for k, v in node.items() if k != "exit_code"}
+        """exit_code / code を除いた dict を返す（純粋関数）。
+
+        v0.12.x 形式は `code` キーを使用し、新形式は `exit_code` を使用する。
+        どちらも ExitContract で管理されるため、nodes.exit 配下では不要。
+        """
+        return {k: v for k, v in node.items() if k not in ("exit_code", "code")}
 
     def _process_level(data: dict[str, Any]) -> dict[str, Any]:
         """再帰的にネスト構造を処理する（純粋関数）。
@@ -510,6 +514,43 @@ def _extract_transitions_from_nodes(
 # =============================================================================
 
 
+# Transition graph YAML の標準キー順序
+_CANONICAL_KEY_ORDER: tuple[str, ...] = (
+    "version",
+    "entrypoint",
+    "description",
+    "nodes",
+    "start",
+    "transitions",
+    "options",
+)
+
+
+def _order_yaml_keys(data: dict[str, Any]) -> dict[str, Any]:
+    """変換後の dict を標準キー順序に並べ替える（純粋関数）。
+
+    transition_graph_reference.md の定義順に従い、
+    yaml.safe_dump(sort_keys=False) で可読性の高い出力を得る。
+
+    未知のキーは末尾に追加される。
+
+    Args:
+        data: 変換結果の dict
+
+    Returns:
+        キー順序を整えた新しい dict
+    """
+    ordered: dict[str, Any] = {}
+    for key in _CANONICAL_KEY_ORDER:
+        if key in data:
+            ordered[key] = data[key]
+    # 未知のキーを末尾に
+    for key in data:
+        if key not in ordered:
+            ordered[key] = data[key]
+    return ordered
+
+
 def _ensure_version_field(data: dict[str, Any]) -> None:
     """変換結果に version フィールドを補完する（破壊的更新）。
 
@@ -561,7 +602,7 @@ def _convert_legacy_flat(
         )
 
     _ensure_version_field(result)
-    return ConversionResult.ok(result)
+    return ConversionResult.ok(_order_yaml_keys(result))
 
 
 def _convert_nested(
@@ -621,7 +662,7 @@ def _convert_nested(
         result["transitions"] = merged
 
     _ensure_version_field(result)
-    return ConversionResult.ok(result, warnings=tuple(all_warnings))
+    return ConversionResult.ok(_order_yaml_keys(result), warnings=tuple(all_warnings))
 
 
 # =============================================================================
