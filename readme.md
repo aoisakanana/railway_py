@@ -70,7 +70,7 @@ def main():
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)  
 [![Test Coverage](https://img.shields.io/badge/coverage-90%25+-brightgreen.svg)]()  
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)  
-[![Tests](https://img.shields.io/badge/tests-1465%20passing-success.svg)]()  
+[![Tests](https://img.shields.io/badge/tests-1576%20passing-success.svg)]()  
 
 ---  
 
@@ -203,17 +203,33 @@ node_name::status::detail
 | テスト構造を考える | **TDDテンプレート付き** |  
 | Outcomeの使い方を調べる | **動作するサンプル付き** |  
 
-```bash  
-# dag 形式（デフォルト）: 条件分岐ワークフロー向け  
-railway new node check_status  
-# → src/nodes/check_status.py        ← ノード本体（動作するサンプル付き）  
-# → src/contracts/check_status_context.py  ← Contract（型安全）  
-# → tests/nodes/test_check_status.py       ← TDDテンプレート  
+```bash
+# dag 形式（デフォルト）: 条件分岐ワークフロー向け
+railway new node check_status
+# → src/nodes/check_status.py        ← ノード本体（動作するサンプル付き）
+# → src/contracts/check_status_context.py  ← Contract（型安全）
+# → tests/nodes/test_check_status.py       ← TDDテンプレート
 
-# linear 形式: 線形パイプライン向け  
-railway new node transform --mode linear  
-# → Input/Output の2つのContractが生成される  
-```  
+# 階層ノード（v0.13.18+）: ドット区切りでサブディレクトリに生成
+railway new node processing.validate
+# → src/nodes/processing/validate.py        ← 関数名: validate
+# → src/contracts/processing/validate_context.py
+# → tests/nodes/processing/test_validate.py
+
+# linear 形式: 線形パイプライン向け
+railway new node transform --mode linear
+# → Input/Output の2つのContractが生成される
+```
+
+**命名規則（v0.13.18+）:**
+
+| 入力 | 結果 |
+|------|------|
+| `check_status` | フラットなノード作成 |
+| `processing.validate` | `src/nodes/processing/validate.py` に階層作成 |
+| `my-node` | エラー（ハイフン不可、`my_node` を提案） |
+| `import` | エラー（Python予約語） |
+| `greeting/farewell` | エラー（スラッシュ不可、`greeting.farewell` を提案） |  
 
 **dag 形式（デフォルト）** - 条件分岐が可能:  
 
@@ -423,12 +439,13 @@ railway new contract <Name> --params # パラメータ用Contract
 railway list contracts               # Contract一覧  
 ```  
 
-### Node（処理単位）  
-```bash  
-railway new node <name>                      # 基本node作成  
-railway new node <name> --output ResultType  # 出力型指定  
-railway new node <name> --input data:InputType --output ResultType  
-railway show node <name>                     # 依存関係表示  
+### Node（処理単位）
+```bash
+railway new node <name>                      # 基本node作成
+railway new node sub.deep.process            # 階層ノード作成（v0.13.18+）
+railway new node <name> --output ResultType  # 出力型指定
+railway new node <name> --input data:InputType --output ResultType
+railway show node <name>                     # 依存関係表示
 ```  
 
 ### 実行  

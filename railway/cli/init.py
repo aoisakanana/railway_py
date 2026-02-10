@@ -560,7 +560,39 @@ uv run pytest tests/nodes/test_log_result.py -v
 
 成功！これがTDDの「Green」フェーズです。
 
-### 5.3 linear モード（参考）
+### 5.3 階層ノード（v0.13.18+）
+
+ドット区切りでサブディレクトリにノードを生成できます。
+YAML の深いネスト定義と一貫した形式です。
+
+```bash
+railway new node processing.validate
+```
+
+**生成されるファイル:**
+
+| ファイル | 内容 |
+|----------|------|
+| `src/nodes/processing/validate.py` | `def validate(ctx)` - 関数名は最終セグメント |
+| `src/contracts/processing/validate_context.py` | `ValidateContext` |
+| `tests/nodes/processing/test_validate.py` | TDDテンプレート |
+
+3段以上のネストも可能です:
+
+```bash
+railway new node sub.deep.process
+# → src/nodes/sub/deep/process.py（関数名: process）
+```
+
+**注意: 名前のバリデーション**
+
+```bash
+railway new node my-node          # ❌ ハイフン不可 → my_node を提案
+railway new node class             # ❌ Python予約語
+railway new node greeting/farewell # ❌ スラッシュ不可 → greeting.farewell を提案
+```
+
+### 5.4 linear モード（参考）
 
 線形パイプライン向けのノードを作成する場合:
 

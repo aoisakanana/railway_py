@@ -1,14 +1,16 @@
-"""Tests for railway new node with subdirectory paths.
+"""Tests for railway new node with hierarchical (dotted) paths.
 
-Bug: `railway new node greeting/farewell` crashes with FileNotFoundError
-because intermediate directories (src/contracts/greeting/) are not created.
+ドット区切り階層ノード:
+- `railway new node processing.validate` → src/nodes/processing/validate.py
+- スラッシュはCLIレベルで拒否される（test_new_name_validation.pyで検証）
+- 中間ディレクトリは自動作成される
+- 関数名は最終セグメント（validate）
 """
 
 import os
 import tempfile
 from pathlib import Path
 
-import pytest
 from typer.testing import CliRunner
 
 runner = CliRunner()
@@ -26,59 +28,109 @@ def _setup_project_dir(tmpdir: str) -> None:
     (p / "tests" / "nodes").mkdir(parents=True)
 
 
-class TestNewNodeSubdirectory:
-    """railway new node greeting/farewell のサブディレクトリ対応テスト."""
+class TestNewNodeDottedPath:
+    """railway new node processing.validate のドット区切り対応テスト."""
 
-    def test_contract_intermediate_dir_created(self) -> None:
-        """Contract の中間ディレクトリが作成されること."""
-        from railway.cli.new import NodeMode, _create_node_contract
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            _setup_project_dir(tmpdir)
-            original_cwd = os.getcwd()
-            try:
-                os.chdir(tmpdir)
-                _create_node_contract("greeting/farewell", NodeMode.dag)
-
-                contract_path = Path(tmpdir) / "src" / "contracts" / "greeting" / "farewell_context.py"
-                assert contract_path.exists(), f"Contract file not found: {contract_path}"
-            finally:
-                os.chdir(original_cwd)
-
-    def test_node_file_intermediate_dir_created(self) -> None:
-        """ノードファイルの中間ディレクトリが作成されること."""
-        from railway.cli.new import _create_node
+    def test_dotted_node_creates_subdirectory(self) -> None:
+        """ドット区切りノードで中間ディレクトリが作成されること."""
+        from railway.cli.main import app
 
         with tempfile.TemporaryDirectory() as tmpdir:
             _setup_project_dir(tmpdir)
             original_cwd = os.getcwd()
             try:
                 os.chdir(tmpdir)
-                _create_node("greeting/farewell", example=False, force=False)
+                result = runner.invoke(app, ["new", "node", "processing.validate"])
+                assert result.exit_code == 0, f"Failed with: {result.output}"
 
-                node_path = Path(tmpdir) / "src" / "nodes" / "greeting" / "farewell.py"
+                node_path = (
+                    Path(tmpdir) / "src" / "nodes" / "processing" / "validate.py"
+                )
                 assert node_path.exists(), f"Node file not found: {node_path}"
             finally:
                 os.chdir(original_cwd)
 
-    def test_test_file_intermediate_dir_created(self) -> None:
-        """テストファイルの中間ディレクトリが作成されること."""
-        from railway.cli.new import _create_node
+    def test_dotted_node_function_name_is_leaf(self) -> None:
+        """生成コード内の関数名が最終セグメントであること."""
+        from railway.cli.main import app
 
         with tempfile.TemporaryDirectory() as tmpdir:
             _setup_project_dir(tmpdir)
             original_cwd = os.getcwd()
             try:
                 os.chdir(tmpdir)
-                _create_node("greeting/farewell", example=False, force=False)
+                runner.invoke(app, ["new", "node", "processing.validate"])
 
-                test_path = Path(tmpdir) / "tests" / "nodes" / "greeting" / "test_farewell.py"
+                node_path = (
+                    Path(tmpdir) / "src" / "nodes" / "processing" / "validate.py"
+                )
+                content = node_path.read_text()
+                assert "def validate(" in content
+                assert "def processing" not in content
+            finally:
+                os.chdir(original_cwd)
+
+    def test_dotted_node_import_path_uses_dots(self) -> None:
+        """生成コード内の import パスがドット区切りであること."""
+        from railway.cli.main import app
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _setup_project_dir(tmpdir)
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                runner.invoke(app, ["new", "node", "processing.validate"])
+
+                node_path = (
+                    Path(tmpdir) / "src" / "nodes" / "processing" / "validate.py"
+                )
+                content = node_path.read_text()
+                assert "from contracts.processing.validate_context import" in content
+            finally:
+                os.chdir(original_cwd)
+
+    def test_dotted_node_contract_in_subdirectory(self) -> None:
+        """Contract ファイルがサブディレクトリに作成されること."""
+        from railway.cli.main import app
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _setup_project_dir(tmpdir)
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                runner.invoke(app, ["new", "node", "processing.validate"])
+
+                contract_path = (
+                    Path(tmpdir)
+                    / "src"
+                    / "contracts"
+                    / "processing"
+                    / "validate_context.py"
+                )
+                assert contract_path.exists(), f"Contract not found: {contract_path}"
+            finally:
+                os.chdir(original_cwd)
+
+    def test_dotted_node_test_in_subdirectory(self) -> None:
+        """テストファイルがサブディレクトリに作成されること."""
+        from railway.cli.main import app
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _setup_project_dir(tmpdir)
+            original_cwd = os.getcwd()
+            try:
+                os.chdir(tmpdir)
+                runner.invoke(app, ["new", "node", "processing.validate"])
+
+                test_path = (
+                    Path(tmpdir) / "tests" / "nodes" / "processing" / "test_validate.py"
+                )
                 assert test_path.exists(), f"Test file not found: {test_path}"
             finally:
                 os.chdir(original_cwd)
 
-    def test_cli_new_node_subdir_no_crash(self) -> None:
-        """CLI 経由で subdir/name ノードがクラッシュしないこと."""
+    def test_slash_node_rejected_at_cli(self) -> None:
+        """CLI 経由でスラッシュノード名が拒否されること."""
         from railway.cli.main import app
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -87,24 +139,34 @@ class TestNewNodeSubdirectory:
             try:
                 os.chdir(tmpdir)
                 result = runner.invoke(app, ["new", "node", "greeting/farewell"])
-                assert result.exit_code == 0, f"Failed with: {result.output}"
+                assert result.exit_code != 0
+                assert "greeting.farewell" in result.output
             finally:
                 os.chdir(original_cwd)
 
-    def test_linear_mode_contract_intermediate_dir_created(self) -> None:
-        """linear モードでも Contract 中間ディレクトリが作成されること."""
-        from railway.cli.new import NodeMode, _create_node_contract
+    def test_deep_dotted_node(self) -> None:
+        """深いドット区切り（3段以上）でもファイルが作成されること."""
+        from railway.cli.main import app
 
         with tempfile.TemporaryDirectory() as tmpdir:
             _setup_project_dir(tmpdir)
             original_cwd = os.getcwd()
             try:
                 os.chdir(tmpdir)
-                _create_node_contract("greeting/farewell", NodeMode.linear)
+                result = runner.invoke(app, ["new", "node", "sub.deep.process"])
+                assert result.exit_code == 0, f"Failed with: {result.output}"
 
-                input_path = Path(tmpdir) / "src" / "contracts" / "greeting" / "farewell_input.py"
-                output_path = Path(tmpdir) / "src" / "contracts" / "greeting" / "farewell_output.py"
-                assert input_path.exists(), f"Input contract not found: {input_path}"
-                assert output_path.exists(), f"Output contract not found: {output_path}"
+                node_path = (
+                    Path(tmpdir)
+                    / "src"
+                    / "nodes"
+                    / "sub"
+                    / "deep"
+                    / "process.py"
+                )
+                assert node_path.exists()
+                content = node_path.read_text()
+                assert "def process(" in content
+                assert "from contracts.sub.deep.process_context import" in content
             finally:
                 os.chdir(original_cwd)

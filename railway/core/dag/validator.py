@@ -7,7 +7,6 @@ and return a ValidationResult without side effects.
 from __future__ import annotations
 
 import keyword
-import re as _re
 from dataclasses import dataclass
 from typing import NamedTuple
 
@@ -100,6 +99,7 @@ def validate_graph(graph: TransitionGraph) -> ValidationResult:
         validate_termination(graph),
         validate_no_duplicate_states(graph),
         validate_no_infinite_loop(graph),
+        validate_node_identifiers(graph),
     )
 
 
@@ -329,6 +329,26 @@ def validate_no_infinite_loop(graph: TransitionGraph) -> ValidationResult:
     return ValidationResult.valid()
 
 
+def validate_node_identifiers(graph: TransitionGraph) -> ValidationResult:
+    """Validate that all node names are valid Python identifiers.
+
+    各ノード名をドット分割し、各セグメントが Python 識別子として有効か検証する。
+    """
+    node_names = tuple(n.name for n in graph.nodes)
+    result = validate_python_identifiers(node_names)
+
+    if not result.is_valid:
+        pairs = [
+            f"'{inv}' → '{sug}'"
+            for inv, sug in zip(result.invalid_identifiers, result.suggestions)
+        ]
+        return ValidationResult.error(
+            "E007",
+            f"無効なPython識別子がノード名に含まれています: {', '.join(pairs)}",
+        )
+    return ValidationResult.valid()
+
+
 # =============================================================================
 # Python Identifier Validation (Pure Functions)
 # =============================================================================
@@ -378,26 +398,22 @@ def validate_python_identifiers(node_names: tuple[str, ...]) -> IdentifierValida
 def _is_valid_identifier(name: str) -> bool:
     """Python の識別子として有効か（純粋関数）。
 
+    Python の str.isidentifier() を使用し、Unicode 識別子も許容する。
+    ただし Python キーワードは除外する。
+
     Args:
         name: 識別子名
 
     Returns:
         有効な場合 True
     """
-    # 空文字列は無効
     if not name:
         return False
 
-    # 数字のみ、または数字で始まる
-    if name.isdigit() or (name[0].isdigit()):
-        return False
-
-    # Python キーワード
     if keyword.iskeyword(name):
         return False
 
-    # 識別子パターン（アルファベット/アンダースコアで始まり、英数字/アンダースコアが続く）
-    return bool(_re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", name))
+    return name.isidentifier()
 
 
 def _suggest_valid_name(invalid_name: str) -> str:
@@ -412,6 +428,12 @@ def _suggest_valid_name(invalid_name: str) -> str:
     if not invalid_name:
         return "unnamed"
 
+    # ハイフンをアンダースコアに置換（最も一般的なミス）
+    if "-" in invalid_name:
+        suggested = invalid_name.replace("-", "_")
+        if suggested.isidentifier() and not keyword.iskeyword(suggested):
+            return suggested
+
     if invalid_name.isdigit():
         return f"exit_{invalid_name}"
 
@@ -420,3 +442,185 @@ def _suggest_valid_name(invalid_name: str) -> str:
 
     # キーワードやその他の場合
     return f"{invalid_name}_"
+
+
+@dataclass(frozen=True)
+class NameValidation:
+    """コンポーネント名のバリデーション結果（純粋関数の戻り値）。
+
+    Attributes:
+        is_valid: 検証に通ったか
+        normalized: 正規化後の名前（is_valid=True の場合のみ意味がある）
+        error_message: エラーメッセージ（is_valid=True なら空文字列）
+        suggestion: 修正提案（あれば）
+    """
+
+    is_valid: bool
+    normalized: str
+    error_message: str
+    suggestion: str
+
+
+def validate_entry_name(name: str) -> NameValidation:
+    """エントリーポイント名を検証する（純粋関数）。
+
+    エントリーポイント名は単一の Python 識別子でなければならない。
+    ドットやスラッシュは許容しない。
+
+    Args:
+        name: エントリーポイント名
+
+    Returns:
+        NameValidation: 検証結果
+    """
+    if not name:
+        return NameValidation(
+            is_valid=False,
+            normalized=name,
+            error_message="エントリーポイント名が空です。",
+            suggestion="",
+        )
+
+    if "/" in name:
+        return NameValidation(
+            is_valid=False,
+            normalized=name,
+            error_message=(
+                f"エントリーポイント名 '{name}' にスラッシュ '/' は使用できません。"
+            ),
+            suggestion=name.replace("/", "_"),
+        )
+
+    if "." in name:
+        return NameValidation(
+            is_valid=False,
+            normalized=name,
+            error_message=(
+                f"エントリーポイント名 '{name}' にドット '.' は使用できません。"
+            ),
+            suggestion=name.replace(".", "_"),
+        )
+
+    if keyword.iskeyword(name):
+        return NameValidation(
+            is_valid=False,
+            normalized=name,
+            error_message=(
+                f"エントリーポイント名 '{name}' はPythonの予約語のため使用できません。"
+            ),
+            suggestion=f"{name}_",
+        )
+
+    if not name.isidentifier():
+        suggestion = _suggest_valid_name(name)
+        # ハイフン固有のメッセージ
+        if "-" in name:
+            return NameValidation(
+                is_valid=False,
+                normalized=name,
+                error_message=(
+                    f"エントリーポイント名 '{name}' は有効なPython識別子ではありません。"
+                    " ハイフン '-' は使用できません。アンダースコア '_' を使ってください。"
+                ),
+                suggestion=suggestion,
+            )
+        return NameValidation(
+            is_valid=False,
+            normalized=name,
+            error_message=(
+                f"エントリーポイント名 '{name}' は有効なPython識別子ではありません。"
+            ),
+            suggestion=suggestion,
+        )
+
+    return NameValidation(
+        is_valid=True,
+        normalized=name,
+        error_message="",
+        suggestion="",
+    )
+
+
+def validate_node_name(name: str) -> NameValidation:
+    """ノード名を検証する（純粋関数）。
+
+    ノード名はドット区切りの階層名を許容する。
+    各セグメントが有効な Python 識別子でなければならない。
+    スラッシュは拒否し、ドット表記を案内する。
+
+    Args:
+        name: ノード名
+
+    Returns:
+        NameValidation: 検証結果
+    """
+    if not name:
+        return NameValidation(
+            is_valid=False,
+            normalized=name,
+            error_message="ノード名が空です。",
+            suggestion="",
+        )
+
+    if "/" in name:
+        dotted = name.replace("/", ".")
+        return NameValidation(
+            is_valid=False,
+            normalized=name,
+            error_message=(
+                "ノード名にスラッシュ '/' は使用できません。"
+                " 階層ノードにはドット '.' を使ってください。"
+            ),
+            suggestion=dotted,
+        )
+
+    segments = name.split(".")
+
+    for segment in segments:
+        if not segment:
+            return NameValidation(
+                is_valid=False,
+                normalized=name,
+                error_message=(
+                    f"ノード名 '{name}' に空のセグメントがあります。"
+                ),
+                suggestion="",
+            )
+
+        if keyword.iskeyword(segment):
+            return NameValidation(
+                is_valid=False,
+                normalized=name,
+                error_message=(
+                    f"ノード名のセグメント '{segment}' はPythonの予約語のため使用できません。"
+                ),
+                suggestion=f"{segment}_",
+            )
+
+        if not segment.isidentifier():
+            suggestion = _suggest_valid_name(segment)
+            if "-" in segment:
+                return NameValidation(
+                    is_valid=False,
+                    normalized=name,
+                    error_message=(
+                        f"ノード名のセグメント '{segment}' は有効なPython識別子ではありません。"
+                        " ハイフン '-' は使用できません。アンダースコア '_' を使ってください。"
+                    ),
+                    suggestion=suggestion,
+                )
+            return NameValidation(
+                is_valid=False,
+                normalized=name,
+                error_message=(
+                    f"ノード名のセグメント '{segment}' は有効なPython識別子ではありません。"
+                ),
+                suggestion=suggestion,
+            )
+
+    return NameValidation(
+        is_valid=True,
+        normalized=name,
+        error_message="",
+        suggestion="",
+    )
