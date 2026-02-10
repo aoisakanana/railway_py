@@ -320,11 +320,35 @@ if result.is_success:
     print("Workflow completed successfully")  
 ```  
 
-**dag_runner の特徴:**  
-- 条件分岐: Outcome に応じて遷移先を決定  
-- YAML定義: 遷移グラフをYAMLで宣言的に定義  
-- コード生成: `railway sync transition` で遷移コードを自動生成  
-- ステップコールバック: `on_step` で各ステップを監視  
+**dag_runner の特徴:**
+- 条件分岐: Outcome に応じて遷移先を決定
+- YAML定義: 遷移グラフをYAMLで宣言的に定義
+- コード生成: `railway sync transition` で遷移コードを自動生成
+- ステップコールバック: `on_step` で各ステップを監視
+
+### async_dag_runner（非同期版）
+
+`async_dag_runner` は `dag_runner` の非同期版です。async/await 対応のノードを実行できます：
+
+```python
+import asyncio
+from railway.core.dag import async_dag_runner, Outcome
+
+@node
+async def fetch_data(ctx: MyContext) -> tuple[MyContext, Outcome]:
+    result = await external_api.fetch(ctx.resource_id)
+    return ctx.model_copy(update={"data": result}), Outcome.success("done")
+
+result = asyncio.run(
+    async_dag_runner(
+        start=fetch_data_start,
+        transitions=TRANSITIONS,
+    )
+)
+```
+
+**API は `dag_runner` と同一です。** async ノードと sync ノードを混在させることもできます。
+codegen が生成する `run_async()` ヘルパーは内部で `async_dag_runner` を使用しています。
 
 ### typed_pipeline（線形パイプライン）  
 

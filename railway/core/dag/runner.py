@@ -356,6 +356,7 @@ def dag_runner(
         _check_node_dependencies(start, available_fields, node_name)
         available_fields = _update_available_fields(start, context, available_fields)
 
+    logger.info(f"[{node_name}] 完了 ({state_string})")
     logger.debug(f"[{iteration}] {node_name} -> {state_string}")
 
     if on_step:
@@ -399,6 +400,7 @@ def dag_runner(
         # Check if it's an exit node
         if _is_exit_node(next_node_name):
             execution_path.append(next_node_name)
+            logger.info(f"ワークフロー完了: {next_node_name}")
             logger.debug(f"DAGワークフロー終了（終端ノード）: {next_node_name}")
 
             result = _execute_exit_node(
@@ -427,6 +429,7 @@ def dag_runner(
                 next_node_func, context, available_fields
             )
 
+        logger.info(f"[{node_name}] 完了 ({state_string})")
         logger.debug(f"[{iteration}] {node_name} -> {state_string}")
 
         if on_step:
@@ -482,6 +485,8 @@ async def async_dag_runner(
     execution_path.append(node_name)
     iteration += 1
 
+    logger.info(f"[{node_name}] 完了 ({state_string})")
+
     if on_step:
         on_step(node_name, state_string, context)
 
@@ -515,6 +520,7 @@ async def async_dag_runner(
         # Check if it's an exit node
         if _is_exit_node(next_node_name):
             execution_path.append(next_node_name)
+            logger.info(f"ワークフロー完了: {next_node_name}")
 
             result = await _execute_exit_node_async(
                 exit_node=next_node_func,
@@ -538,6 +544,8 @@ async def async_dag_runner(
         node_name = next_node_name
         state_string = outcome.to_state_string(node_name)
         execution_path.append(node_name)
+
+        logger.info(f"[{node_name}] 完了 ({state_string})")
 
         if on_step:
             on_step(node_name, state_string, context)
