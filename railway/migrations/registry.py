@@ -17,6 +17,7 @@ from railway.migrations.definitions.v0_11_to_v0_12 import MIGRATION_0_11_TO_0_12
 from railway.migrations.definitions.v0_13_3_to_v0_13_4 import MIGRATION_0_13_3_TO_0_13_4
 from railway.migrations.definitions.v0_13_4_to_v0_13_11 import MIGRATION_0_13_4_TO_0_13_11
 from railway.migrations.definitions.v0_13_11_to_v0_13_15 import MIGRATION_0_13_11_TO_0_13_15
+from railway.migrations.definitions.v0_13_15_to_v0_13_22 import MIGRATION_0_13_15_TO_0_13_22
 from railway.migrations.types import MigrationPlan
 
 # ============================================================
@@ -30,6 +31,7 @@ MIGRATIONS: tuple[MigrationDefinition, ...] = (
     MIGRATION_0_13_3_TO_0_13_4,
     MIGRATION_0_13_4_TO_0_13_11,
     MIGRATION_0_13_11_TO_0_13_15,
+    MIGRATION_0_13_15_TO_0_13_22,
 )
 
 
