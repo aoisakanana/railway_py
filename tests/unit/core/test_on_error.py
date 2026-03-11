@@ -17,7 +17,7 @@ class TestOnErrorCallback:
     def test_no_on_error_propagates_exception(self) -> None:
         """on_error 未指定時は例外がそのまま伝播する"""
 
-        @node
+        @node(output=object)
         def fail() -> str:
             raise ValueError("test error")
 
@@ -30,7 +30,7 @@ class TestOnErrorCallback:
         class Result(Contract):
             value: int
 
-        @node
+        @node(output=object)
         def fail() -> Result:
             raise ValueError("test error")
 
@@ -47,7 +47,7 @@ class TestOnErrorCallback:
     def test_on_error_can_reraise(self) -> None:
         """on_error で再送出できる"""
 
-        @node
+        @node(output=object)
         def fail() -> str:
             raise ValueError("original")
 
@@ -64,7 +64,7 @@ class TestOnErrorCallback:
         class Result(Contract):
             value: str
 
-        @node
+        @node(output=object)
         def my_failing_step() -> Result:
             raise ValueError()
 
@@ -82,11 +82,11 @@ class TestOnErrorCallback:
         class Result(Contract):
             value: str
 
-        @node
+        @node(output=object)
         def fail_connection() -> Result:
             raise ConnectionError("network")
 
-        @node
+        @node(output=object)
         def fail_validation() -> Result:
             raise ValueError("invalid")
 
@@ -108,7 +108,7 @@ class TestOnErrorCallback:
     def test_on_error_preserves_stack_trace(self) -> None:
         """on_error で再送出時にスタックトレースが保持される"""
 
-        @node
+        @node(output=object)
         def deep_fail() -> str:
             def inner() -> None:
                 raise ValueError("deep error")
@@ -156,7 +156,7 @@ class TestOnErrorCallback:
         class Step2Result(Contract):
             processed: str
 
-        @node
+        @node(output=object)
         def step1() -> Step1Result:
             return Step1Result(data="initial")
 
@@ -175,7 +175,7 @@ class TestOnErrorCallback:
     def test_on_error_none_is_default(self) -> None:
         """on_error=None はデフォルト動作（例外伝播）と同じ"""
 
-        @node
+        @node(output=object)
         def fail() -> str:
             raise ValueError("test")
 

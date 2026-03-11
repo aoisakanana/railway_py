@@ -62,7 +62,7 @@ class TestGeneratedTestsRunnable:
                 runner.invoke(app, ["init", "test_project"])
                 os.chdir(Path(tmpdir) / "test_project")
 
-                # Create untyped node
+                # Create untyped node (Board モード)
                 runner.invoke(app, ["new", "node", "process_data"])
 
                 # Run the generated test
@@ -73,10 +73,14 @@ class TestGeneratedTestsRunnable:
                     timeout=60,
                 )
 
-                # Should skip, not fail with error
                 # Also accept dependency resolution failure (unpublished version)
                 if "No solution found" in result.stderr:
                     pytest.skip("railway-framework version not published on PyPI")
+                # Board モード: railway.core.board が未公開の場合はスキップ
+                combined_output = result.stdout + result.stderr
+                if "No module named 'railway.core.board'" in combined_output:
+                    pytest.skip("railway.core.board not available in published version")
+                # Should skip, not fail with error
                 assert "skip" in result.stdout.lower() or result.returncode == 0, (
                     f"Test failed:\n{result.stdout}\n{result.stderr}"
                 )

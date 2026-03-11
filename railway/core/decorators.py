@@ -69,9 +69,6 @@ def node(
     *,
     inputs: dict[str, type[Contract]] | None = None,
     output: type[Contract] | None = None,
-    requires: list[str] | None = None,
-    optional: list[str] | None = None,
-    provides: list[str] | None = None,
     retry: bool | Retry = False,
     retry_policy: RetryPolicy | None = None,
     retries: int | None = None,
@@ -88,9 +85,6 @@ def node(
     *,
     inputs: dict[str, type[Contract]] | None = None,
     output: type[Contract] | None = None,
-    requires: list[str] | None = None,
-    optional: list[str] | None = None,
-    provides: list[str] | None = None,
     retry: bool | Retry = False,
     retry_policy: RetryPolicy | None = None,
     retries: int | None = None,
@@ -107,15 +101,14 @@ def node(
     3. Structured logging
     4. Metadata storage
     5. Type-safe input/output contracts (Output Model pattern)
-    6. Field-based dependency declaration (requires/optional/provides)
+
+    Board mode (default): First parameter must be named 'board' (E015).
+    Linear mode: When inputs/output are specified.
 
     Args:
         func: Function to decorate
-        inputs: Dictionary mapping parameter names to expected Contract types
-        output: Expected output Contract type
-        requires: Required fields (node cannot execute without these)
-        optional: Optional fields (used if available)
-        provides: Fields this node adds to the context
+        inputs: Dictionary mapping parameter names to expected Contract types (linear mode)
+        output: Expected output Contract type (linear mode)
         retry: Enable retry (bool) or provide Retry config
         log_input: Log input parameters (caution: may log sensitive data)
         log_output: Log output data (caution: may log sensitive data)
@@ -125,48 +118,22 @@ def node(
         Decorated function with automatic error handling
 
     Example:
+        # Board mode (default)
         @node
-        def fetch_data() -> dict:
-            return api.get("/data")
+        def process(board):
+            board.result = "done"
+            return Outcome.success("done")
 
-        @node(retry=True)
-        def fetch_with_retry() -> dict:
-            return api.get("/data")
-
+        # Linear mode
         @node(output=UsersFetchResult)
         def fetch_users() -> UsersFetchResult:
             return UsersFetchResult(users=[...], total=10)
-
-        @node(inputs={"users": UsersFetchResult}, output=ReportResult)
-        def generate_report(users: UsersFetchResult) -> ReportResult:
-            return ReportResult(content=f"{users.total} users")
-
-
-        # RetryPolicy ショートハンド
-        @node(retries=3, retry_on=(ConnectionError, TimeoutError))
-        def fetch_with_retry_on() -> dict:
-            return api.get("/data")
-
-        # RetryPolicy 明示的指定
-        from railway.core.retry import RetryPolicy
-        @node(retry_policy=RetryPolicy(max_retries=5, backoff="exponential"))
-        def fetch_with_policy() -> dict:
-            return api.get("/data")
     """
     # Normalize inputs to empty dict if None
     inputs_dict = inputs or {}
 
-    # Build field dependency
-    from railway.core.dag.field_dependency import FieldDependency
-
-    field_requires = frozenset(requires or [])
-    field_optional = frozenset(optional or [])
-    field_provides = frozenset(provides or [])
-    field_dependency = FieldDependency(
-        requires=field_requires,
-        optional=field_optional,
-        provides=field_provides,
-    )
+    # Determine mode: linear (inputs/output specified) or board (default)
+    is_linear = inputs is not None or output is not None
 
     # Resolve retry configuration
     # Priority: retry_policy > shorthand (retries/retry_on/retry_delay) > retry (legacy)
@@ -181,6 +148,16 @@ def node(
     def decorator(f: Callable[P, T]) -> Callable[P, T]:
         node_name = name or f.__name__
         is_async = inspect.iscoroutinefunction(f)
+
+        # E015: Board mode check - first param must be "board"
+        if not is_linear:
+            sig = inspect.signature(f)
+            params = list(sig.parameters.keys())
+            if not params or params[0] != "board":
+                raise ValueError(
+                    f"E015: @node の第一引数は 'board' でなければなりません。"
+                    f" ノード '{node_name}' の第一引数を 'board' に変更してください。"
+                )
 
         # Resolve inputs: explicit inputs take precedence, otherwise infer from hints
         resolved_inputs = inputs_dict if inputs_dict else _infer_inputs_from_hints(f)
@@ -199,11 +176,20 @@ def node(
                 resolved_retry_policy
             )
 
-        # Add field dependency metadata
-        wrapper._requires = field_requires  # type: ignore[attr-defined]
-        wrapper._optional = field_optional  # type: ignore[attr-defined]
-        wrapper._provides = field_provides  # type: ignore[attr-defined]
-        wrapper._field_dependency = field_dependency  # type: ignore[attr-defined]
+        # Board mode metadata
+        wrapper._is_board_node = not is_linear  # type: ignore[attr-defined]
+
+        # Empty field dependency metadata (backward compat)
+        from railway.core.dag.field_dependency import FieldDependency
+
+        wrapper._requires = frozenset()  # type: ignore[attr-defined]
+        wrapper._optional = frozenset()  # type: ignore[attr-defined]
+        wrapper._provides = frozenset()  # type: ignore[attr-defined]
+        wrapper._field_dependency = FieldDependency(  # type: ignore[attr-defined]
+            requires=frozenset(),
+            optional=frozenset(),
+            provides=frozenset(),
+        )
 
         return wrapper
 

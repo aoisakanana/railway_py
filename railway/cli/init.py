@@ -157,16 +157,17 @@ settings = get_settings()
 
 
 def _create_tutorial_md(project_path: Path, project_name: str) -> None:
-    """Create TUTORIAL.md file with dag_runner as default."""
+    """Create TUTORIAL.md file with dag_runner Board mode as default."""
     content = f'''# {project_name} チュートリアル
 
-Railway Framework の**DAGワークフロー**を体験しましょう！
+Railway Framework の**DAGワークフロー（Board モード）**を体験しましょう！
 
 ## 学べること
 
 - dag_runner による条件分岐ワークフロー
+- Board パターン（ミュータブル共有状態）
 - Outcome クラスによる状態返却
-- Contract（型契約）によるデータ定義
+- WorkflowResult による結果取得
 - 遷移グラフ（YAML）の定義
 - コード生成（railway sync transition）
 - バージョン管理と安全なアップグレード
@@ -205,7 +206,7 @@ uv run railway run hello
 Hello, World!
 ```
 
-🎉 **2分で動きました！** 次のStepでは、DAGワークフローの核心を学びます。
+次のStepでは、DAGワークフローの核心を学びます。
 
 ---
 
@@ -222,12 +223,12 @@ railway new entry greeting
 以下のファイルが生成されます：
 
 - `src/greeting.py` - エントリーポイント（dag_runner使用）
-- `src/nodes/greeting/start.py` - 開始ノード
+- `src/nodes/greeting/start.py` - 開始ノード（Board モード）
 - `transition_graphs/greeting_*.yml` - 遷移グラフ定義
 
 ### 2.2 すぐに実行可能！
 
-**v0.13.1+**: `railway new entry` は自動的にコード生成も行います。
+`railway new entry` は自動的にコード生成も行います。
 
 ```bash
 railway run greeting
@@ -241,8 +242,6 @@ railway run greeting
 ```
 
 > **Note:** 実際の出力にはタイムスタンプとログレベルが含まれます。
-
-🎉 **1コマンドで動くワークフローが完成！**
 
 ### 2.3 遷移グラフを確認
 
@@ -259,7 +258,7 @@ nodes:
     function: start
     description: "開始ノード"
 
-  # 終端ノードは nodes.exit 配下に定義（v0.13.0+）
+  # 終端ノードは nodes.exit 配下に定義
   exit:
     success:
       done:
@@ -284,39 +283,36 @@ railway sync transition --entry greeting
 
 ---
 
-## Step 3: ノードの実装 - Outcome を使う（3分）
+## Step 3: ノードの実装 - Board と Outcome を使う（3分）
 
-DAGワークフローのノードは `Contract` と `Outcome` を返す純粋関数です。
+DAGワークフローのノードは `board`（共有状態）を受け取り、`Outcome` を返す純粋関数です。
 
-### 3.1 ノードの基本形
+### 3.1 Board モードのノード基本形
 
 `src/nodes/greeting/start.py` を確認:
 
 ```python
-from railway import Contract, node
+from railway import node
 from railway.core.dag import Outcome
 
 
-class GreetingContext(Contract):
-    \"\"\"ワークフローコンテキスト\"\"\"
-    message: str = ""
-
-
 @node
-def start(ctx: GreetingContext | None = None) -> tuple[GreetingContext, Outcome]:
+def start(board) -> Outcome:
     \"\"\"開始ノード
 
     Args:
-        ctx: 初期コンテキスト（省略時はデフォルト値を使用）
+        board: Board（共有状態）
     \"\"\"
-    if ctx is None:
-        ctx = GreetingContext(message="Hello, Railway!")
-    return ctx, Outcome.success("done")
+    # board にデータを書き込む
+    board.message = "Hello, Railway!"
+    return Outcome.success("done")
 ```
 
-**開始ノードの特徴:**
-- `run()` から初期コンテキストを受け取れる（テストしやすい）
-- `None` がデフォルトでフォールバック動作
+**Board モードの特徴:**
+- ノードは `board` を受け取り `Outcome` のみを返す
+- `board` に直接属性を読み書きする（`model_copy` 不要）
+- Contract 定義なしでシンプルに実装可能
+- `railway sync transition` が AST 解析でフィールド依存を自動検出
 
 ### 3.2 Outcome クラス
 
@@ -336,6 +332,31 @@ Outcome.failure("timeout")   # → failure::timeout
 - ノードは状態を返すだけ
 - 次のノードへの遷移はYAMLで定義
 - 純粋関数として実装
+
+### 3.3 WorkflowResult
+
+dag_runner は `WorkflowResult` を返します:
+
+```python
+from railway.core.board import WorkflowResult
+
+result = dag_runner(start=start, transitions=TRANSITIONS, board=board)
+result.is_success      # True if exit_code == 0
+result.exit_code       # 0 (success) or 1 (failure)
+result.exit_state      # "success.done" など
+result.board           # board オブジェクト（最終状態）
+result.execution_path  # ("start", "process", "exit.success.done")
+```
+
+### 3.4 Contract（型契約）との関係
+
+Board モードは DAG ワークフローの新しいデフォルトです。
+Contract は線形パイプライン（`typed_pipeline`）で引き続き使用されます。
+
+| 用途 | パターン | 入出力 |
+|------|----------|--------|
+| DAGワークフロー（推奨） | Board モード | `board` → `Outcome` |
+| 線形パイプライン | Contract モード | `Contract` → `Contract` |
 
 ---
 
@@ -362,7 +383,7 @@ nodes:
   greet_evening:
     description: "夜の挨拶"
 
-  # 終端ノード（v0.13.0+ 形式）
+  # 終端ノード
   exit:
     success:
       done:
@@ -391,43 +412,50 @@ transitions:
 
 ### 4.2 ノードを実装
 
+Board モードでは `board` に直接読み書きし、`Outcome` を返します。
+
 `src/nodes/greeting/check_time.py`:
 
 ```python
 from datetime import datetime
-from railway import Contract, node
+from railway import node
 from railway.core.dag import Outcome
 
 
-class TimeContext(Contract):
-    \"\"\"時間帯コンテキスト\"\"\"
-    period: str = ""
-
-
 @node
-def check_time(ctx: TimeContext | None = None) -> tuple[TimeContext, Outcome]:
+def check_time(board) -> Outcome:
     \"\"\"時間帯を判定して状態を返す
 
     Args:
-        ctx: 初期コンテキスト（開始ノードなので None 可）
+        board: Board（共有状態）
     \"\"\"
     hour = datetime.now().hour
 
     if 5 <= hour < 12:
-        return TimeContext(period="morning"), Outcome.success("morning")
+        board.period = "morning"
+        return Outcome.success("morning")
     elif 12 <= hour < 18:
-        return TimeContext(period="afternoon"), Outcome.success("afternoon")
+        board.period = "afternoon"
+        return Outcome.success("afternoon")
     else:
-        return TimeContext(period="evening"), Outcome.success("evening")
+        board.period = "evening"
+        return Outcome.success("evening")
 ```
 
-**開始ノードの引数について:**
+**Board モードの利点:**
+- Contract 定義が不要（`board.period = "morning"` で直接書き込み）
+- `model_copy` が不要（`board` はミュータブル）
+- `tuple` 返り値が不要（`Outcome` のみ返す）
+- `railway sync transition` が `board.period` を AST 解析で自動検出
 
-開始ノードは `run(initial_context)` から初期コンテキストを受け取ります。
-引数を Optional にすることで、以下の両方に対応できます:
+**テスト時の初期状態注入:**
 
-- `run({{}})` - 空の初期コンテキスト（ノード内でデフォルト値を使用）
-- `run(TimeContext(period="test"))` - テスト用の初期コンテキスト
+```python
+from railway.core.board import BoardBase
+
+board = BoardBase(hour_override=10)  # テスト用の初期状態
+outcome = check_time(board)
+```
 
 これにより、**テスト時に任意の初期状態を注入できます**。
 
@@ -436,14 +464,14 @@ def check_time(ctx: TimeContext | None = None) -> tuple[TimeContext, Outcome]:
 ```python
 from railway import node
 from railway.core.dag import Outcome
-from nodes.greeting.check_time import TimeContext
 
 
 @node
-def greet_morning(ctx: TimeContext) -> tuple[TimeContext, Outcome]:
+def greet_morning(board) -> Outcome:
     \"\"\"朝の挨拶\"\"\"
     print("おはようございます！")
-    return ctx, Outcome.success("done")
+    board.greeting = "おはようございます！"
+    return Outcome.success("done")
 ```
 
 `src/nodes/greeting/greet_afternoon.py`:
@@ -451,14 +479,14 @@ def greet_morning(ctx: TimeContext) -> tuple[TimeContext, Outcome]:
 ```python
 from railway import node
 from railway.core.dag import Outcome
-from nodes.greeting.check_time import TimeContext
 
 
 @node
-def greet_afternoon(ctx: TimeContext) -> tuple[TimeContext, Outcome]:
+def greet_afternoon(board) -> Outcome:
     \"\"\"午後の挨拶\"\"\"
     print("こんにちは！")
-    return ctx, Outcome.success("done")
+    board.greeting = "こんにちは！"
+    return Outcome.success("done")
 ```
 
 `src/nodes/greeting/greet_evening.py`:
@@ -466,14 +494,14 @@ def greet_afternoon(ctx: TimeContext) -> tuple[TimeContext, Outcome]:
 ```python
 from railway import node
 from railway.core.dag import Outcome
-from nodes.greeting.check_time import TimeContext
 
 
 @node
-def greet_evening(ctx: TimeContext) -> tuple[TimeContext, Outcome]:
+def greet_evening(board) -> Outcome:
     \"\"\"夜の挨拶\"\"\"
     print("こんばんは！")
-    return ctx, Outcome.success("done")
+    board.greeting = "こんばんは！"
+    return Outcome.success("done")
 ```
 
 **ポイント:**
@@ -522,9 +550,9 @@ railway run greeting
 ## Step 5: railway new node でノードを素早く追加（3分）
 
 既存のワークフローに新しいノードを追加する方法を学びます。
-ここで体験するのは「**3つのファイルを1コマンドで生成し、即座にTDDを開始できる**」という恩恵です。
+ここで体験するのは「**ファイルを1コマンドで生成し、即座にTDDを開始できる**」という恩恵です。
 
-### 5.1 1コマンドで3ファイル生成
+### 5.1 1コマンドで2ファイル生成
 
 ```bash
 railway new node log_result
@@ -535,8 +563,10 @@ railway new node log_result
 | ファイル | 役割 | 恩恵 |
 |----------|------|------|
 | `src/nodes/log_result.py` | ノード本体 | 動作するサンプル付き |
-| `src/contracts/log_result_context.py` | Contract | IDE補完が効く |
 | `tests/nodes/test_log_result.py` | テスト | すぐにTDD開始可能 |
+
+> **Note:** Board モードでは Contract ファイルは生成されません。
+> board に直接読み書きするため、別途 Contract 定義が不要です。
 
 ### 5.2 TDDワークフローを体験
 
@@ -554,13 +584,13 @@ uv run pytest tests/nodes/test_log_result.py -v
 
 **Step 3: 実装（テストを通す = Green）**
 
-`src/nodes/log_result.py` と `src/contracts/log_result_context.py` を実装。
+`src/nodes/log_result.py` を実装。
 
 **Step 4: テスト再実行（成功を確認）**
 
 成功！これがTDDの「Green」フェーズです。
 
-### 5.3 階層ノード（v0.13.18+）
+### 5.3 階層ノード
 
 ドット区切りでサブディレクトリにノードを生成できます。
 YAML の深いネスト定義と一貫した形式です。
@@ -573,8 +603,7 @@ railway new node processing.validate
 
 | ファイル | 内容 |
 |----------|------|
-| `src/nodes/processing/validate.py` | `def validate(ctx)` - 関数名は最終セグメント |
-| `src/contracts/processing/validate_context.py` | `ValidateContext` |
+| `src/nodes/processing/validate.py` | `def validate(board)` - 関数名は最終セグメント |
 | `tests/nodes/processing/test_validate.py` | TDDテンプレート |
 
 3段以上のネストも可能です:
@@ -587,14 +616,14 @@ railway new node sub.deep.process
 **注意: 名前のバリデーション**
 
 ```bash
-railway new node my-node          # ❌ ハイフン不可 → my_node を提案
-railway new node class             # ❌ Python予約語
-railway new node greeting/farewell # ❌ スラッシュ不可 → greeting.farewell を提案
+railway new node my-node          # ハイフン不可 → my_node を提案
+railway new node class             # Python予約語
+railway new node greeting/farewell # スラッシュ不可 → greeting.farewell を提案
 ```
 
 ### 5.4 linear モード（参考）
 
-線形パイプライン向けのノードを作成する場合:
+線形パイプライン向けのノードを作成する場合（Contract ベース）:
 
 ```bash
 railway new node format_output --mode linear
@@ -606,7 +635,7 @@ railway new node format_output --mode linear
 
 ### 6.1 失敗パスの追加
 
-遷移グラフに失敗パスを追加（v0.13.0+ 形式）:
+遷移グラフに失敗パスを追加:
 
 ```yaml
 nodes:
@@ -627,18 +656,22 @@ transitions:
 
 ```python
 @node
-def check_time(ctx: TimeContext | None = None) -> tuple[TimeContext, Outcome]:
+def check_time(board) -> Outcome:
     \"\"\"時間帯を判定\"\"\"
     try:
         hour = datetime.now().hour
         if 5 <= hour < 12:
-            return TimeContext(period="morning"), Outcome.success("morning")
+            board.period = "morning"
+            return Outcome.success("morning")
         elif 12 <= hour < 18:
-            return TimeContext(period="afternoon"), Outcome.success("afternoon")
+            board.period = "afternoon"
+            return Outcome.success("afternoon")
         else:
-            return TimeContext(period="evening"), Outcome.success("evening")
+            board.period = "evening"
+            return Outcome.success("evening")
     except Exception:
-        return TimeContext(period="unknown"), Outcome.failure("error")
+        board.error = "時間帯の判定に失敗"
+        return Outcome.failure("error")
 ```
 
 **ポイント:**
@@ -713,7 +746,7 @@ railway backup restore
 
 ## Step 9: 既存プロジェクトのアップグレード（3分）
 
-v0.10.x 以前のプロジェクトを最新形式にアップグレードする方法を学びます。
+旧バージョンのプロジェクトを最新形式にアップグレードする方法を学びます。
 
 ### 9.1 変更内容をプレビュー
 
@@ -723,16 +756,12 @@ railway update --dry-run
 
 **出力例:**
 ```
-マイグレーション: 0.10.0 → 0.12.0
-
-ファイル追加:
-  - transition_graphs/.gitkeep
-  - _railway/generated/.gitkeep
+マイグレーション: 0.13.x → 0.14.0
 
 コードガイダンス:
   src/nodes/process.py:5
-    現在: def process(data: dict) -> dict:
-    推奨: def process(ctx: ProcessContext) -> tuple[ProcessContext, Outcome]:
+    現在: def process(ctx: ProcessContext) -> tuple[ProcessContext, Outcome]:
+    推奨: def process(board) -> Outcome:
 ```
 
 ### 9.2 アップグレード実行
@@ -755,13 +784,14 @@ def process(data: dict) -> dict:
 **After:**
 ```python
 @node
-def process(ctx: ProcessContext) -> tuple[ProcessContext, Outcome]:
-    return ctx, Outcome.success("done")
+def process(board) -> Outcome:
+    board.result = "processed"
+    return Outcome.success("done")
 ```
 
 **恩恵:**
 - Outcome で次の遷移先を制御できる
-- Contract で型安全にデータを扱える
+- Board で簡潔にデータを扱える（Contract 定義不要）
 - YAML で遷移ロジックを可視化できる
 
 ---
@@ -770,7 +800,7 @@ def process(ctx: ProcessContext) -> tuple[ProcessContext, Outcome]:
 
 1. **ノードは状態を返すだけ** - 遷移先はYAMLで定義
 2. **Outcome を使う** - `Outcome.success("done")` で簡潔に
-3. **Contract を使う** - 型安全なコンテキスト
+3. **Board を使う** - `board.xxx` でデータを読み書き
 4. **YAMLを変更したら再sync** - `railway sync transition --entry <name>`
 
 ---
@@ -780,6 +810,7 @@ def process(ctx: ProcessContext) -> tuple[ProcessContext, Outcome]:
 ### 学んだこと
 
 - dag_runner による条件分岐ワークフロー
+- Board パターンによるデータ共有
 - Outcome クラスによる状態返却
 - 遷移グラフ（YAML）の定義
 - コード生成
@@ -788,7 +819,8 @@ def process(ctx: ProcessContext) -> tuple[ProcessContext, Outcome]:
 
 ### さらに学ぶ
 
-- [TUTORIAL_linear.md](TUTORIAL_linear.md) - 線形パイプライン詳細チュートリアル
+- [TUTORIAL_linear.md](TUTORIAL_linear.md) - 線形パイプライン詳細チュートリアル（Contract ベース）
+- [docs/adr/007_riverboard_pattern.md](docs/adr/007_riverboard_pattern.md) - Board パターンの設計判断
 - [docs/adr/002_execution_models.md](docs/adr/002_execution_models.md) - 実行モデルの詳細
 - `railway docs` - README をターミナルに表示
 - `railway docs --browser` - ブラウザでドキュメントを開く

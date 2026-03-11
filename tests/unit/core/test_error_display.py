@@ -11,7 +11,7 @@ class TestErrorHints:
         """Should show hint for connection errors."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         def connection_node() -> str:
             raise ConnectionError("Unable to connect")
 
@@ -27,7 +27,7 @@ class TestErrorHints:
         """Should show hint for timeout errors."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         def timeout_node() -> str:
             raise TimeoutError("Request timed out")
 
@@ -42,7 +42,7 @@ class TestErrorHints:
         """Should show hint for value errors."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         def value_node() -> str:
             raise ValueError("Invalid input")
 
@@ -57,7 +57,7 @@ class TestErrorHints:
         """Should show hint for file not found errors."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         def file_node() -> str:
             raise FileNotFoundError("File not found")
 
@@ -72,7 +72,7 @@ class TestErrorHints:
         """Should show hint for key errors."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         def key_node() -> str:
             raise KeyError("missing_key")
 
@@ -91,7 +91,7 @@ class TestLogFileReference:
         """Should reference log file location."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         def failing_node() -> str:
             raise RuntimeError("Something failed")
 
@@ -110,7 +110,7 @@ class TestErrorFormatting:
         """Should include exception type in error."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         def type_error_node() -> str:
             raise TypeError("Wrong type")
 
@@ -125,7 +125,7 @@ class TestErrorFormatting:
         """Should include node name in error."""
         from railway.core.decorators import node
 
-        @node(name="my_special_node")
+        @node(name="my_special_node", output=object)
         def named_node() -> str:
             raise Exception("Error")
 
@@ -145,15 +145,15 @@ class TestPipelineErrorDisplay:
         from railway.core.pipeline import pipeline
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         def step1(x: int) -> int:
             return x + 1
 
-        @node
+        @node(output=object)
         def step2(x: int) -> int:
             raise ValueError("Step 2 failed")
 
-        @node
+        @node(output=object)
         def step3(x: int) -> int:
             return x * 2
 
@@ -177,7 +177,7 @@ class TestApiKeyErrorHint:
         """Should show hint for API key errors."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         def api_node() -> str:
             raise Exception("API_KEY is invalid")
 

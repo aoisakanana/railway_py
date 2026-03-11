@@ -43,11 +43,11 @@ class TestDagRunnerExitContract:
     def test_returns_exit_contract(self) -> None:
         """終端ノードが ExitContract を返す場合、そのまま返す。"""
 
-        @node
+        @node(output=object)
         def start() -> tuple[StartContext, Outcome]:
             return StartContext(), Outcome.success("done")
 
-        @node(name="exit.success.done")
+        @node(name="exit.success.done", output=object)
         def done(ctx: StartContext) -> DoneResult:
             return DoneResult(data="completed")
 
@@ -67,11 +67,11 @@ class TestDagRunnerExitContract:
     def test_context_only_raises_exit_node_type_error(self) -> None:
         """v0.12.3: Context のみ返す終端ノードは ExitNodeTypeError。"""
 
-        @node
+        @node(output=object)
         def start() -> tuple[StartContext, Outcome]:
             return StartContext(), Outcome.success("done")
 
-        @node(name="exit.success.done")
+        @node(name="exit.success.done", output=object)
         def done(ctx: StartContext) -> dict:
             return {"key": "value"}  # ExitContract ではない
 
@@ -87,11 +87,11 @@ class TestDagRunnerExitContract:
     def test_none_return_raises_exit_node_type_error(self) -> None:
         """v0.12.3: None を返す終端ノードは ExitNodeTypeError。"""
 
-        @node
+        @node(output=object)
         def start() -> tuple[StartContext, Outcome]:
             return StartContext(), Outcome.failure("timeout")
 
-        @node(name="exit.failure.timeout")
+        @node(name="exit.failure.timeout", output=object)
         def timeout(ctx: StartContext) -> None:
             return None
 
@@ -106,11 +106,11 @@ class TestDagRunnerExitContract:
     def test_custom_exit_contract_preserves_fields(self) -> None:
         """ユーザー定義 ExitContract のフィールドが保持される。"""
 
-        @node
+        @node(output=object)
         def start() -> tuple[StartContext, Outcome]:
             return StartContext(), Outcome.failure("timeout")
 
-        @node(name="exit.failure.timeout")
+        @node(name="exit.failure.timeout", output=object)
         def timeout(ctx: StartContext) -> TimeoutResult:
             return TimeoutResult(error="API timeout after 30s")
 
@@ -127,11 +127,11 @@ class TestDagRunnerExitContract:
     def test_execution_path_includes_exit_node(self) -> None:
         """execution_path に終端ノードが含まれる。"""
 
-        @node
+        @node(output=object)
         def start() -> tuple[StartContext, Outcome]:
             return StartContext(), Outcome.success("done")
 
-        @node(name="exit.success.done")
+        @node(name="exit.success.done", output=object)
         def done(ctx: StartContext) -> DoneResult:
             return DoneResult(data="done")
 
@@ -146,11 +146,11 @@ class TestDagRunnerExitContract:
     def test_iterations_is_set(self) -> None:
         """iterations が設定される。"""
 
-        @node
+        @node(output=object)
         def start() -> tuple[StartContext, Outcome]:
             return StartContext(), Outcome.success("done")
 
-        @node(name="exit.success.done")
+        @node(name="exit.success.done", output=object)
         def done(ctx: StartContext) -> DoneResult:
             return DoneResult(data="done")
 
@@ -225,11 +225,11 @@ class TestExitNodeExceptionPropagation:
     def test_exit_node_exception_propagates(self) -> None:
         """終端ノードの例外は呼び出し元に伝播する。"""
 
-        @node(name="exit.success.done")
+        @node(name="exit.success.done", output=object)
         def exit_raises(ctx: StartContext) -> ExitNodeExceptionResult:
             raise RuntimeError("Exit node error")
 
-        @node(name="start")
+        @node(name="start", output=object)
         def start() -> tuple[StartContext, Outcome]:
             return StartContext(), Outcome.success("done")
 
@@ -246,11 +246,11 @@ class TestExitNodeExceptionPropagation:
         class FailureResult(ExitContract):
             exit_state: str = "failure.error"
 
-        @node(name="exit.failure.error")
+        @node(name="exit.failure.error", output=object)
         def exit_raises_value_error(ctx: StartContext) -> FailureResult:
             raise ValueError("Invalid value in exit node")
 
-        @node(name="start")
+        @node(name="start", output=object)
         def start() -> tuple[StartContext, Outcome]:
             return StartContext(), Outcome.failure("error")
 
@@ -264,12 +264,12 @@ class TestExitNodeExceptionPropagation:
     def test_exit_node_type_error_propagates(self) -> None:
         """終端ノードの TypeError も伝播する。"""
 
-        @node(name="exit.success.done")
+        @node(name="exit.success.done", output=object)
         def exit_raises_type_error(ctx: StartContext) -> ExitNodeExceptionResult:
             # 意図的な型エラー
             raise TypeError("Type mismatch in exit node")
 
-        @node(name="start")
+        @node(name="start", output=object)
         def start() -> tuple[StartContext, Outcome]:
             return StartContext(), Outcome.success("done")
 
@@ -288,11 +288,11 @@ class TestExitNodeExceptionPropagation:
 
             pass
 
-        @node(name="exit.success.done")
+        @node(name="exit.success.done", output=object)
         def exit_raises_custom(ctx: StartContext) -> ExitNodeExceptionResult:
             raise ExitNodeCustomError("Custom error from exit node")
 
-        @node(name="start")
+        @node(name="start", output=object)
         def start() -> tuple[StartContext, Outcome]:
             return StartContext(), Outcome.success("done")
 
@@ -314,11 +314,11 @@ class TestExitNodeExceptionPropagationAsync:
     async def test_async_exit_node_exception_propagates(self) -> None:
         """非同期終端ノードの例外は呼び出し元に伝播する。"""
 
-        @node(name="exit.success.done")
+        @node(name="exit.success.done", output=object)
         async def exit_raises(ctx: StartContext) -> ExitNodeExceptionResult:
             raise RuntimeError("Async exit node error")
 
-        @node(name="start")
+        @node(name="start", output=object)
         async def start() -> tuple[StartContext, Outcome]:
             return StartContext(), Outcome.success("done")
 
@@ -335,11 +335,11 @@ class TestExitNodeExceptionPropagationAsync:
         class FailureResult(ExitContract):
             exit_state: str = "failure.error"
 
-        @node(name="exit.failure.error")
+        @node(name="exit.failure.error", output=object)
         async def exit_raises(ctx: StartContext) -> FailureResult:
             raise ValueError("Async invalid value")
 
-        @node(name="start")
+        @node(name="start", output=object)
         async def start() -> tuple[StartContext, Outcome]:
             return StartContext(), Outcome.failure("error")
 
@@ -353,11 +353,11 @@ class TestExitNodeExceptionPropagationAsync:
     async def test_sync_exit_node_in_async_runner_exception_propagates(self) -> None:
         """async_dag_runner で同期終端ノードの例外も伝播する。"""
 
-        @node(name="exit.success.done")
+        @node(name="exit.success.done", output=object)
         def sync_exit_raises(ctx: StartContext) -> ExitNodeExceptionResult:
             raise RuntimeError("Sync exit node in async runner")
 
-        @node(name="start")
+        @node(name="start", output=object)
         async def start() -> tuple[StartContext, Outcome]:
             return StartContext(), Outcome.success("done")
 

@@ -81,7 +81,7 @@ class TestNodeDecorator:
         class TestContext(Contract):
             value: int
 
-        @node
+        @node(output=object)
         def process(ctx: TestContext) -> tuple[TestContext, Outcome]:
             return ctx, Outcome.success("done")
 
@@ -101,7 +101,7 @@ class TestNodeDecorator:
         class Ctx(Contract):
             value: int
 
-        @node
+        @node(output=object)
         def my_custom_node(ctx: Ctx) -> tuple[Ctx, Outcome]:
             return ctx, Outcome.success("ok")
 
@@ -120,7 +120,7 @@ class TestNodeDecorator:
         class OutputCtx(Contract):
             output_value: str
 
-        @node
+        @node(output=object)
         def transform(ctx: InputCtx) -> tuple[OutputCtx, Outcome]:
             return OutputCtx(output_value=ctx.input_value.upper()), Outcome.success(
                 "done"
@@ -141,7 +141,7 @@ class TestNodeDecorator:
         class Ctx(Contract):
             value: int
 
-        @node
+        @node(output=object)
         def may_fail(ctx: Ctx) -> tuple[Ctx, Outcome]:
             if ctx.value < 0:
                 return ctx, Outcome.failure("negative")
@@ -163,7 +163,7 @@ class TestNodeDecorator:
         class Ctx(Contract):
             value: int
 
-        @node
+        @node(output=object)
         def test_node(ctx: Ctx) -> tuple[Ctx, Outcome]:
             return ctx, Outcome.success("done")
 

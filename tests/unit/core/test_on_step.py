@@ -33,11 +33,11 @@ class TestOnStepCallback:
         class Step2Result(Contract):
             value: int
 
-        @node
+        @node(output=object)
         def step1() -> Step1Result:
             return Step1Result(value=1)
 
-        @node
+        @node(output=object)
         def step2(prev: Step1Result) -> Step2Result:
             return Step2Result(value=prev.value + 1)
 
@@ -60,7 +60,7 @@ class TestOnStepCallback:
         class StepResult(Contract):
             value: int
 
-        @node
+        @node(output=object)
         def step1() -> StepResult:
             return StepResult(value=1)
 
@@ -90,11 +90,11 @@ class TestOnStepWithOnError:
         def handle_error(error: Exception, step: str) -> FallbackResult:
             return FallbackResult(value=99)
 
-        @node
+        @node(output=object)
         def fail_step() -> int:
             raise ConnectionError("network error")
 
-        @node
+        @node(output=object)
         def next_step(prev: FallbackResult) -> int:
             return prev.value * 2
 
@@ -129,15 +129,15 @@ class TestOnStepWithOnError:
         def handle_error(error: Exception, step: str) -> Any:
             raise  # Re-raise
 
-        @node
+        @node(output=object)
         def step1() -> IntResult:
             return IntResult(value=1)
 
-        @node
+        @node(output=object)
         def fail_step(prev: IntResult) -> IntResult:
             raise ValueError("validation error")
 
-        @node
+        @node(output=object)
         def step3(prev: IntResult) -> IntResult:
             return IntResult(value=prev.value * 3)
 
@@ -179,11 +179,11 @@ class TestOnStepPracticalUsage:
         class ProcessResult(Contract):
             message: str
 
-        @node
+        @node(output=object)
         def fetch() -> FetchResult:
             return FetchResult(count=5)
 
-        @node
+        @node(output=object)
         def process(data: FetchResult) -> ProcessResult:
             return ProcessResult(message=f"Processed {data.count} items")
 
@@ -211,11 +211,11 @@ class TestOnStepPracticalUsage:
         class DataResult(Contract):
             data: list[int]
 
-        @node
+        @node(output=object)
         def generate_data() -> DataResult:
             return DataResult(data=[1, 2, 3])
 
-        @node
+        @node(output=object)
         def aggregate(prev: DataResult) -> int:
             return sum(prev.data)
 

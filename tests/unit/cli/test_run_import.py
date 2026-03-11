@@ -87,7 +87,7 @@ def main():
         (tmp_path / "src" / "nodes" / "my_node.py").write_text('''
 from railway import node
 
-@node
+@node(output=object)
 def my_node():
     return {"done": True}
 ''')

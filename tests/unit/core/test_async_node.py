@@ -14,7 +14,7 @@ class TestAsyncNodeBasic:
         """Should execute async node."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         async def async_fetch() -> str:
             await asyncio.sleep(0.01)
             return "data"
@@ -29,7 +29,7 @@ class TestAsyncNodeBasic:
         """Should pass arguments to async node."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         async def async_process(x: int, y: int) -> int:
             await asyncio.sleep(0.01)
             return x + y
@@ -44,7 +44,7 @@ class TestAsyncNodeBasic:
         """Should log async node execution."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         async def logged_async() -> str:
             return "logged"
 
@@ -64,7 +64,7 @@ class TestAsyncNodeMetadata:
         """Should have _is_async=True metadata."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         async def async_func() -> str:
             return "async"
 
@@ -77,7 +77,7 @@ class TestAsyncNodeMetadata:
         """Sync node should have _is_async=False."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         def sync_func() -> str:
             return "sync"
 
@@ -93,7 +93,7 @@ class TestAsyncNodeErrors:
         """Should propagate errors from async node."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         async def failing_async() -> str:
             await asyncio.sleep(0.01)
             raise ValueError("Async error")
@@ -107,7 +107,7 @@ class TestAsyncNodeErrors:
         """Should log errors from async node."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         async def error_async() -> str:
             raise RuntimeError("Runtime error")
 
@@ -128,12 +128,12 @@ class TestAsyncPipeline:
         from railway.core.pipeline import async_pipeline
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         async def step1(x: int) -> int:
             await asyncio.sleep(0.01)
             return x + 1
 
-        @node
+        @node(output=object)
         async def step2(x: int) -> int:
             await asyncio.sleep(0.01)
             return x * 2
@@ -150,11 +150,11 @@ class TestAsyncPipeline:
         from railway.core.pipeline import async_pipeline
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         def sync_step(x: int) -> int:
             return x + 1
 
-        @node
+        @node(output=object)
         async def async_step(x: int) -> int:
             await asyncio.sleep(0.01)
             return x * 2
@@ -174,7 +174,7 @@ class TestSyncPipelineRejectsAsync:
         from railway.core.pipeline import pipeline
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         async def async_node(x: int) -> int:
             return x + 1
 
@@ -194,7 +194,7 @@ class TestAsyncNodeWithRetry:
 
         call_count = 0
 
-        @node(retry=Retry(max_attempts=3, min_wait=0.01, max_wait=0.02))
+        @node(retry=Retry(max_attempts=3, min_wait=0.01, max_wait=0.02), output=object)
         async def flaky_async() -> str:
             nonlocal call_count
             call_count += 1

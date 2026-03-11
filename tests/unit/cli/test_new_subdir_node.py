@@ -70,8 +70,8 @@ class TestNewNodeDottedPath:
             finally:
                 os.chdir(original_cwd)
 
-    def test_dotted_node_import_path_uses_dots(self) -> None:
-        """生成コード内の import パスがドット区切りであること."""
+    def test_dotted_node_no_contract_import(self) -> None:
+        """Board モードでは Contract import がないこと."""
         from railway.cli.main import app
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -85,12 +85,13 @@ class TestNewNodeDottedPath:
                     Path(tmpdir) / "src" / "nodes" / "processing" / "validate.py"
                 )
                 content = node_path.read_text()
-                assert "from contracts.processing.validate_context import" in content
+                assert "Contract" not in content
+                assert "def validate(board)" in content
             finally:
                 os.chdir(original_cwd)
 
-    def test_dotted_node_contract_in_subdirectory(self) -> None:
-        """Contract ファイルがサブディレクトリに作成されること."""
+    def test_dotted_node_no_contract_file(self) -> None:
+        """Board モードでは Contract ファイルが生成されないこと."""
         from railway.cli.main import app
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -107,7 +108,7 @@ class TestNewNodeDottedPath:
                     / "processing"
                     / "validate_context.py"
                 )
-                assert contract_path.exists(), f"Contract not found: {contract_path}"
+                assert not contract_path.exists(), "Board mode should not create contract"
             finally:
                 os.chdir(original_cwd)
 
@@ -218,7 +219,7 @@ class TestNewNodeDottedPath:
                 )
                 assert node_path.exists()
                 content = node_path.read_text()
-                assert "def process(" in content
-                assert "from contracts.sub.deep.process_context import" in content
+                assert "def process(board)" in content
+                assert "Outcome" in content
             finally:
                 os.chdir(original_cwd)

@@ -99,7 +99,7 @@ class TestInputsAutoInference:
     def test_decorated_without_parentheses(self) -> None:
         """@node（括弧なし）でも推論される"""
 
-        @node
+        @node(output=object)
         def process(users: UsersFetchResult) -> ProcessedData:
             return ProcessedData(count=len(users.users))
 
@@ -109,7 +109,7 @@ class TestInputsAutoInference:
         """RetryPolicy と組み合わせても推論される"""
         from railway import RetryPolicy
 
-        @node(retry_policy=RetryPolicy(max_retries=3))
+        @node(retry_policy=RetryPolicy(max_retries=3), output=object)
         def process(users: UsersFetchResult) -> ProcessedData:
             return ProcessedData(count=len(users.users))
 

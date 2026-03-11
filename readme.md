@@ -6,63 +6,106 @@ railway oliented programming を python で実践するための実装
 
 **型安全なワークフローで、運用自動化をシンプルに。**  
 
-条件分岐を含む複雑なワークフローをYAMLで宣言的に定義できます。  
+条件分岐を含む複雑なワークフローをYAMLで宣言的に定義できます。
 
-```python  
-# DAGワークフロー: 条件分岐対応  
-from railway import Contract, ExitContract, node, entry_point  
-from railway.core.dag import dag_runner, Outcome  
+### Board モード（v0.14.0+ 推奨 / Riverboard パターン）
 
-class AlertContext(Contract):  
-    severity: str  
-    handled: bool = False  
+```python
+# Board モード: ミュータブルな共有状態で直感的に記述
+from railway.core.board import BoardBase, WorkflowResult
+from railway.core.dag import dag_runner, Outcome
+from railway import node
 
-@node  
-def check_severity(ctx: AlertContext) -> tuple[AlertContext, Outcome]:  
-    if ctx.severity == "critical":  
-        return ctx, Outcome.success("critical")  
-    return ctx, Outcome.success("normal")  
+@node
+def check_severity(board) -> Outcome:
+    if board.severity == "critical":
+        board.escalated = True
+        return Outcome.success("critical")
+    return Outcome.success("normal")
 
-@node  
-def escalate(ctx: AlertContext) -> tuple[AlertContext, Outcome]:  
-    return ctx.model_copy(update={"handled": True}), Outcome.success("done")  
+@node
+def escalate(board) -> Outcome:
+    board.notified = True
+    return Outcome.success("done")
 
-@node  
-def log_only(ctx: AlertContext) -> tuple[AlertContext, Outcome]:  
-    return ctx.model_copy(update={"handled": True}), Outcome.success("done")  
+# 終端ノード
+def exit_done(board) -> None:
+    board.completed = True
+exit_done._node_name = "exit.success.done"
 
-# 終端ノード: ExitContract を返す（v0.12.3+）  
-class AlertResult(ExitContract):  
-    exit_state: str = "success.done"  
-    handled: bool  
+result = dag_runner(
+    start=check_severity,
+    transitions={
+        "check_severity::success::critical": escalate,
+        "check_severity::success::normal": exit_done,
+        "escalate::success::done": exit_done,
+    },
+    board=BoardBase(severity="critical"),
+)
+# result は WorkflowResult: is_success, exit_code, exit_state, board を持つ
+```
 
-def exit_success_done(ctx: AlertContext) -> AlertResult:  
-    return AlertResult(handled=ctx.handled)  
+<details>
+<summary>Contract モード（従来方式 / イミュータブル）</summary>
 
-exit_success_done._node_name = "exit.success.done"  
+```python
+# Contract モード: イミュータブルな型安全ワークフロー
+from railway import Contract, ExitContract, node, entry_point
+from railway.core.dag import dag_runner, Outcome
 
-TRANSITIONS = {  
-    "check_severity::success::critical": escalate,  
-    "check_severity::success::normal": log_only,  
-    "escalate::success::done": exit_success_done,  
-    "log_only::success::done": exit_success_done,  
-}  
+class AlertContext(Contract):
+    severity: str
+    handled: bool = False
 
-@entry_point  
-def main():  
-    result = dag_runner(  
-        start=lambda: (AlertContext(severity="critical"), Outcome.success("start")),  
-        transitions=TRANSITIONS,  
-    )  
-    # result は ExitContract: exit_code, exit_state, is_success 等を持つ  
-    return result  
-```  
+@node
+def check_severity(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
+    if ctx.severity == "critical":
+        return ctx, Outcome.success("critical")
+    return ctx, Outcome.success("normal")
 
-**特徴:**  
-- DAGワークフロー: 条件分岐を含むワークフローをYAMLで定義  
-- 型安全: Contract + Outcome による静的型チェック  
-- 純粋関数: ノードは副作用のない純粋関数  
-- コード生成: YAMLから遷移コードを自動生成  
+@node
+def escalate(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
+    return ctx.model_copy(update={"handled": True}), Outcome.success("done")
+
+@node
+def log_only(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
+    return ctx.model_copy(update={"handled": True}), Outcome.success("done")
+
+# 終端ノード: ExitContract を返す（v0.12.3+）
+class AlertResult(ExitContract):
+    exit_state: str = "success.done"
+    handled: bool
+
+def exit_success_done(ctx: AlertContext) -> AlertResult:
+    return AlertResult(handled=ctx.handled)
+
+exit_success_done._node_name = "exit.success.done"
+
+TRANSITIONS = {
+    "check_severity::success::critical": escalate,
+    "check_severity::success::normal": log_only,
+    "escalate::success::done": exit_success_done,
+    "log_only::success::done": exit_success_done,
+}
+
+@entry_point
+def main():
+    result = dag_runner(
+        start=lambda: (AlertContext(severity="critical"), Outcome.success("start")),
+        transitions=TRANSITIONS,
+    )
+    # result は ExitContract: exit_code, exit_state, is_success 等を持つ
+    return result
+```
+
+</details>
+
+**特徴:**
+- DAGワークフロー: 条件分岐を含むワークフローをYAMLで定義
+- Board モード: ミュータブルな共有状態で直感的に記述（v0.14.0+ / Riverboard パターン）
+- 型安全: Contract + Outcome による静的型チェック（Contract モード）
+- AST依存解析: Board モードではフィールド依存を自動検出
+- コード生成: YAMLから遷移コードを自動生成
 - バージョン管理: プロジェクトバージョン追跡、自動マイグレーション  
 
 > **設計思想を理解したい方へ**: [アーキテクチャガイド](docs/ARCHITECTURE.md) で 3 つのコンポーネントと 5 つの設計思想を解説しています。  
@@ -70,7 +113,7 @@ def main():
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)  
 [![Test Coverage](https://img.shields.io/badge/coverage-90%25+-brightgreen.svg)]()  
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)  
-[![Tests](https://img.shields.io/badge/tests-1600%20passing-success.svg)]()  
+[![Tests](https://img.shields.io/badge/tests-1901%20passing-success.svg)]()  
 
 ---  
 
@@ -155,38 +198,58 @@ railway sync transition --entry my_workflow
 
 ---  
 
-## ノードの実装  
+## ノードの実装
 
-ノードは `Contract` と `Outcome` を返す純粋関数です：  
+### Board モード（v0.14.0+ 推奨）
 
-```python  
-from railway import Contract, node  
-from railway.core.dag import Outcome  
+ノードは `board` を受け取り、`Outcome` のみを返します。状態は board に直接書き込みます：
 
-
-class MyContext(Contract):  
-    value: str  
+```python
+from railway import node
+from railway.core.dag import Outcome
 
 
-@node  
-def process(ctx: MyContext) -> tuple[MyContext, Outcome]:  
-    if ctx.value:  
-        return ctx, Outcome.success("done")  
-    else:  
-        return ctx, Outcome.failure("empty")  
-```  
+@node
+def process(board) -> Outcome:
+    if board.value:
+        board.processed = True
+        return Outcome.success("done")
+    else:
+        return Outcome.failure("empty")
+```
 
-**Outcomeの種類:**  
+### Contract モード（従来方式）
 
-| メソッド | 用途 | 例 |  
-|----------|------|-----|  
-| `Outcome.success(detail)` | 正常完了 | `Outcome.success("done")` |  
-| `Outcome.failure(detail)` | エラー | `Outcome.failure("not_found")` |  
+ノードは `Contract` と `Outcome` のタプルを返す純粋関数です：
 
-**遷移キーの形式:**  
-```  
-node_name::status::detail  
-```  
+```python
+from railway import Contract, node
+from railway.core.dag import Outcome
+
+
+class MyContext(Contract):
+    value: str
+
+
+@node
+def process(ctx: MyContext) -> tuple[MyContext, Outcome]:
+    if ctx.value:
+        return ctx, Outcome.success("done")
+    else:
+        return ctx, Outcome.failure("empty")
+```
+
+**Outcomeの種類:**
+
+| メソッド | 用途 | 例 |
+|----------|------|-----|
+| `Outcome.success(detail)` | 正常完了 | `Outcome.success("done")` |
+| `Outcome.failure(detail)` | エラー | `Outcome.failure("not_found")` |
+
+**遷移キーの形式:**
+```
+node_name::status::detail
+```
 
 例: `check_severity::success::critical` → `escalate` ノードへ遷移  
 
@@ -281,60 +344,105 @@ def transform(input_data: Optional[TransformInput] = None) -> TransformOutput:
 
 ---  
 
-## 実行モデル  
+## 実行モデル
 
-Railway Framework は2つの実行モデルを提供します：  
+Railway Framework は2つの実行モデルを提供します：
 
-| モデル | 用途 | コマンド |  
-|--------|------|----------|  
-| **dag_runner** | 条件分岐ワークフロー（推奨） | `railway new entry <name>` |  
-| typed_pipeline | 線形パイプライン | `railway new entry <name> --mode linear` |  
+| モデル | 用途 | コマンド |
+|--------|------|----------|
+| **dag_runner** | 条件分岐ワークフロー（推奨） | `railway new entry <name>` |
+| typed_pipeline | 線形パイプライン | `railway new entry <name> --mode linear` |
 
-### どちらを使うべきか？  
+dag_runner は **Board モード**（v0.14.0+）と **Contract モード** の2つのスタイルをサポートします。
 
-**dag_runner を使う:**  
-- 条件分岐がある（if-else, switch）  
-- エラーパスが複数ある  
-- 運用自動化、複雑なワークフロー  
+| スタイル | 状態管理 | ノード返り値 | 依存解析 |
+|----------|----------|-------------|----------|
+| **Board モード**（推奨） | ミュータブル共有状態 | `Outcome` のみ | AST自動検出 |
+| Contract モード | イミュータブル | `tuple[Contract, Outcome]` | `@node` デコレータで宣言 |
 
-**typed_pipeline を使う:**  
-- 処理が必ず順番に実行される（A→B→C→D）  
-- 条件分岐がない  
-- ETL、データ変換パイプライン  
+### どちらを使うべきか？
 
-### dag_runner（推奨）  
+**dag_runner を使う:**
+- 条件分岐がある（if-else, switch）
+- エラーパスが複数ある
+- 運用自動化、複雑なワークフロー
 
-条件分岐がある複雑なワークフローに適しています：  
+**typed_pipeline を使う:**
+- 処理が必ず順番に実行される（A→B→C→D）
+- 条件分岐がない
+- ETL、データ変換パイプライン
 
-```python  
-from railway import ExitContract  
-from railway.core.dag import dag_runner, Outcome  
+### dag_runner - Board モード（v0.14.0+ 推奨）
 
-# 終端ノードを定義（v0.12.3+: ExitContract を返す）  
-class WorkflowResult(ExitContract):  
-    exit_state: str = "success.done"  
+`BoardBase` をミュータブルな共有状態として使用します。ノードは `Outcome` のみを返し、状態は board に直接書き込みます：
 
-def exit_success_done(ctx) -> WorkflowResult:  
-    return WorkflowResult()  
+```python
+from railway.core.board import BoardBase, WorkflowResult
+from railway.core.dag import dag_runner, Outcome
+from railway import node
 
-exit_success_done._node_name = "exit.success.done"  
+@node
+def check_severity(board) -> Outcome:
+    if board.severity == "critical":
+        board.escalated = True
+        return Outcome.success("critical")
+    return Outcome.success("normal")
 
-TRANSITIONS = {  
-    "check::success::critical": escalate,  
-    "check::success::normal": log_only,  
-    "escalate::success::done": exit_success_done,  
-    "log_only::success::done": exit_success_done,  
-}  
+# 終端ノード: None を返す（board に書き込むだけ）
+def exit_done(board) -> None:
+    board.completed = True
+exit_done._node_name = "exit.success.done"
 
-result = dag_runner(  
-    start=check_severity,  
-    transitions=TRANSITIONS,  
-)  
+result = dag_runner(
+    start=check_severity,
+    transitions=TRANSITIONS,
+    board=BoardBase(severity="critical"),
+)
 
-# result は ExitContract: is_success, exit_code, exit_state を持つ  
-if result.is_success:  
-    print("Workflow completed successfully")  
-```  
+# result は WorkflowResult: is_success, exit_code, exit_state, board を持つ
+if result.is_success:
+    print(f"完了: board.escalated={result.board.escalated}")
+```
+
+**Board モードの特徴:**
+- ミュータブル状態: `model_copy()` 不要、board に直接書き込み
+- AST依存解析: フィールドの読み書きをASTで自動検出（手動宣言不要）
+- トレース: `railway run --trace` でノードごとの変更を可視化
+- WorkflowResult: 実行結果 + board への参照を保持
+
+### dag_runner - Contract モード（従来方式）
+
+イミュータブルな Contract で型安全にデータを扱います：
+
+```python
+from railway import ExitContract
+from railway.core.dag import dag_runner, Outcome
+
+# 終端ノードを定義（v0.12.3+: ExitContract を返す）
+class DoneResult(ExitContract):
+    exit_state: str = "success.done"
+
+def exit_success_done(ctx) -> DoneResult:
+    return DoneResult()
+
+exit_success_done._node_name = "exit.success.done"
+
+TRANSITIONS = {
+    "check::success::critical": escalate,
+    "check::success::normal": log_only,
+    "escalate::success::done": exit_success_done,
+    "log_only::success::done": exit_success_done,
+}
+
+result = dag_runner(
+    start=check_severity,
+    transitions=TRANSITIONS,
+)
+
+# result は ExitContract: is_success, exit_code, exit_state を持つ
+if result.is_success:
+    print("Workflow completed successfully")
+```
 
 **dag_runner の特徴:**
 - 条件分岐: Outcome に応じて遷移先を決定
@@ -448,10 +556,11 @@ railway new node <name> --input data:InputType --output ResultType
 railway show node <name>                     # 依存関係表示
 ```  
 
-### 実行  
-```bash  
-railway run <entry>              # 実行  
-railway list                     # エントリポイント/ノード一覧  
+### 実行
+```bash
+railway run <entry>              # 実行
+railway run <entry> --trace      # 実行（ノードごとの変更をトレース表示）
+railway list                     # エントリポイント/ノード一覧
 ```  
 
 ### バージョン管理  
@@ -466,25 +575,68 @@ railway backup clean --keep 3    # 古いバックアップを削除
 
 ---  
 
-## 特徴  
+## 特徴
 
-- ✨ **5分で開始**: `railway init` でプロジェクト作成、すぐに実装開始  
-- 🛤️ **DAGワークフロー**: 条件分岐を含むワークフローをYAMLで宣言的に定義  
-- 🔒 **型安全**: Contract + Outcome による静的型チェック  
-- 🎯 **純粋関数**: ノードは副作用のない純粋関数  
-- ⚡ **コード生成**: YAMLから遷移コードを自動生成  
-- 🔄 **2つの実行モデル**: dag_runner（条件分岐）と typed_pipeline（線形）  
-- 🔗 **フィールドベース依存関係**: ノードコードで依存を宣言、sync時に自動検証  
-- 🧪 **テスト容易**: モック不要、引数を渡すだけ  
-- ⚙️ **環境別設定**: development/production を簡単に切り替え  
-- 📊 **構造化ロギング**: loguru による美しいログ出力  
+- ✨ **5分で開始**: `railway init` でプロジェクト作成、すぐに実装開始
+- 🛤️ **DAGワークフロー**: 条件分岐を含むワークフローをYAMLで宣言的に定義
+- 🎛️ **Board モード**: ミュータブル共有状態で直感的に記述（v0.14.0+ / Riverboard パターン）
+- 🔒 **型安全**: Contract + Outcome による静的型チェック（Contract モード）
+- 🔍 **AST依存解析**: Board モードではフィールド依存をASTで自動検出
+- ⚡ **コード生成**: YAMLから遷移コードを自動生成
+- 🔄 **2つの実行モデル**: dag_runner（条件分岐）と typed_pipeline（線形）
+- 🔗 **フィールドベース依存関係**: ノードコードで依存を宣言、sync時に自動検証
+- 🧪 **テスト容易**: モック不要、引数を渡すだけ
+- 📊 **実行トレース**: `railway run --trace` でノードごとの変更を可視化
+- ⚙️ **環境別設定**: development/production を簡単に切り替え
 - 🆙 **バージョン管理**: プロジェクトバージョン追跡、自動マイグレーション  
 
 ---  
 
-## アーキテクチャ  
+## アーキテクチャ
 
-### Contract（型契約）  
+### BoardBase（ミュータブル共有状態 / v0.14.0+）
+
+Board モードでは `BoardBase` がワークフロー全体の共有状態を保持します。
+Pydantic ベースではなく、ミュータブルなオブジェクトとして設計されています。
+
+```python
+from railway.core.board import BoardBase
+
+# 初期状態を設定して board を作成
+board = BoardBase(
+    severity="critical",
+    incident_id="INC-001",
+)
+
+# ノードから直接読み書き可能
+board.escalated = True
+board.hostname = "web-01"
+```
+
+**BoardBase の特徴:**
+
+| 項目 | 説明 |
+|------|------|
+| ミュータブル | `model_copy()` 不要、直接書き込み |
+| AST依存解析 | `board.x` の読み書きを自動検出 |
+| トレース対応 | `--trace` でノードごとの変更差分を表示 |
+
+### WorkflowResult（Board モード実行結果）
+
+Board モードの `dag_runner()` は `WorkflowResult`（frozen dataclass）を返します：
+
+```python
+result = dag_runner(start=..., transitions=..., board=board)
+
+result.is_success      # True if exit_code == 0
+result.exit_code       # 0 (success.*) or 1 (failure.*)
+result.exit_state      # "success.done", "failure.timeout" など
+result.board           # 実行後の BoardBase（全ノードの変更を反映）
+result.execution_path  # ("start", "process", "exit.success.done")
+result.iterations      # 実行したノード数
+```
+
+### Contract（型契約）
 
 ノード間で交換されるデータの「契約」を定義します。  
 
@@ -503,75 +655,97 @@ class AlertContext(Contract):
 - **イミュータブル** で安全（frozen=True）  
 - **IDE補完** が効く  
 
-### Node（処理単位）  
+### Node（処理単位）
 
-DAGワークフローのノードは `tuple[Contract, Outcome]` を返します：  
+**Board モード（v0.14.0+）:** ノードは `board` を受け取り `Outcome` を返します：
 
-```python  
-@node  
-def check_host(ctx: AlertContext) -> tuple[AlertContext, Outcome]:  
-    """ホスト情報を取得するノード"""  
-    hostname = lookup_hostname(ctx.incident_id)  
-    if hostname:  
-        new_ctx = ctx.model_copy(update={"hostname": hostname})  
-        return new_ctx, Outcome.success("found")  
-    return ctx, Outcome.failure("not_found")  
-```  
+```python
+@node
+def check_host(board) -> Outcome:
+    """ホスト情報を取得するノード"""
+    hostname = lookup_hostname(board.incident_id)
+    if hostname:
+        board.hostname = hostname  # 直接書き込み
+        return Outcome.success("found")
+    return Outcome.failure("not_found")
+```
 
-**コンテキストの引き継ぎ:**  
+**Contract モード:** ノードは `tuple[Contract, Outcome]` を返します：
 
-DAGワークフローでは**直前のノードの Contract のみが次のノードに渡されます**。  
-ワークフロー全体で必要なデータは `model_copy()` で引き継ぎます：  
+```python
+@node
+def check_host(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
+    """ホスト情報を取得するノード"""
+    hostname = lookup_hostname(ctx.incident_id)
+    if hostname:
+        new_ctx = ctx.model_copy(update={"hostname": hostname})
+        return new_ctx, Outcome.success("found")
+    return ctx, Outcome.failure("not_found")
+```
 
-```python  
-# model_copy で既存データを保持しつつ新しいフィールドを追加  
-new_ctx = ctx.model_copy(update={"hostname": hostname})  
-return new_ctx, Outcome.success("found")  
-```  
+**状態の引き継ぎ:**
+
+| モード | 方式 |
+|--------|------|
+| Board | board に直接書き込み。全ノードが同じ board を共有 |
+| Contract | `model_copy()` で新しいコンテキストを生成して引き継ぎ |
 
 詳細は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) を参照。  
 
-### フィールドベース依存関係  
+### フィールドベース依存関係
 
-ノード間のデータ依存を `@node` デコレータで宣言します:  
+**Board モード（v0.14.0+）:** AST解析でフィールド依存を自動検出します。手動宣言は不要です：
 
-```python  
-@node(  
-    requires=["incident_id"],      # 必須: なければ実行エラー  
-    optional=["hostname"],         # 任意: あれば使用  
-    provides=["escalated"],        # 提供: このノードが追加  
-)  
-def escalate(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:  
-    if ctx.hostname:  # optional なので存在チェック  
-        notify_with_host(ctx.hostname)  
-    return ctx.model_copy(update={"escalated": True}), Outcome.success("done")  
-```  
+```python
+@node
+def escalate(board) -> Outcome:
+    # AST が board.hostname の読み取りと board.escalated の書き込みを自動検出
+    if board.hostname:
+        notify_with_host(board.hostname)
+    board.escalated = True
+    return Outcome.success("done")
+```
 
-**YAML には依存情報を書かない:**  
+**Contract モード:** `@node` デコレータで依存を宣言します：
 
-```yaml  
-# ノード名と遷移のみ  
-nodes:  
-  check_host:  
-    description: "ホスト情報取得"  
-  escalate:  
-    description: "エスカレーション"  
+```python
+@node(
+    requires=["incident_id"],      # 必須: なければ実行エラー
+    optional=["hostname"],         # 任意: あれば使用
+    provides=["escalated"],        # 提供: このノードが追加
+)
+def escalate(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
+    if ctx.hostname:  # optional なので存在チェック
+        notify_with_host(ctx.hostname)
+    return ctx.model_copy(update={"escalated": True}), Outcome.success("done")
+```
 
-transitions:  
-  check_host:  
-    success::found: escalate  # フレームワークが依存を自動検証  
-```  
+**YAML には依存情報を書かない:**
 
-**利点:**  
-- YAML 記述者はノード実装の詳細を知らなくてよい  
-- `railway sync transition` で依存エラーを自動検出  
-- YAML のみでフロー変更、ノードコード変更不要  
+```yaml
+# ノード名と遷移のみ
+nodes:
+  check_host:
+    description: "ホスト情報取得"
+  escalate:
+    description: "エスカレーション"
+
+transitions:
+  check_host:
+    success::found: escalate  # フレームワークが依存を自動検証
+```
+
+**利点:**
+- Board モード: AST が `board.x` の読み書きを自動検出、手動宣言不要
+- YAML 記述者はノード実装の詳細を知らなくてよい
+- `railway sync transition` で依存エラーを自動検出
+- YAML のみでフロー変更、ノードコード変更不要
 
 詳細は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#フィールドベース依存関係) を参照。  
 
-### ExitContract（実行結果）  
+### ExitContract（Contract モード実行結果）
 
-`dag_runner()` は `ExitContract` を返します。終了状態とメタデータを含みます：  
+Contract モードの `dag_runner()` は `ExitContract` を返します。終了状態とメタデータを含みます（Board モードでは `WorkflowResult` を使用）：  
 
 ```python  
 from railway import ExitContract  
@@ -850,25 +1024,44 @@ def process(ctx: ProcessContext) -> tuple[ProcessContext, Outcome]:
 
 ---  
 
-## テストの書き方  
+## テストの書き方
 
-**DAGノードはテストが簡単:**  
+**Board モード（v0.14.0+）:**
 
-```python  
-from contracts.alert import AlertContext  
-from nodes.check_severity import check_severity  
-from railway.core.dag import Outcome  
+```python
+from railway.core.board import BoardBase
+from railway.core.dag import Outcome
+from nodes.check_severity import check_severity
 
-def test_check_severity_critical():  
-    # Arrange  
-    ctx = AlertContext(incident_id="INC-001", severity="critical")  
+def test_check_severity_critical():
+    # Arrange
+    board = BoardBase(severity="critical")
 
-    # Act  
-    result_ctx, outcome = check_severity(ctx)  
+    # Act
+    outcome = check_severity(board)
 
-    # Assert  
-    assert outcome == Outcome.success("critical")  
-    assert result_ctx.severity == "critical"  
+    # Assert
+    assert outcome == Outcome.success("critical")
+    assert board.escalated is True
+```
+
+**Contract モード:**
+
+```python
+from contracts.alert import AlertContext
+from nodes.check_severity import check_severity
+from railway.core.dag import Outcome
+
+def test_check_severity_critical():
+    # Arrange
+    ctx = AlertContext(incident_id="INC-001", severity="critical")
+
+    # Act
+    result_ctx, outcome = check_severity(ctx)
+
+    # Assert
+    assert outcome == Outcome.success("critical")
+    assert result_ctx.severity == "critical"
 ```  
 
 ```bash
@@ -1014,9 +1207,17 @@ railway run alert_workflow
 - ✅ Outcomeクラス & 遷移グラフ  
 - ✅ `railway sync transition` コマンド  
 
-### Phase 3 📋 計画中  
-- DAG YAMLのビジュアライザ 統合    
-- 並列パイプライン実行(保留中)    
+### Phase 3 ✅ 完了（Board モード / Riverboard パターン）
+- ✅ `BoardBase` ミュータブル共有状態（Pydantic 非依存）
+- ✅ `WorkflowResult`（frozen dataclass）による実行結果
+- ✅ AST依存解析（`board.x` の読み書きを自動検出）
+- ✅ `railway run --trace`（ノードごとの変更トレース）
+- ✅ Board モード対応の dag_runner / async_dag_runner
+- ✅ Contract モードとの後方互換性維持
+
+### Phase 4 ✅ 完了
+- ✅ DAG YAMLのビジュアライザ統合
+- ✅ 並列パイプライン実行    
 
 ---  
 

@@ -30,10 +30,11 @@ class TestGetDagEntryTemplate:
         assert "result.exit_state" in py_content
 
     def test_handles_result_failure(self) -> None:
-        """失敗時に exit code を返す。"""
+        """失敗時も result を返す（Board モード）。"""
         py_content = _get_dag_entry_template("greeting")
 
-        assert "SystemExit(result.exit_code)" in py_content
+        # Board モードでは result を return する（SystemExit は使わない）
+        assert "return result" in py_content
 
     def test_includes_main_block(self) -> None:
         """if __name__ == '__main__' ブロックがある。"""

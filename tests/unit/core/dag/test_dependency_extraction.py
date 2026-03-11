@@ -1,12 +1,14 @@
 """依存情報の自動抽出テスト。
 
-TDD Red Phase: このテストは最初は失敗する（モジュールが存在しない）
+@node デコレータから requires/optional/provides パラメータは削除された。
+フィールド依存メタデータは _make_node_with_deps ヘルパーで直接設定する。
 """
 
 import pytest
 
 from railway import Contract, node
 from railway.core.dag import Outcome
+from railway.core.dag.field_dependency import FieldDependency
 
 
 class WorkflowContext(Contract):
@@ -17,16 +19,40 @@ class WorkflowContext(Contract):
     hostname: str | None = None
 
 
+def _make_node_with_deps(
+    func, *, requires=None, optional=None, provides=None, name=None
+):
+    """Test helper: set field dependency metadata on a function."""
+    func._is_railway_node = True
+    func._node_name = name or func.__name__
+    func._is_board_node = False
+    func._is_async = False
+    func._node_inputs = {}
+    func._node_output = None
+    func._requires = frozenset(requires or [])
+    func._optional = frozenset(optional or [])
+    func._provides = frozenset(provides or [])
+    func._field_dependency = FieldDependency(
+        requires=func._requires,
+        optional=func._optional,
+        provides=func._provides,
+    )
+    return func
+
+
 class TestExtractFieldDependency:
     """単一ノードからの依存抽出テスト。"""
 
     def test_extracts_from_decorated_node(self) -> None:
-        """@node デコレータ付きノードから依存を抽出する。"""
+        """依存メタデータ付きノードから依存を抽出する。"""
         from railway.core.dag.dependency_extraction import extract_field_dependency
 
-        @node(requires=["incident_id"], optional=["hostname"], provides=["result"])
         def my_node(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
             return ctx, Outcome.success("done")
+
+        _make_node_with_deps(
+            my_node, requires=["incident_id"], optional=["hostname"], provides=["result"]
+        )
 
         dep = extract_field_dependency(my_node)
 
@@ -49,9 +75,10 @@ class TestExtractFieldDependency:
         """依存宣言なしの @node は空の FieldDependency を返す。"""
         from railway.core.dag.dependency_extraction import extract_field_dependency
 
-        @node
         def simple_node(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
             return ctx, Outcome.success("done")
+
+        _make_node_with_deps(simple_node)
 
         dep = extract_field_dependency(simple_node)
 
@@ -77,15 +104,26 @@ class TestLoadNodeDependencies:
         (pkg_dir / "__init__.py").write_text("")
         (pkg_dir / "check_host.py").write_text(
             '''
-from railway import Contract, node
-from railway.core.dag import Outcome
+from railway.core.dag.field_dependency import FieldDependency
 
-class Ctx(Contract):
-    incident_id: str
+def check_host(ctx):
+    return ctx, "done"
 
-@node(requires=["incident_id"], provides=["hostname"])
-def check_host(ctx: Ctx) -> tuple[Ctx, Outcome]:
-    return ctx, Outcome.success("done")
+# Set field dependency metadata directly
+check_host._is_railway_node = True
+check_host._node_name = "check_host"
+check_host._is_board_node = False
+check_host._is_async = False
+check_host._node_inputs = {}
+check_host._node_output = None
+check_host._requires = frozenset(["incident_id"])
+check_host._optional = frozenset()
+check_host._provides = frozenset(["hostname"])
+check_host._field_dependency = FieldDependency(
+    requires=check_host._requires,
+    optional=check_host._optional,
+    provides=check_host._provides,
+)
 '''
         )
 
@@ -161,9 +199,10 @@ class TestDependencyExtractionEdgeCases:
         class DoneResult(ExitContract):
             exit_state: str = "success.done"
 
-        @node(name="exit.success.done", requires=["processed"])
         def done(ctx) -> DoneResult:
             return DoneResult()
+
+        _make_node_with_deps(done, name="exit.success.done", requires=["processed"])
 
         dep = extract_field_dependency(done)
 
@@ -174,9 +213,10 @@ class TestDependencyExtractionEdgeCases:
         """非同期ノードからも依存を抽出できる。"""
         from railway.core.dag.dependency_extraction import extract_field_dependency
 
-        @node(requires=["data"], provides=["result"])
         async def async_node(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
             return ctx, Outcome.success("done")
+
+        _make_node_with_deps(async_node, requires=["data"], provides=["result"])
 
         dep = extract_field_dependency(async_node)
 
@@ -249,7 +289,7 @@ class WorkflowContext(Contract):
     severity: str             # 必須（初期フィールド）
     hostname: str | None = None  # Optional（初期フィールドではない）
 
-@node
+@node(output=object)
 def start(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
     return ctx, Outcome.success("done")
 '''
@@ -304,7 +344,7 @@ def start(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
 from railway import node
 from railway.core.dag import Outcome
 
-@node
+@node(output=object)
 def start(ctx):  # 型ヒントなし
     return ctx, Outcome.success("done")
 '''

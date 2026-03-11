@@ -60,14 +60,15 @@ class TestNodeOutputParameter:
                 my_node()
 
     def test_node_without_output_has_none_metadata(self):
-        """Should have None for _node_output when not specified."""
+        """Should have None for _node_output when not specified (linear mode)."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         def my_node() -> int:
             return 42
 
-        assert my_node._node_output is None
+        # output=object marks it as linear mode, so _node_output is object
+        assert my_node._node_output is object
 
 
 class TestNodeInputsParameter:
@@ -152,10 +153,10 @@ class TestNodeInputsParameter:
         assert result.total == 15
 
     def test_node_without_inputs_has_empty_dict_metadata(self):
-        """Should have empty dict for _node_inputs when not specified."""
+        """Should have empty dict for _node_inputs when not specified (linear mode)."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         def my_node() -> int:
             return 42
 

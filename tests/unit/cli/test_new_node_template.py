@@ -29,19 +29,18 @@ def project_dir(tmp_path, monkeypatch):
 
 
 class TestNewNodeDagMode:
-    """Test railway new node generates dag-style template by default.
+    """Test railway new node generates Board mode template by default.
 
-    DAG形式がデフォルトである理由：
-    - 条件分岐を含むワークフローに対応（運用自動化の多くのケース）
-    - Outcome による遷移制御で複雑なフローを表現可能
+    Board モードがデフォルトである理由：
+    - board を引数に取り Outcome を返すシンプルなインターフェース
+    - Contract 定義不要で迅速にノード開発を開始できる
     - YAML遷移グラフとの親和性が高い
     """
 
-    def test_node_returns_tuple_contract_outcome(self, project_dir):
-        """Node should return tuple[Contract, Outcome] by default.
+    def test_node_returns_outcome(self, project_dir):
+        """Node should return Outcome (Board mode) by default.
 
-        重要性: dag_runnerは tuple[Contract, Outcome] を期待する。
-        これにより遷移先をOutcomeで制御できる。
+        重要性: Board モードでは board を引数に取り Outcome を返す。
         """
         from railway.cli.main import app
 
@@ -52,35 +51,28 @@ class TestNewNodeDagMode:
         node_content = (project_dir / "src" / "nodes" / "check_status.py").read_text()
 
         # Should import Outcome
-        assert "from railway.core.dag.outcome import Outcome" in node_content
-        # Should return tuple with Contract and Outcome
-        assert "tuple[CheckStatusContext, Outcome]" in node_content
+        assert "from railway.core.dag import Outcome" in node_content
+        # Board mode: board argument, returns Outcome
+        assert "def check_status(board)" in node_content
+        assert "-> Outcome:" in node_content
         assert "Outcome.success" in node_content
 
-    def test_node_creates_context_contract(self, project_dir):
-        """Should create a Context Contract for the node.
+    def test_node_does_not_create_contract(self, project_dir):
+        """Board mode should NOT create a Contract file.
 
-        重要性: Contractを自動生成することで：
-        - 型安全がすぐに有効になる
-        - IDE補完が効く
-        - 手動でファイルを作成する手間を省く
+        重要性: Board モードでは Contract 不要。
         """
         from railway.cli.main import app
 
         runner.invoke(app, ["new", "node", "validate_input"])
 
         contract_path = project_dir / "src" / "contracts" / "validate_input_context.py"
-        assert contract_path.exists(), "Should create context contract"
+        assert not contract_path.exists(), "Board mode should not create contract"
 
-        contract_content = contract_path.read_text()
-        assert "class ValidateInputContext(Contract):" in contract_content
-        assert "from railway import Contract" in contract_content
+    def test_node_does_not_import_contract(self, project_dir):
+        """Board mode node should not import Contract.
 
-    def test_node_imports_context_contract(self, project_dir):
-        """Node should import its Context Contract.
-
-        重要性: import文が正しく設定されていることで、
-        生成直後からコードが動作する。
+        重要性: Board モードではノードが Contract を使用しない。
         """
         from railway.cli.main import app
 
@@ -88,15 +80,12 @@ class TestNewNodeDagMode:
 
         node_content = (project_dir / "src" / "nodes" / "process_data.py").read_text()
 
-        assert "from contracts.process_data_context import ProcessDataContext" in node_content
+        assert "Contract" not in node_content
 
-    def test_node_shows_immutable_update_pattern(self, project_dir):
-        """Node template should demonstrate immutable update with model_copy.
+    def test_node_uses_board_argument(self, project_dir):
+        """Board mode node should use board argument.
 
-        重要性: イミュータブル更新パターンを例示することで：
-        - 予期せぬ副作用によるバグを防止
-        - テストが簡単になる（入力を与えて出力を確認するだけ）
-        - 並行処理での安全性確保
+        重要性: Board パターンにより mutable な共有状態を使用。
         """
         from railway.cli.main import app
 
@@ -104,8 +93,7 @@ class TestNewNodeDagMode:
 
         node_content = (project_dir / "src" / "nodes" / "update_status.py").read_text()
 
-        # Should show model_copy pattern for immutable updates
-        assert "model_copy" in node_content or "# ctx.model_copy" in node_content
+        assert "def update_status(board)" in node_content
 
     def test_dag_mode_explicit(self, project_dir):
         """Should accept --mode dag explicitly.
@@ -120,6 +108,7 @@ class TestNewNodeDagMode:
         assert result.exit_code == 0
         node_content = (project_dir / "src" / "nodes" / "explicit_dag.py").read_text()
         assert "Outcome" in node_content
+        assert "def explicit_dag(board)" in node_content
 
 
 class TestNewNodeLinearMode:
@@ -194,11 +183,11 @@ class TestNewNodeTestTemplate:
     - 「テストを書く」心理的ハードルを下げる
     """
 
-    def test_dag_node_test_imports_outcome(self, project_dir):
-        """Test template for dag node should import and test Outcome.
+    def test_dag_node_test_uses_board_base(self, project_dir):
+        """Test template for Board mode node should use BoardBase.
 
-        重要性: Outcome検証の例を示すことで、
-        正しい遷移制御のテスト方法を学べる。
+        重要性: BoardBase を使ったテストパターンを示すことで、
+        Board モードの正しいテスト方法を学べる。
         """
         from railway.cli.main import app
 
@@ -208,9 +197,11 @@ class TestNewNodeTestTemplate:
 
         # Test should import from correct paths
         assert "from nodes.check_health import check_health" in test_content
-        assert "from contracts.check_health_context import CheckHealthContext" in test_content
+        assert "from railway.core.board import BoardBase" in test_content
         # Test should verify outcome
-        assert "outcome.is_success" in test_content or "Outcome" in test_content
+        assert "Outcome" in test_content
+        # Board mode: no Contract import
+        assert "CheckHealthContext" not in test_content
 
     def test_linear_node_test_imports_contracts(self, project_dir):
         """Test template for linear node should import both contracts.
@@ -242,37 +233,35 @@ class TestNewNodeTestTemplate:
         assert "uv run pytest" in test_content
 
 
-class TestNewNodeContractIntegration:
-    """Test integration between node and contract generation.
+class TestNewNodeBoardModeIntegration:
+    """Test Board mode node generation integration.
 
-    ノードとContractの整合性が重要な理由：
-    - 生成直後からコードが動作する
-    - import文のタイポによるエラーを防止
-    - IDE補完が即座に効く
+    Board モードの統合テスト：
+    - Contract ファイルが生成されない
+    - ノードファイルが正しく生成される
     """
 
-    def test_node_and_contract_are_consistent(self, project_dir):
-        """Node signature should match generated contract.
+    def test_node_is_self_contained(self, project_dir):
+        """Board mode node should be self-contained (no Contract dependency).
 
-        重要性: クラス名が一致していないとimportエラーになる。
-        この整合性テストで回帰を防止。
+        重要性: Board モードでは Contract 不要。
+        ノードファイルだけで動作する。
         """
         from railway.cli.main import app
 
         runner.invoke(app, ["new", "node", "validate"])
 
         node_content = (project_dir / "src" / "nodes" / "validate.py").read_text()
-        contract_content = (project_dir / "src" / "contracts" / "validate_context.py").read_text()
 
-        # Contract class name should match import in node
-        assert "ValidateContext" in contract_content
-        assert "ValidateContext" in node_content
+        # Board mode: no Contract import
+        assert "Contract" not in node_content
+        assert "def validate(board)" in node_content
 
-    def test_existing_contract_not_overwritten(self, project_dir):
-        """Should not overwrite existing contract file but still create node.
+    def test_existing_contract_not_affected(self, project_dir):
+        """Board mode should not touch existing contract files.
 
-        重要性: ユーザーが既に作成したContractを誤って上書きしない。
-        安全性のための重要なガード。
+        重要性: Board モードでは Contract を生成しないため、
+        既存の Contract ファイルに影響しない。
         """
         from railway.cli.main import app
 
@@ -289,9 +278,9 @@ class TestNewNodeContractIntegration:
         contract_content = (project_dir / "src" / "contracts" / "my_node_context.py").read_text()
         assert "Existing contract" in contract_content
 
-        # But node should still be created
+        # Node should still be created
         node_path = project_dir / "src" / "nodes" / "my_node.py"
-        assert node_path.exists(), "Node should be created even if contract exists"
+        assert node_path.exists(), "Node should be created"
 
 
 class TestNewNodeCliOutput:
@@ -314,7 +303,7 @@ class TestNewNodeCliOutput:
         result = runner.invoke(app, ["new", "node", "show_files"])
 
         assert "src/nodes/show_files.py" in result.output
-        assert "src/contracts/show_files_context.py" in result.output
+        # Board mode: no contract files
         assert "tests/nodes/test_show_files.py" in result.output
 
     def test_shows_tdd_workflow(self, project_dir):
@@ -445,21 +434,22 @@ class TestNewNodeForceOption:
         assert "# Modified content" not in content
         assert "@node" in content
 
-    def test_force_overwrites_contract(self, project_dir):
-        """--force should overwrite existing contract.
+    def test_force_overwrites_board_node(self, project_dir):
+        """--force should overwrite existing Board mode node file.
 
-        重要性: Contractも含めて上書きできることで、
-        完全な再生成が可能になる。
+        重要性: Board モードではノードファイルのみが上書きされる。
+        Contract ファイルは生成されない。
         """
         from railway.cli.main import app
 
-        # Create contract
-        contract_path = project_dir / "src" / "contracts" / "force_test_context.py"
-        contract_path.write_text("# Old contract")
+        # Create initial node
+        node_path = project_dir / "src" / "nodes" / "force_test.py"
+        node_path.parent.mkdir(parents=True, exist_ok=True)
+        node_path.write_text("# Old node content")
 
-        # Create node with force (should overwrite contract too)
+        # Overwrite with force
         result = runner.invoke(app, ["new", "node", "force_test", "--force"])
 
         assert result.exit_code == 0
-        content = contract_path.read_text()
-        assert "ForceTestContext" in content
+        content = node_path.read_text()
+        assert "def force_test(board)" in content

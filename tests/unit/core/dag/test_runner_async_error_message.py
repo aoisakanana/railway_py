@@ -63,7 +63,7 @@ class TestAsyncDagRunnerErrorMessage:
         class EmptyContext(Contract):
             pass
 
-        @node(name="custom_start_node")
+        @node(name="custom_start_node", output=object)
         async def start() -> tuple[EmptyContext, Outcome]:
             return EmptyContext(), Outcome.success("unknown_state")
 

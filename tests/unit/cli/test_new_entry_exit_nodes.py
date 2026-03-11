@@ -146,5 +146,6 @@ transitions:
         # 構文チェック
         compile(content, "<string>", "exec")
 
-        # ExitContract を使用している
-        assert "ExitContract" in content
+        # Board モード: board 引数, None 返却
+        assert "def done(board)" in content
+        assert "-> None:" in content
