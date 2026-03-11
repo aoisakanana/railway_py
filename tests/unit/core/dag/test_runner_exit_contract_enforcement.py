@@ -40,7 +40,7 @@ class StartContext(Contract):
 def make_start_node():
     """開始ノードを生成するファクトリ。"""
 
-    @node(name="start")
+    @node(name="start", output=object)
     def start() -> tuple[StartContext, Outcome]:
         return StartContext(), Outcome.success("done")
 
@@ -54,7 +54,7 @@ class TestExitNodeMustReturnExitContract:
         """終端ノードが dict を返すと ExitNodeTypeError。"""
         from railway.core.dag.errors import ExitNodeTypeError
 
-        @node(name="exit.success.done")
+        @node(name="exit.success.done", output=object)
         def exit_returns_dict(ctx: StartContext) -> dict:
             return {"status": "ok"}
 
@@ -72,7 +72,7 @@ class TestExitNodeMustReturnExitContract:
         """終端ノードが None を返すと ExitNodeTypeError。"""
         from railway.core.dag.errors import ExitNodeTypeError
 
-        @node(name="exit.success.done")
+        @node(name="exit.success.done", output=object)
         def exit_returns_none(ctx: StartContext) -> None:
             return None
 
@@ -87,7 +87,7 @@ class TestExitNodeMustReturnExitContract:
     def test_exit_node_returning_exit_contract_succeeds(self) -> None:
         """終端ノードが ExitContract を返すと成功。"""
 
-        @node(name="exit.success.done")
+        @node(name="exit.success.done", output=object)
         def exit_returns_contract(ctx: StartContext) -> ValidExitResult:
             return ValidExitResult()
 
@@ -107,7 +107,7 @@ class TestExitNodeMustReturnExitContract:
             カスタムフィールドを追加できる。
         """
 
-        @node(name="exit.success.done")
+        @node(name="exit.success.done", output=object)
         def exit_returns_custom(ctx: StartContext) -> CustomExitResult:
             return CustomExitResult(
                 processed_count=42,
@@ -137,7 +137,7 @@ class TestExitNodeWithFailureState:
             exit_state: str = "failure.timeout"
             reason: str
 
-        @node(name="exit.failure.timeout")
+        @node(name="exit.failure.timeout", output=object)
         def exit_timeout(ctx: StartContext) -> FailureTimeoutResult:
             return FailureTimeoutResult(reason="Request timed out")
 
@@ -179,11 +179,11 @@ class TestExitNodeMustReturnExitContractAsync:
         """非同期終端ノードが dict を返すと ExitNodeTypeError。"""
         from railway.core.dag.errors import ExitNodeTypeError
 
-        @node(name="exit.success.done")
+        @node(name="exit.success.done", output=object)
         async def exit_returns_dict(ctx: StartContext) -> dict:
             return {"status": "ok"}
 
-        @node(name="start")
+        @node(name="start", output=object)
         async def start() -> tuple[StartContext, Outcome]:
             return StartContext(), Outcome.success("done")
 
@@ -195,11 +195,11 @@ class TestExitNodeMustReturnExitContractAsync:
     async def test_async_exit_node_returning_exit_contract_succeeds(self) -> None:
         """非同期終端ノードが ExitContract を返すと成功。"""
 
-        @node(name="exit.success.done")
+        @node(name="exit.success.done", output=object)
         async def exit_returns_contract(ctx: StartContext) -> ValidExitResult:
             return ValidExitResult()
 
-        @node(name="start")
+        @node(name="start", output=object)
         async def start() -> tuple[StartContext, Outcome]:
             return StartContext(), Outcome.success("done")
 
@@ -214,7 +214,7 @@ class TestExitNodeMustReturnExitContractAsync:
         """非同期版でもレガシー形式は LegacyExitFormatError。"""
         from railway.core.dag.errors import LegacyExitFormatError
 
-        @node(name="start")
+        @node(name="start", output=object)
         async def start() -> tuple[StartContext, Outcome]:
             return StartContext(), Outcome.success("done")
 

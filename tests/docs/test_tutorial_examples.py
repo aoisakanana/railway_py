@@ -24,14 +24,14 @@ class TestTutorialExitNodeExamples:
             processed_count: int
             summary: str
 
-        @node(name="exit.success.done")
+        @node(output=object, name="exit.success.done")
         def done(ctx: dict) -> SuccessDoneResult:
             return SuccessDoneResult(
                 processed_count=ctx["count"],
                 summary="All items processed",
             )
 
-        @node(name="start")
+        @node(output=object, name="start")
         def start() -> tuple[dict, Outcome]:
             return {"count": 42}, Outcome.success("done")
 
@@ -56,14 +56,14 @@ class TestTutorialExitNodeExamples:
             error_message: str
             retry_count: int
 
-        @node(name="exit.failure.timeout")
+        @node(output=object, name="exit.failure.timeout")
         def timeout(ctx: dict) -> TimeoutResult:
             return TimeoutResult(
                 error_message="API request timed out",
                 retry_count=ctx.get("retries", 0),
             )
 
-        @node(name="start")
+        @node(output=object, name="start")
         def start() -> tuple[dict, Outcome]:
             return {"retries": 3}, Outcome.failure("timeout")
 
@@ -85,15 +85,15 @@ class TestTutorialExitNodeExamples:
             exit_state: str = "success.done"
             status: str
 
-        @node(name="start")
+        @node(output=object, name="start")
         def start() -> tuple[dict, Outcome]:
             return {"step": 1}, Outcome.success("next")
 
-        @node(name="process")
+        @node(output=object, name="process")
         def process(ctx: dict) -> tuple[dict, Outcome]:
             return {"step": 2}, Outcome.success("done")
 
-        @node(name="exit.success.done")
+        @node(output=object, name="exit.success.done")
         def done(ctx: dict) -> ProcessResult:
             return ProcessResult(status="completed")
 
@@ -126,11 +126,11 @@ class TestTutorialExitNodeExamples:
             exit_state: str = "warning.low_disk"
             message: str
 
-        @node(name="start")
+        @node(output=object, name="start")
         def start() -> tuple[dict, Outcome]:
             return {}, Outcome.success("warn")
 
-        @node(name="exit.warning.low_disk")
+        @node(output=object, name="exit.warning.low_disk")
         def warn(ctx: dict) -> WarningResult:
             return WarningResult(message="Disk space is low")
 
@@ -150,11 +150,11 @@ class TestTutorialExitNodeExamples:
             exit_state: str = "warning.threshold"
             exit_code: int = 2  # カスタム exit_code
 
-        @node(name="start")
+        @node(output=object, name="start")
         def start() -> tuple[dict, Outcome]:
             return {}, Outcome.success("threshold")
 
-        @node(name="exit.warning.threshold")
+        @node(output=object, name="exit.warning.threshold")
         def threshold(ctx: dict) -> CustomExitResult:
             return CustomExitResult()
 
@@ -177,11 +177,11 @@ class TestTutorialMigrationExamples:
             exit_state: str = "success.done"
             status: str
 
-        @node(name="start")
+        @node(output=object, name="start")
         def start() -> tuple[dict, Outcome]:
             return {}, Outcome.success("done")
 
-        @node(name="exit.success.done")
+        @node(output=object, name="exit.success.done")
         def done(ctx: dict) -> DoneResult:
             return DoneResult(status="ok")
 
@@ -210,15 +210,15 @@ class TestTutorialMigrationExamples:
             user_id: int
             message: str
 
-        @node(name="start")
+        @node(output=object, name="start")
         def start() -> tuple[WorkflowContext, Outcome]:
             return WorkflowContext(user_id=123), Outcome.success("process")
 
-        @node(name="process")
+        @node(output=object, name="process")
         def process(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
             return ctx.model_copy(update={"processed": True}), Outcome.success("done")
 
-        @node(name="exit.success.done")
+        @node(output=object, name="exit.success.done")
         def done(ctx: WorkflowContext) -> CompletedResult:
             return CompletedResult(
                 user_id=ctx.user_id,
@@ -252,17 +252,17 @@ class TestTutorialModelCopyPattern:
             hostname: str | None = None
             escalated: bool = False
 
-        @node(name="start")
+        @node(output=object, name="start")
         def start() -> tuple[AlertContext, Outcome]:
             return AlertContext(incident_id="INC-001", severity="critical"), Outcome.success("check")
 
-        @node(name="check_host")
+        @node(output=object, name="check_host")
         def check_host(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
             # model_copy で既存データを保持しつつ hostname を追加
             new_ctx = ctx.model_copy(update={"hostname": "web-01"})
             return new_ctx, Outcome.success("escalate")
 
-        @node(name="escalate")
+        @node(output=object, name="escalate")
         def escalate(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
             # すべての既存データが利用可能
             assert ctx.incident_id == "INC-001"
@@ -275,7 +275,7 @@ class TestTutorialModelCopyPattern:
             incident_id: str
             escalated: bool
 
-        @node(name="exit.success.done")
+        @node(output=object, name="exit.success.done")
         def done(ctx: AlertContext) -> DoneResult:
             return DoneResult(incident_id=ctx.incident_id, escalated=ctx.escalated)
 
@@ -299,12 +299,12 @@ class TestTutorialModelCopyPattern:
             step: int = 0
             values: tuple[str, ...] = ()
 
-        @node(name="start")
+        @node(output=object, name="start")
         def start() -> tuple[WorkflowContext, Outcome]:
             ctx = WorkflowContext(step=1, values=("start",))
             return ctx, Outcome.success("next")
 
-        @node(name="step_a")
+        @node(output=object, name="step_a")
         def step_a(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
             new_ctx = ctx.model_copy(update={
                 "step": ctx.step + 1,
@@ -312,7 +312,7 @@ class TestTutorialModelCopyPattern:
             })
             return new_ctx, Outcome.success("next")
 
-        @node(name="step_b")
+        @node(output=object, name="step_b")
         def step_b(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
             new_ctx = ctx.model_copy(update={
                 "step": ctx.step + 1,
@@ -325,7 +325,7 @@ class TestTutorialModelCopyPattern:
             final_step: int
             all_values: tuple[str, ...]
 
-        @node(name="exit.success.done")
+        @node(output=object, name="exit.success.done")
         def done(ctx: WorkflowContext) -> FinalResult:
             return FinalResult(final_step=ctx.step, all_values=ctx.values)
 
@@ -354,11 +354,11 @@ class TestTutorialAsyncExamples:
             exit_state: str = "success.done"
             data: str
 
-        @node(name="start")
+        @node(output=object, name="start")
         async def start() -> tuple[dict, Outcome]:
             return {"key": "value"}, Outcome.success("done")
 
-        @node(name="exit.success.done")
+        @node(output=object, name="exit.success.done")
         async def done(ctx: dict) -> AsyncResult:
             return AsyncResult(data="async completed")
 

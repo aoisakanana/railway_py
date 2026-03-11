@@ -202,8 +202,7 @@ class TestSyncRegularNodes:
         # 構文エラーがなければ compile が成功
         compile(content, str(file_path), "exec")
 
-        # 必要な要素が含まれている
+        # Board モード: board 引数、Outcome 返却
         assert "@node" in content
-        assert "def process" in content
+        assert "def process(board)" in content
         assert "Outcome.success" in content
-        assert "ctx: ProcessContext | None = None" in content

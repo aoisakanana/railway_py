@@ -1,6 +1,7 @@
 """Runner の依存チェックテスト。
 
-TDD Red Phase: このテストは最初は失敗する（機能が存在しない）
+@node デコレータから requires/optional/provides パラメータは削除された。
+フィールド依存メタデータは _make_node_with_deps ヘルパーで直接設定する。
 """
 
 from typing import Callable
@@ -10,6 +11,7 @@ import pytest
 from railway import Contract, ExitContract, node
 from railway.core.dag import dag_runner, Outcome
 from railway.core.dag.errors import DependencyRuntimeError
+from railway.core.dag.field_dependency import FieldDependency
 
 
 class WorkflowContext(Contract):
@@ -28,27 +30,51 @@ class SuccessResult(ExitContract):
     exit_state: str = "success.done"
 
 
+def _make_node_with_deps(
+    func, *, requires=None, optional=None, provides=None, name=None
+):
+    """Test helper: set field dependency metadata on a function."""
+    func._is_railway_node = True
+    func._node_name = name or func.__name__
+    func._is_board_node = False
+    func._is_async = False
+    func._node_inputs = {}
+    func._node_output = None
+    func._requires = frozenset(requires or [])
+    func._optional = frozenset(optional or [])
+    func._provides = frozenset(provides or [])
+    func._field_dependency = FieldDependency(
+        requires=func._requires,
+        optional=func._optional,
+        provides=func._provides,
+    )
+    return func
+
+
 class TestRunnerDependencyCheckDefault:
     """デフォルトの依存チェック動作テスト。"""
 
     def test_no_check_by_default(self) -> None:
         """デフォルトでは依存チェックしない。"""
 
-        @node(name="start")
         def start(
             _ctx: WorkflowContext | None = None,
         ) -> tuple[WorkflowContext, Outcome]:
             return WorkflowContext(incident_id="INC-001"), Outcome.success("init")
 
+        _make_node_with_deps(start, name="start")
+
         # requires を宣言しているが、初期コンテキストに hostname がない
-        @node(requires=["hostname"])
         def needs_hostname(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
             # hostname が None でも実行される
             return ctx, Outcome.success("done")
 
-        @node(name="exit.success.done")
+        _make_node_with_deps(needs_hostname, requires=["hostname"])
+
         def done(ctx: WorkflowContext) -> SuccessResult:
             return SuccessResult()
+
+        _make_node_with_deps(done, name="exit.success.done")
 
         # デフォルトではエラーにならない（sync 時に検証済みと仮定）
         result = dag_runner(
@@ -68,15 +94,17 @@ class TestRunnerDependencyCheckEnabled:
     def test_check_dependencies_catches_missing_requires(self) -> None:
         """check_dependencies=True で不足を検出する。"""
 
-        @node(name="start")
         def start(
             _ctx: WorkflowContext | None = None,
         ) -> tuple[WorkflowContext, Outcome]:
             return WorkflowContext(incident_id="INC-001"), Outcome.success("init")
 
-        @node(requires=["hostname"])
+        _make_node_with_deps(start, name="start")
+
         def needs_hostname(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
             return ctx, Outcome.success("done")
+
+        _make_node_with_deps(needs_hostname, requires=["hostname"])
 
         with pytest.raises(DependencyRuntimeError) as exc_info:
             dag_runner(
@@ -93,7 +121,6 @@ class TestRunnerDependencyCheckEnabled:
     def test_check_dependencies_passes_when_satisfied(self) -> None:
         """依存が満たされている場合は通過する。"""
 
-        @node(name="start", provides=["hostname"])
         def start(
             _ctx: WorkflowContext | None = None,
         ) -> tuple[WorkflowContext, Outcome]:
@@ -101,13 +128,17 @@ class TestRunnerDependencyCheckEnabled:
                 incident_id="INC-001", hostname="server1"
             ), Outcome.success("init")
 
-        @node(requires=["hostname"])
+        _make_node_with_deps(start, name="start", provides=["hostname"])
+
         def needs_hostname(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
             return ctx, Outcome.success("done")
 
-        @node(name="exit.success.done")
+        _make_node_with_deps(needs_hostname, requires=["hostname"])
+
         def done(ctx: WorkflowContext) -> SuccessResult:
             return SuccessResult()
+
+        _make_node_with_deps(done, name="exit.success.done")
 
         result = dag_runner(
             start=start,
@@ -122,15 +153,17 @@ class TestRunnerDependencyCheckEnabled:
     def test_check_dependencies_with_initial_fields(self) -> None:
         """初期コンテキストのフィールドも利用可能として扱う。"""
 
-        @node(name="start", requires=["incident_id"])
         def start(
             _ctx: WorkflowContext | None = None,
         ) -> tuple[WorkflowContext, Outcome]:
             return WorkflowContext(incident_id="INC-001"), Outcome.success("init")
 
-        @node(name="exit.success.done")
+        _make_node_with_deps(start, name="start", requires=["incident_id"])
+
         def done(ctx: WorkflowContext) -> SuccessResult:
             return SuccessResult()
+
+        _make_node_with_deps(done, name="exit.success.done")
 
         # incident_id は初期コンテキストに存在するので通過する
         result = dag_runner(
@@ -149,13 +182,13 @@ class TestRunnerOptionalFieldCheck:
     def test_optional_does_not_raise_error(self) -> None:
         """optional フィールドがなくてもエラーにならない。"""
 
-        @node(name="start")
         def start(
             _ctx: WorkflowContext | None = None,
         ) -> tuple[WorkflowContext, Outcome]:
             return WorkflowContext(incident_id="INC-001"), Outcome.success("init")
 
-        @node(optional=["hostname"])
+        _make_node_with_deps(start, name="start")
+
         def uses_hostname_optionally(
             ctx: WorkflowContext,
         ) -> tuple[WorkflowContext, Outcome]:
@@ -164,9 +197,12 @@ class TestRunnerOptionalFieldCheck:
                 pass
             return ctx, Outcome.success("done")
 
-        @node(name="exit.success.done")
+        _make_node_with_deps(uses_hostname_optionally, optional=["hostname"])
+
         def done(ctx: WorkflowContext) -> SuccessResult:
             return SuccessResult()
+
+        _make_node_with_deps(done, name="exit.success.done")
 
         result = dag_runner(
             start=start,
@@ -185,7 +221,6 @@ class TestRunnerDependencyCheckWithProvides:
     def test_provides_accumulates(self) -> None:
         """provides は累積される。"""
 
-        @node(name="step_a", provides=["field_a"])
         def step_a(
             _ctx: WorkflowContext | None = None,
         ) -> tuple[WorkflowContext, Outcome]:
@@ -193,17 +228,22 @@ class TestRunnerDependencyCheckWithProvides:
                 incident_id="INC-001", field_a="a"
             ), Outcome.success("done")
 
-        @node(provides=["field_b"])
+        _make_node_with_deps(step_a, name="step_a", provides=["field_a"])
+
         def step_b(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
             return ctx.model_copy(update={"field_b": "b"}), Outcome.success("done")
 
-        @node(requires=["field_a", "field_b"])
+        _make_node_with_deps(step_b, provides=["field_b"])
+
         def needs_both(ctx: WorkflowContext) -> tuple[WorkflowContext, Outcome]:
             return ctx, Outcome.success("done")
 
-        @node(name="exit.success.done")
+        _make_node_with_deps(needs_both, requires=["field_a", "field_b"])
+
         def done(ctx: WorkflowContext) -> SuccessResult:
             return SuccessResult()
+
+        _make_node_with_deps(done, name="exit.success.done")
 
         result = dag_runner(
             start=step_a,
@@ -219,16 +259,18 @@ class TestRunnerDependencyCheckWithProvides:
     def test_provides_without_setting_still_passes(self) -> None:
         """provides を宣言しても設定しなくてもエラーにはならない（警告のみ）。"""
 
-        @node(name="bad_node", provides=["hostname"])
         def bad_node(
             _ctx: WorkflowContext | None = None,
         ) -> tuple[WorkflowContext, Outcome]:
             # hostname を設定しない!
             return WorkflowContext(incident_id="INC-001"), Outcome.success("done")
 
-        @node(name="exit.success.done")
+        _make_node_with_deps(bad_node, name="bad_node", provides=["hostname"])
+
         def done(ctx: WorkflowContext) -> SuccessResult:
             return SuccessResult()
+
+        _make_node_with_deps(done, name="exit.success.done")
 
         # エラーにはならない（provides 未設定は警告レベル）
         result = dag_runner(
@@ -247,15 +289,17 @@ class TestRunnerDependencyCheckExitNode:
     def test_exit_node_requires_checked(self) -> None:
         """終端ノードの requires もチェックされる。"""
 
-        @node(name="start")
         def start(
             _ctx: WorkflowContext | None = None,
         ) -> tuple[WorkflowContext, Outcome]:
             return WorkflowContext(incident_id="INC-001"), Outcome.success("init")
 
-        @node(name="exit.success.done", requires=["processed"])
+        _make_node_with_deps(start, name="start")
+
         def done(ctx: WorkflowContext) -> SuccessResult:
             return SuccessResult()
+
+        _make_node_with_deps(done, name="exit.success.done", requires=["processed"])
 
         with pytest.raises(DependencyRuntimeError) as exc_info:
             dag_runner(

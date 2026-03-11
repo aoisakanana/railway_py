@@ -13,7 +13,7 @@ class TestNodeRetry:
 
         call_count = 0
 
-        @node(retry=True)
+        @node(retry=True, output=object)
         def flaky_node() -> str:
             nonlocal call_count
             call_count += 1
@@ -41,7 +41,7 @@ class TestNodeRetry:
 
         call_count = 0
 
-        @node(retry=True)
+        @node(retry=True, output=object)
         def always_fails() -> str:
             nonlocal call_count
             call_count += 1
@@ -67,7 +67,7 @@ class TestNodeRetry:
 
         call_count = 0
 
-        @node(retry=False)
+        @node(retry=False, output=object)
         def no_retry_node() -> str:
             nonlocal call_count
             call_count += 1
@@ -85,7 +85,7 @@ class TestNodeRetry:
 
         call_count = 0
 
-        @node(retry=Retry(max_attempts=5, min_wait=0.01, max_wait=0.02))
+        @node(retry=Retry(max_attempts=5, min_wait=0.01, max_wait=0.02), output=object)
         def custom_retry_node() -> str:
             nonlocal call_count
             call_count += 1
@@ -109,7 +109,7 @@ class TestRetryLogging:
 
         call_count = 0
 
-        @node(retry=True)
+        @node(retry=True, output=object)
         def retry_with_log() -> str:
             nonlocal call_count
             call_count += 1
@@ -142,7 +142,7 @@ class TestRetryWithSettings:
 
         call_count = 0
 
-        @node(retry=True, name="special_node")
+        @node(retry=True, name="special_node", output=object)
         def special_node() -> str:
             nonlocal call_count
             call_count += 1
@@ -174,7 +174,7 @@ class TestRetrySuccessWithoutRetries:
 
         call_count = 0
 
-        @node(retry=True)
+        @node(retry=True, output=object)
         def success_node() -> str:
             nonlocal call_count
             call_count += 1

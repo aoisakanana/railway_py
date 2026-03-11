@@ -12,7 +12,7 @@ class TestNodeDecorator:
         """Should work without parentheses."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         def simple_node(x: int) -> int:
             return x + 1
 
@@ -24,7 +24,7 @@ class TestNodeDecorator:
         """Should work with empty parentheses."""
         from railway.core.decorators import node
 
-        @node()
+        @node(output=object)
         def simple_node(x: int) -> int:
             return x * 2
 
@@ -36,7 +36,7 @@ class TestNodeDecorator:
         """Should preserve original function name."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         def my_custom_node() -> str:
             return "hello"
 
@@ -46,7 +46,7 @@ class TestNodeDecorator:
         """Should preserve original docstring."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         def documented_node() -> str:
             """This is a documented node."""
             return "doc"
@@ -57,7 +57,7 @@ class TestNodeDecorator:
         """Should store railway metadata."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         def metadata_node() -> int:
             return 42
 
@@ -68,7 +68,7 @@ class TestNodeDecorator:
         """Should allow custom node name."""
         from railway.core.decorators import node
 
-        @node(name="custom_name")
+        @node(name="custom_name", output=object)
         def original_name() -> int:
             return 1
 
@@ -78,7 +78,7 @@ class TestNodeDecorator:
         """Should propagate exceptions from node."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         def failing_node() -> int:
             raise ValueError("Test error")
 
@@ -92,7 +92,7 @@ class TestNodeDecorator:
 
         with patch("railway.core.decorators.logger") as mock_logger:
 
-            @node
+            @node(output=object)
             def logged_node() -> str:
                 return "done"
 
@@ -110,7 +110,7 @@ class TestNodeDecorator:
 
         with patch("railway.core.decorators.logger") as mock_logger:
 
-            @node
+            @node(output=object)
             def error_node() -> int:
                 raise RuntimeError("Node failed")
 
@@ -124,7 +124,7 @@ class TestNodeDecorator:
         """Should pass arguments correctly."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         def add_node(a: int, b: int) -> int:
             return a + b
 
@@ -136,7 +136,7 @@ class TestNodeDecorator:
         """Should pass keyword arguments correctly."""
         from railway.core.decorators import node
 
-        @node
+        @node(output=object)
         def greeting_node(name: str, prefix: str = "Hello") -> str:
             return f"{prefix}, {name}!"
 
@@ -150,7 +150,7 @@ class TestNodeDecorator:
 
         call_count = 0
 
-        @node(retry=False)
+        @node(retry=False, output=object)
         def counting_node() -> int:
             nonlocal call_count
             call_count += 1
@@ -174,7 +174,7 @@ class TestNodeWithLogInput:
 
         with patch("railway.core.decorators.logger") as mock_logger:
 
-            @node(log_input=True)
+            @node(log_input=True, output=object)
             def input_node(data: dict) -> dict:
                 return data
 
@@ -194,7 +194,7 @@ class TestNodeWithLogOutput:
 
         with patch("railway.core.decorators.logger") as mock_logger:
 
-            @node(log_output=True)
+            @node(log_output=True, output=object)
             def output_node() -> str:
                 return "result"
 

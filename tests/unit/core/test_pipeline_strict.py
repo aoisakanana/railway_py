@@ -13,11 +13,11 @@ class TestPipelineStrictMode:
         from railway.core.decorators import node
         from unittest.mock import patch
 
-        @node
+        @node(output=object)
         def step1(x: int) -> int:
             return x + 1
 
-        @node
+        @node(output=object)
         def step2(x: int) -> int:
             return x * 2
 
@@ -33,11 +33,11 @@ class TestPipelineStrictMode:
         from railway.core.decorators import node
         from unittest.mock import patch
 
-        @node
+        @node(output=object)
         def returns_string(x: int) -> str:
             return str(x)
 
-        @node
+        @node(output=object)
         def expects_int(x: int) -> int:
             return x * 2
 
@@ -54,7 +54,7 @@ class TestPipelineStrictMode:
         from railway.core.decorators import node
         from unittest.mock import patch
 
-        @node
+        @node(output=object)
         def expects_int(x: int) -> int:
             return x + 1
 
@@ -69,11 +69,11 @@ class TestPipelineStrictMode:
         from railway.core.decorators import node
         from unittest.mock import patch
 
-        @node
+        @node(output=object)
         def returns_dict(x: int) -> Dict[str, int]:
             return {"value": x}
 
-        @node
+        @node(output=object)
         def expects_mapping(x: Dict[str, Any]) -> str:
             return str(x)
 
@@ -89,11 +89,11 @@ class TestPipelineStrictMode:
         from railway.core.decorators import node
         from unittest.mock import patch
 
-        @node
+        @node(output=object)
         def returns_string(x: int) -> str:
             return str(x)
 
-        @node
+        @node(output=object)
         def expects_int(x: int) -> int:
             return int(x) * 2
 
@@ -113,11 +113,11 @@ class TestTypeCheckErrorMessages:
         from railway.core.decorators import node
         from unittest.mock import patch
 
-        @node
+        @node(output=object)
         def returns_list(x: int) -> List[int]:
             return [x]
 
-        @node
+        @node(output=object)
         def expects_str(x: str) -> str:
             return x.upper()
 
@@ -136,15 +136,15 @@ class TestTypeCheckErrorMessages:
         from railway.core.decorators import node
         from unittest.mock import patch
 
-        @node
+        @node(output=object)
         def step1(x: int) -> int:
             return x + 1
 
-        @node
+        @node(output=object)
         def step2(x: int) -> str:
             return str(x)
 
-        @node
+        @node(output=object)
         def step3(x: int) -> int:
             return x * 2
 
@@ -166,11 +166,11 @@ class TestTypeCheckWithOptional:
         from railway.core.decorators import node
         from unittest.mock import patch
 
-        @node
+        @node(output=object)
         def may_return_none(x: int) -> Optional[int]:
             return x if x > 0 else None
 
-        @node
+        @node(output=object)
         def accepts_optional(x: Optional[int]) -> str:
             return str(x) if x else "none"
 
@@ -192,11 +192,11 @@ class TestTypeCheckWithUnion:
         from railway.core.decorators import node
         from unittest.mock import patch
 
-        @node
+        @node(output=object)
         def returns_int_or_str(x: int) -> Union[int, str]:
             return x if x > 0 else "negative"
 
-        @node
+        @node(output=object)
         def accepts_int_or_str(x: Union[int, str]) -> str:
             return f"value: {x}"
 

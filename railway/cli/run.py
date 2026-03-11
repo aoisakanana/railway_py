@@ -1,10 +1,14 @@
 """railway run command implementation."""
+from __future__ import annotations
 
+import os
 import runpy
 import sys
 from pathlib import Path
 
 import typer
+
+from railway.core.dag.trace import WorkflowTrace
 
 
 def _find_project_root() -> Path | None:
@@ -107,11 +111,34 @@ def _execute_entry(project_root: Path, entry_name: str, extra_args: list[str]) -
         sys.argv = original_argv
 
 
+def format_trace_output(trace: WorkflowTrace) -> str:
+    """Trace を表示用文字列に変換する（純粋関数）。
+
+    Args:
+        trace: ワークフロートレース
+
+    Returns:
+        表示用の文字列
+    """
+    lines: list[str] = []
+    for node_trace in trace.traces:
+        lines.append(f"[trace] {node_trace.node_name}:")
+        if node_trace.mutations:
+            lines.append(f"  mutations: {', '.join(node_trace.mutations)}")
+        else:
+            lines.append("  mutations: (none)")
+    return "\n".join(lines)
+
+
 def run(
     entry_name: str = typer.Argument(..., help="Name of the entry point to run"),
     project: str | None = typer.Option(
         None, "--project", "-p",
         help="Path to the project root"
+    ),
+    trace: bool = typer.Option(
+        False, "--trace",
+        help="Enable trace mode (set RAILWAY_TRACE=1 environment variable)"
     ),
     extra_args: list[str] | None = typer.Argument(None, help="Arguments to pass to entry"),
 ) -> None:
@@ -122,6 +149,7 @@ def run(
 
     Examples:
         railway run daily_report
+        railway run daily_report --trace
         railway run daily_report -- --date 2024-01-01
         railway run --project /path/to/project my_entry
     """
@@ -150,6 +178,11 @@ def run(
             typer.echo(f"  • {entry}", err=True)
         raise typer.Exit(1)
 
+    # トレースモード: 環境変数を設定
+    if trace:
+        os.environ["RAILWAY_TRACE"] = "1"
+        typer.echo("Trace mode enabled")
+
     # Run the entry
     typer.echo(f"Running entry point: {resolved_name}")
 
@@ -158,3 +191,7 @@ def run(
     except Exception as e:
         typer.echo(f"Error: Failed to run entry: {e}", err=True)
         raise typer.Exit(1)
+    finally:
+        # トレースモード: 環境変数をクリーンアップ
+        if trace:
+            os.environ.pop("RAILWAY_TRACE", None)

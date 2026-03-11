@@ -116,11 +116,11 @@ class TestPipelineWithNodes:
         from railway.core.decorators import node
         from railway.core.pipeline import pipeline
 
-        @node
+        @node(output=object)
         def fetch(x: int) -> dict:
             return {"value": x}
 
-        @node
+        @node(output=object)
         def process(data: dict) -> str:
             return str(data["value"])
 
@@ -134,7 +134,7 @@ class TestPipelineWithNodes:
         from railway.core.decorators import node
         from railway.core.pipeline import pipeline
 
-        @node(name="custom_fetch")
+        @node(name="custom_fetch", output=object)
         def fetch(x: int) -> int:
             return x + 1
 
@@ -223,7 +223,7 @@ class TestPipelineAsyncRejection:
         from railway.core.decorators import node
         from railway.core.pipeline import pipeline
 
-        @node
+        @node(output=object)
         async def async_node(x: int) -> int:
             return x + 1
 

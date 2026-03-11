@@ -29,8 +29,8 @@ def _init_project(parent_path: Path, project_name: str) -> Path:
 class TestStartNodeTemplate:
     """開始ノードテンプレートのテスト。"""
 
-    def test_start_node_accepts_optional_context(self, tmp_path: Path, monkeypatch):
-        """開始ノードは optional な context を受け取る。"""
+    def test_start_node_uses_board_argument(self, tmp_path: Path, monkeypatch):
+        """開始ノードは board 引数を受け取る（Board モード）。"""
         monkeypatch.chdir(tmp_path)
         project_path = _init_project(tmp_path, "myproject")
         monkeypatch.chdir(project_path)
@@ -42,13 +42,11 @@ class TestStartNodeTemplate:
         assert start_file.exists(), f"start.py not found at {start_file}"
 
         content = start_file.read_text()
-        # optional context パラメータがある
-        assert "ctx:" in content or "context:" in content, "Context parameter not found"
-        assert "None" in content, "Default None value not found"
-        assert "| None" in content, "Optional type annotation not found"
+        assert "def start(board)" in content
+        assert "Outcome" in content
 
-    def test_start_node_has_none_check(self, tmp_path: Path, monkeypatch):
-        """開始ノードに None チェックがある。"""
+    def test_start_node_returns_outcome(self, tmp_path: Path, monkeypatch):
+        """開始ノードは Outcome を返す（Board モード）。"""
         monkeypatch.chdir(tmp_path)
         project_path = _init_project(tmp_path, "myproject")
         monkeypatch.chdir(project_path)
@@ -58,8 +56,7 @@ class TestStartNodeTemplate:
         start_file = project_path / "src" / "nodes" / "greeting" / "start.py"
         content = start_file.read_text()
 
-        # None チェックのパターン
-        assert "if ctx is None:" in content or "if context is None:" in content
+        assert "Outcome.success" in content
 
 
 class TestStartNodeExecution:

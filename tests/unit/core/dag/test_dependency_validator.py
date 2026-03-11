@@ -1,6 +1,7 @@
 """遷移グラフ依存バリデーションテスト。
 
-TDD Red Phase: このテストは最初は失敗する（モジュールが存在しない）
+@node デコレータから requires/optional/provides パラメータは削除された。
+フィールド依存メタデータは _make_node_with_deps ヘルパーで直接設定する。
 """
 
 import pytest
@@ -16,6 +17,27 @@ class WorkflowContext(Contract):
     incident_id: str
     severity: str
     hostname: str | None = None
+
+
+def _make_node_with_deps(
+    func, *, requires=None, optional=None, provides=None, name=None
+):
+    """Test helper: set field dependency metadata on a function."""
+    func._is_railway_node = True
+    func._node_name = name or func.__name__
+    func._is_board_node = False
+    func._is_async = False
+    func._node_inputs = {}
+    func._node_output = None
+    func._requires = frozenset(requires or [])
+    func._optional = frozenset(optional or [])
+    func._provides = frozenset(provides or [])
+    func._field_dependency = FieldDependency(
+        requires=func._requires,
+        optional=func._optional,
+        provides=func._provides,
+    )
+    return func
 
 
 class TestFindAllPaths:
@@ -323,9 +345,10 @@ class TestValidateRequiresAgainstContract:
             incident_id: str
             hostname: str | None = None
 
-        @node(requires=["incident_id"], optional=["hostname"])
         def my_node(ctx: Ctx) -> tuple[Ctx, Outcome]:
             return ctx, Outcome.success("done")
+
+        _make_node_with_deps(my_node, requires=["incident_id"], optional=["hostname"])
 
         result = validate_requires_against_contract(my_node, "my_node")
         assert result.is_valid
@@ -339,9 +362,10 @@ class TestValidateRequiresAgainstContract:
         class Ctx(Contract):
             incident_id: str
 
-        @node(requires=["incident_id", "non_existent_field"])
         def my_node(ctx: Ctx) -> tuple[Ctx, Outcome]:
             return ctx, Outcome.success("done")
+
+        _make_node_with_deps(my_node, requires=["incident_id", "non_existent_field"])
 
         result = validate_requires_against_contract(my_node, "my_node")
         assert not result.is_valid
@@ -356,9 +380,12 @@ class TestValidateRequiresAgainstContract:
         class Ctx(Contract):
             incident_id: str
 
-        @node(requires=["incident_id"], optional=["unknown_optional"])
         def my_node(ctx: Ctx) -> tuple[Ctx, Outcome]:
             return ctx, Outcome.success("done")
+
+        _make_node_with_deps(
+            my_node, requires=["incident_id"], optional=["unknown_optional"]
+        )
 
         result = validate_requires_against_contract(my_node, "my_node")
         # optional の不整合は警告のみ
@@ -371,9 +398,10 @@ class TestValidateRequiresAgainstContract:
             validate_requires_against_contract,
         )
 
-        @node(requires=["incident_id"])
         def my_node(ctx):  # 型ヒントなし
             return ctx, Outcome.success("done")
+
+        _make_node_with_deps(my_node, requires=["incident_id"])
 
         result = validate_requires_against_contract(my_node, "my_node")
         # 型情報がないので検証スキップ

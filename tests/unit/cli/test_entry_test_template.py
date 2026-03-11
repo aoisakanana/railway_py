@@ -11,53 +11,44 @@ from typer.testing import CliRunner
 runner = CliRunner()
 
 
-class TestEntryTestTemplateUsesCliRunner:
-    """Test that entry point test templates use CliRunner to avoid sys.argv issues."""
+class TestEntryTestTemplateUsesBoardMode:
+    """Board モードのエントリテストテンプレートのテスト。"""
 
-    def test_entry_test_template_imports_clirunner(self):
-        """Entry test template should import CliRunner."""
+    def test_entry_test_template_imports_board(self):
+        """Entry test template should import BoardBase."""
         from railway.cli.new import _get_entry_test_template
 
         template = _get_entry_test_template("main")
 
-        assert "CliRunner" in template
-        assert "from typer.testing import CliRunner" in template
+        assert "BoardBase" in template
+        assert "from railway.core.board import BoardBase" in template
 
-    def test_entry_test_template_uses_runner_invoke(self):
-        """Entry test template should use runner.invoke() instead of direct call."""
+    def test_entry_test_template_tests_start_node(self):
+        """Entry test template should test start node directly."""
         from railway.cli.new import _get_entry_test_template
 
         template = _get_entry_test_template("main")
 
-        # Should use runner.invoke pattern
-        assert "runner.invoke" in template
-        # Should NOT directly call main() without runner
-        lines = template.split("\n")
-        for line in lines:
-            # Skip lines that are comments or docstrings
-            stripped = line.strip()
-            if stripped.startswith("#") or stripped.startswith('"""'):
-                continue
-            # Check for direct function calls (not via runner)
-            if "main()" in line and "runner.invoke" not in line:
-                # Allow in comments/examples
-                if "#" not in line.split("main()")[0]:
-                    pytest.fail(f"Direct main() call found: {line}")
+        # Board モード: start ノードを直接インポートしてテスト
+        assert "from nodes.main.start import start" in template
+        assert "board = BoardBase()" in template
+        assert "outcome = start(board)" in template
 
-    def test_entry_test_template_checks_exit_code(self):
-        """Entry test template should check exit_code for success."""
+    def test_entry_test_template_checks_outcome(self):
+        """Entry test template should check Outcome type."""
         from railway.cli.new import _get_entry_test_template
 
         template = _get_entry_test_template("main")
 
-        assert "exit_code" in template
+        assert "Outcome" in template
+        assert "isinstance(outcome, Outcome)" in template
 
 
 class TestGeneratedEntryTestRunnable:
-    """Test that generated entry tests can run without sys.argv errors."""
+    """Test that generated entry tests can run without errors."""
 
-    def test_generated_entry_test_runs_without_sysargv_error(self):
-        """Generated entry test should not be affected by pytest's sys.argv."""
+    def test_generated_entry_test_runs_without_error(self):
+        """Generated entry test should run without import or sys.argv errors."""
         from railway.cli.main import app
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -85,6 +76,10 @@ class TestGeneratedEntryTestRunnable:
                 # Accept dependency resolution failure (unpublished version)
                 if "No solution found" in result.stderr:
                     pytest.skip("railway-framework version not published on PyPI")
+                # Board モード: railway.core.board が未公開の場合はスキップ
+                combined_output = result.stdout + result.stderr
+                if "No module named 'railway.core.board'" in combined_output:
+                    pytest.skip("railway.core.board not available in published version")
                 # Should pass or skip, not error
                 assert result.returncode in [0, 5], (
                     f"Test failed with sys.argv error:\n{result.stdout}\n{result.stderr}"

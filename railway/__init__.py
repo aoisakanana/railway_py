@@ -10,6 +10,7 @@ A Railway Oriented Programming framework that provides:
 
 from importlib.metadata import version
 
+from railway.core.board import BoardBase, WorkflowResult
 from railway.core.contract import Contract, Params, Tagged, validate_contract
 from railway.core.decorators import Retry, entry_point, node
 from railway.core.exit_contract import ExitContract
@@ -38,6 +39,9 @@ __all__ = [
     "typed_async_pipeline",
     "DependencyResolver",
     "DependencyError",
+    # Board pattern (DAG workflow)
+    "BoardBase",
+    "WorkflowResult",
     # Contracts
     "Contract",
     "Params",

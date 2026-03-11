@@ -70,16 +70,17 @@ class TestGenerateExitNodeSkeleton:
             is_exit=True,
         )
 
-    def test_generates_exit_contract_subclass(
+    def test_generates_board_mode_exit_node(
         self, success_done_node: NodeDefinition
     ) -> None:
-        """ExitContract サブクラスを生成する。"""
+        """Board モードの終端ノードを生成する。"""
         from railway.core.dag.codegen import generate_exit_node_skeleton
 
         code = generate_exit_node_skeleton(success_done_node)
 
-        assert "class SuccessDoneResult(ExitContract):" in code
-        assert 'exit_state: str = "success.done"' in code
+        # Board モード: board 引数、None 返却
+        assert "def done(board) -> None:" in code
+        assert '@node(name="exit.success.done")' in code
 
     def test_generates_node_decorator_with_name(
         self, success_done_node: NodeDefinition
@@ -91,40 +92,35 @@ class TestGenerateExitNodeSkeleton:
 
         assert '@node(name="exit.success.done")' in code
 
-    def test_function_has_exit_contract_type_hint(
+    def test_function_has_board_parameter(
         self, success_done_node: NodeDefinition
     ) -> None:
-        """関数の ctx パラメータに ExitContract 型ヒントがある。
-
-        Note:
-            Any ではなく ExitContract を使用することで型安全性を確保。
-            開発者は必要に応じてより具体的な型に変更できる。
-        """
+        """Board モード: board パラメータを持つ。"""
         from railway.core.dag.codegen import generate_exit_node_skeleton
 
         code = generate_exit_node_skeleton(success_done_node)
 
-        assert "def done(ctx: ExitContract) -> SuccessDoneResult:" in code
+        assert "def done(board) -> None:" in code
 
-    def test_imports_exit_contract_and_node(
+    def test_imports_node_decorator(
         self, success_done_node: NodeDefinition
     ) -> None:
-        """ExitContract と node をインポートする。"""
+        """Board モード: node デコレータをインポートする。"""
         from railway.core.dag.codegen import generate_exit_node_skeleton
 
         code = generate_exit_node_skeleton(success_done_node)
 
-        assert "from railway import ExitContract, node" in code
+        assert "from railway import node" in code
 
-    def test_includes_todo_comments(
+    def test_includes_pass_statement(
         self, success_done_node: NodeDefinition
     ) -> None:
-        """TODO コメントが含まれる。"""
+        """Board モード: pass 文が含まれる。"""
         from railway.core.dag.codegen import generate_exit_node_skeleton
 
         code = generate_exit_node_skeleton(success_done_node)
 
-        assert "TODO:" in code
+        assert "pass" in code
 
     def test_deep_nested_exit_node(
         self, deep_nested_node: NodeDefinition
@@ -134,9 +130,9 @@ class TestGenerateExitNodeSkeleton:
 
         code = generate_exit_node_skeleton(deep_nested_node)
 
-        assert "class FailureSshHandshakeResult(ExitContract):" in code
-        assert 'exit_state: str = "failure.ssh.handshake"' in code
-        assert "def handshake(ctx: ExitContract) -> FailureSshHandshakeResult:" in code
+        # Board モード: board 引数、None 返却
+        assert "def handshake(board) -> None:" in code
+        assert '@node(name="exit.failure.ssh.handshake")' in code
 
     def test_generated_code_is_valid_python(
         self, success_done_node: NodeDefinition

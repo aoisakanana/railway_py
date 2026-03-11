@@ -20,7 +20,7 @@ class TestNodeTypePreservation:
     def test_preserves_return_type(self) -> None:
         """@node デコレータが戻り値型を保持する"""
 
-        @node
+        @node(output=object)
         def fetch_users() -> list[str]:
             return ["Alice", "Bob"]
 
@@ -30,7 +30,7 @@ class TestNodeTypePreservation:
     def test_preserves_argument_types(self) -> None:
         """@node デコレータが引数型を保持する"""
 
-        @node
+        @node(output=object)
         def greet(name: str, count: int) -> str:
             return f"Hello, {name}!" * count
 
@@ -40,7 +40,7 @@ class TestNodeTypePreservation:
     def test_with_retry_parameter(self) -> None:
         """retry パラメータ指定時も型を保持する"""
 
-        @node(retry=False)
+        @node(retry=False, output=object)
         def fetch_data() -> dict[str, int]:
             return {"count": 42}
 
@@ -60,7 +60,7 @@ class TestNodeTypePreservation:
     def test_with_empty_parentheses(self) -> None:
         """空の括弧付きでも型を保持する"""
 
-        @node()
+        @node(output=object)
         def simple_func() -> int:
             return 42
 
@@ -70,7 +70,7 @@ class TestNodeTypePreservation:
     def test_multiple_optional_parameters(self) -> None:
         """複数のオプションパラメータ指定時も型を保持する"""
 
-        @node(log_input=True, log_output=True)
+        @node(log_input=True, log_output=True, output=object)
         def verbose_func(x: int) -> str:
             return str(x)
 
@@ -80,7 +80,7 @@ class TestNodeTypePreservation:
     def test_with_name_parameter(self) -> None:
         """name パラメータ指定時も型を保持する"""
 
-        @node(name="custom_name")
+        @node(name="custom_name", output=object)
         def original_name() -> bool:
             return True
 

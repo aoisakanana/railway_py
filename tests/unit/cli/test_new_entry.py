@@ -54,8 +54,8 @@ class TestNewEntryDefault:
         yamls = list((tmp_path / "transition_graphs").glob("my_workflow_*.yml"))
         assert len(yamls) == 1
 
-    def test_creates_node_with_outcome(self, tmp_path, monkeypatch):
-        """Should create node returning Outcome."""
+    def test_creates_board_mode_node(self, tmp_path, monkeypatch):
+        """Should create Board mode node (board argument, returns Outcome)."""
         from railway.cli.main import app
 
         monkeypatch.chdir(tmp_path)
@@ -70,7 +70,7 @@ class TestNewEntryDefault:
         assert node_file.exists()
         content = node_file.read_text()
         assert "Outcome" in content
-        assert "tuple[" in content
+        assert "def start(board)" in content
 
     def test_yaml_is_valid(self, tmp_path, monkeypatch):
         """Created YAML should be valid."""

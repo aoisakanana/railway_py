@@ -123,7 +123,7 @@ from railway.core.dag import Outcome
 class MyContext(Contract):
     value: str
 
-@node
+@node(output=object)
 def start(ctx: MyContext) -> tuple[MyContext, Outcome]:
     return ctx, Outcome.success("done")
 '''
@@ -153,7 +153,7 @@ def start(ctx: MyContext) -> tuple[MyContext, Outcome]:
 from railway import node
 from railway.core.dag import Outcome
 
-@node
+@node(output=object)
 def start(ctx):  # 型ヒントなし
     return ctx, Outcome.success("done")
 '''

@@ -15,8 +15,10 @@ from typing import Any
 
 import typer
 
+from railway.core.dag.board_analyzer import NodeAnalysis
 from railway.core.dag.codegen import generate_exit_node_skeleton, generate_transition_code
 from railway.core.dag.parser import ParseError, load_transition_graph, parse_transition_graph
+from railway.core.dag.path_validator import PathIssue, PathValidationResult
 from railway.core.dag.schema import validate_yaml_schema
 from railway.core.dag.skeleton import (
     compute_file_path,
@@ -502,6 +504,46 @@ def _sync_entry(
     for path in regular_result.generated:
         typer.echo(f"  通常ノード生成: {path.relative_to(cwd)}")
 
+    # === Board Analysis Pipeline (v0.14.0) ===
+    src_dir = graphs_dir.parent / "src"
+    if src_dir.exists():
+        board_analyses = _analyze_board_nodes(graph, src_dir)
+        if board_analyses:
+            entry_fields = _detect_entry_fields(graph, board_analyses)
+
+            # Path validation
+            from railway.core.dag.path_validator import validate_paths
+
+            path_result = validate_paths(graph, board_analyses, entry_fields)
+
+            # Display results
+            _display_board_analysis_result(
+                board_analyses, path_result, entry_fields
+            )
+
+            # Generate Board type file (not in dry_run or validate_only)
+            if not dry_run and not validate_only:
+                from railway.core.dag.board_codegen import generate_board_type
+
+                board_code = generate_board_type(
+                    graph.entrypoint,
+                    board_analyses,
+                    entry_fields,
+                    source_file=str(yaml_path.relative_to(graphs_dir.parent)),
+                )
+                board_output_path = output_dir / f"{entry_name}_board.py"
+                board_output_path.write_text(board_code, encoding="utf-8")
+                typer.echo(
+                    f"  Board型生成: _railway/generated/{entry_name}_board.py"
+                )
+
+            # Stop on errors
+            if path_result.has_errors:
+                error_count = len(path_result.errors)
+                raise SyncError(
+                    f"Board 解析で {error_count} 件のエラーが検出されました"
+                )
+
     # Generate code (pure function)
     relative_yaml = yaml_path.relative_to(graphs_dir.parent)
     code = generate_transition_code(graph, str(relative_yaml))
@@ -523,12 +565,170 @@ def _sync_entry(
     typer.echo(f"  出力: _railway/generated/{entry_name}_transitions.py")
 
 
+# =============================================================================
+# Issue #24: Board Analysis Pipeline Integration
+# =============================================================================
+
+
+def _analyze_board_nodes(
+    graph: TransitionGraph,
+    src_dir: Path,
+) -> dict[str, NodeAnalysis]:
+    """グラフのノードファイルを AST 解析する（副作用: ファイル読み込み）。
+
+    Board mode ノードのみ解析する（is_exit のノードはスキップ）。
+    ファイルが存在しないノードはスキップ。
+
+    Args:
+        graph: 遷移グラフ
+        src_dir: src ディレクトリパス
+
+    Returns:
+        ノード名 → NodeAnalysis のマッピング
+    """
+    from railway.core.dag.board_analyzer import analyze_node_file
+
+    analyses: dict[str, NodeAnalysis] = {}
+    for node_def in graph.nodes:
+        if node_def.is_exit:
+            continue
+        # node の module からファイルパスを計算
+        module_path = node_def.module.replace(".", "/") + ".py"
+        file_path = src_dir / module_path
+        if not file_path.exists():
+            continue
+        source_code = file_path.read_text()
+        analysis = analyze_node_file(str(file_path), source_code, node_def.name)
+        analyses[node_def.name] = analysis
+    return analyses
+
+
+def _detect_entry_fields(
+    graph: TransitionGraph,
+    analyses: dict[str, NodeAnalysis],
+) -> frozenset[str]:
+    """開始ノードの reads から entry_fields を抽出する（純粋関数）。
+
+    Entry fields = start node の reads（required + optional）。
+    これはワークフロー実行時に呼び出し元が提供すべきフィールド。
+
+    Args:
+        graph: 遷移グラフ
+        analyses: ノード名 → NodeAnalysis のマッピング
+
+    Returns:
+        entry_fields の frozenset
+    """
+    start_analysis = analyses.get(graph.start_node)
+    if start_analysis is None:
+        return frozenset()
+    return start_analysis.reads_all
+
+
+def _display_board_analysis_result(
+    analyses: dict[str, NodeAnalysis],
+    path_result: PathValidationResult,
+    entry_fields: frozenset[str],
+) -> None:
+    """Board 解析結果を表示する（副作用: typer.echo）。
+
+    Args:
+        analyses: ノード名 → NodeAnalysis のマッピング
+        path_result: 経路検証結果
+        entry_fields: エントリーポイントのフィールド
+    """
+    # Analysis summary
+    typer.echo(f"  Board解析: {len(analyses)} ノード解析済み")
+    if entry_fields:
+        typer.echo(f"  entry_fields: {', '.join(sorted(entry_fields))}")
+
+    # Violations
+    for name, analysis in sorted(analyses.items()):
+        for v in analysis.violations:
+            typer.echo(
+                f"  [{v.code}] {v.file_path}:{v.line} {v.message}", err=True
+            )
+
+    # Path issues
+    for issue in path_result.errors:
+        typer.echo(f"  [{issue.code}] {issue.message}", err=True)
+    for issue in path_result.warnings:
+        typer.echo(f"  [{issue.code}] {issue.message}")
+    for issue in path_result.infos:
+        typer.echo(f"  [{issue.code}] {issue.message}")
+
+
+def _format_analysis_summary(analysis: NodeAnalysis) -> str:
+    """ノード解析のサマリーをフォーマットする（純粋関数）。
+
+    Args:
+        analysis: ノード解析結果
+
+    Returns:
+        フォーマット済み文字列
+    """
+    parts: list[str] = [f"  {analysis.node_name}:"]
+
+    if analysis.reads_required:
+        parts.append(
+            f"    reads: {', '.join(sorted(analysis.reads_required))}"
+        )
+    if analysis.reads_optional:
+        parts.append(
+            f"    reads(optional): {', '.join(sorted(analysis.reads_optional))}"
+        )
+    if analysis.all_writes:
+        parts.append(
+            f"    writes: {', '.join(sorted(analysis.all_writes))}"
+        )
+
+    for bw in analysis.branch_writes:
+        if bw.writes:
+            parts.append(
+                f"    [{bw.outcome}]: writes {', '.join(sorted(bw.writes))}"
+            )
+
+    return "\n".join(parts)
+
+
+def _format_path_issue(issue: PathIssue) -> str:
+    """PathIssue をフォーマットする（純粋関数）。
+
+    Args:
+        issue: 経路検証の問題
+
+    Returns:
+        フォーマット済み文字列
+    """
+    severity_mark = {"error": "\u2717", "warning": "\u26a0", "info": "\u2139"}.get(
+        issue.severity, "?"
+    )
+    return f"  {severity_mark} [{issue.code}] {issue.message}"
+
+
+def _matches_entry_yaml(filename: str, entry_name: str) -> bool:
+    """エントリ名に正確にマッチするYAMLファイル名か判定（純粋関数）。
+
+    ファイル名は {entry_name}_{数値}.yml の形式でなければならない。
+    プレフィックス部分一致（例: "qsol" が "qsol_hoge_*.yml" にマッチ）を防止する。
+
+    Args:
+        filename: ファイル名
+        entry_name: エントリポイント名
+
+    Returns:
+        マッチする場合 True
+    """
+    pattern = re.compile(rf"^{re.escape(entry_name)}_(\d+)\.yml$")
+    return pattern.match(filename) is not None
+
+
 def find_latest_yaml(graphs_dir: Path, entry_name: str) -> Path | None:
     """
     Find the latest YAML file for an entrypoint.
 
     Files are expected to be named: {entry_name}_{timestamp}.yml
-    Returns the one with the latest timestamp.
+    Returns the one with the latest timestamp (numeric sort).
 
     Args:
         graphs_dir: Directory containing YAML files
@@ -537,15 +737,20 @@ def find_latest_yaml(graphs_dir: Path, entry_name: str) -> Path | None:
     Returns:
         Path to latest YAML, or None if not found
     """
-    pattern = f"{entry_name}_*.yml"
-    matches = list(graphs_dir.glob(pattern))
+    pattern = re.compile(rf"^{re.escape(entry_name)}_(\d+)\.yml$")
+    matches: list[tuple[int, Path]] = []
+
+    for p in graphs_dir.glob("*.yml"):
+        m = pattern.match(p.name)
+        if m:
+            matches.append((int(m.group(1)), p))
 
     if not matches:
         return None
 
-    # Sort by filename (timestamp) descending
-    matches.sort(key=lambda p: p.name, reverse=True)
-    return matches[0]
+    # Sort by numeric suffix descending
+    matches.sort(key=lambda x: x[0], reverse=True)
+    return matches[0][1]
 
 
 def find_all_entrypoints(graphs_dir: Path) -> list[str]:

@@ -359,7 +359,7 @@ if __name__ == "__main__":
 
 
 def _get_dag_entry_template(name: str) -> str:
-    """Get dag_runner style entry point template (sync 後用).
+    """Get Board mode entry point template (sync 後用).
 
     純粋関数: name -> Python コード文字列
 
@@ -369,34 +369,20 @@ def _get_dag_entry_template(name: str) -> str:
     Returns:
         Python コード文字列（run() を使用）
     """
-    class_name = _to_pascal_case(name)
-    return f'''"""
-{name} エントリーポイント
-
-Usage:
-    railway run {name}
-    # または
-    python -m src.{name}
-"""
+    return f'''"""{name} エントリポイント。"""
 from railway import entry_point
-
-from _railway.generated.{name}_transitions import run
 
 
 @entry_point
-def main() -> None:
-    """ワークフローを実行する。"""
-    # TODO: 初期コンテキストを設定してください
-    # from contracts.{name}_context import {class_name}Context
-    # initial_context = {class_name}Context(...)
+def main():
+    from _railway.generated.{name}_transitions import run
 
-    result = run({{}})
-
+    result = run()
     if result.is_success:
-        print(f"完了: {{result.exit_state}}")
+        print(f"\\u2713 完了 (exit_state={{result.exit_state}})")
     else:
-        print(f"失敗: {{result.exit_state}}")
-        raise SystemExit(result.exit_code)
+        print(f"\\u2717 失敗 (exit_state={{result.exit_state}})")
+    return result
 
 
 if __name__ == "__main__":
@@ -405,7 +391,7 @@ if __name__ == "__main__":
 
 
 def _get_dag_entry_template_pending_sync(name: str) -> str:
-    """Get dag_runner style entry point template (sync 前用).
+    """Get Board mode entry point template (sync 前用).
 
     純粋関数: name -> Python コード文字列
 
@@ -419,7 +405,6 @@ def _get_dag_entry_template_pending_sync(name: str) -> str:
         コメントアウトではなく、実行可能なコードを生成する。
         transitions が見つからない場合は分かりやすいエラーメッセージを表示。
     """
-    class_name = _to_pascal_case(name)
     return f'''"""
 {name} エントリーポイント
 
@@ -461,17 +446,13 @@ def main() -> None:
 
     from _railway.generated.{name}_transitions import run
 
-    # TODO: 初期コンテキストを設定してください
-    # from contracts.{name}_context import {class_name}Context
-    # initial_context = {class_name}Context(...)
-
-    result = run({{}})
+    result = run()
 
     if result.is_success:
-        print(f"完了: {{result.exit_state}}")
+        print(f"\\u2713 完了 (exit_state={{result.exit_state}})")
     else:
-        print(f"失敗: {{result.exit_state}}")
-        raise SystemExit(result.exit_code)
+        print(f"\\u2717 失敗 (exit_state={{result.exit_state}})")
+    return result
 
 
 if __name__ == "__main__":
@@ -480,39 +461,29 @@ if __name__ == "__main__":
 
 
 def _get_dag_node_template(name: str) -> str:
-    """Get dag_runner style node template (returns Outcome).
+    """Get Board mode start node template.
 
-    開始ノードは optional な context を受け取る形式で生成される。
-    これにより run() 関数から初期コンテキストを注入可能。
+    Board モード: board を引数に取り Outcome を返す。
 
     純粋関数: name -> テンプレート文字列
     """
-    class_name = _to_pascal_case(name)
-    return f'''"""
-{name} 開始ノード
-"""
-from railway import Contract, node
-from railway.core.dag.outcome import Outcome
-
-
-class {class_name}Context(Contract):
-    """ワークフローコンテキスト"""
-    message: str = ""
+    return '''"""開始ノード: start"""
+from railway import node
+from railway.core.dag import Outcome
 
 
 @node
-def start(ctx: {class_name}Context | None = None) -> tuple[{class_name}Context, Outcome]:
-    """ワークフロー開始ノード。
+def start(board) -> Outcome:
+    """ワークフローの開始ノード。
 
     Args:
-        ctx: 初期コンテキスト（省略時はデフォルト値を使用）
+        board: Board（共有状態）
 
     Returns:
-        (context, outcome): コンテキストと状態
+        Outcome: 処理結果
     """
-    if ctx is None:
-        ctx = {class_name}Context(message="Hello")
-    return ctx, Outcome.success("done")
+    # TODO: 実装してください
+    return Outcome.success("done")
 '''
 
 
@@ -740,42 +711,35 @@ def _get_dag_node_standalone_template(
     *,
     module_path: str | None = None,
 ) -> str:
-    """Get dag-style node template that returns tuple[Contract, Outcome].
+    """Get Board mode node template that returns Outcome.
 
     純粋関数: name -> template string
     副作用なし、テスト容易
+
+    Board モード: board を引数に取り Outcome を返す。
+    Contract は使用しない。
 
     Args:
         name: 関数名（最終セグメント）
         module_path: import パス（ドット区切り）。省略時は name を使用。
     """
-    import_path = module_path or name
-    class_name = _to_pascal_case(name)
-    return f'''"""{name} ノード"""
-
+    return f'''"""ノード: {name}"""
 from railway import node
-from railway.core.dag.outcome import Outcome
-
-from contracts.{import_path}_context import {class_name}Context
+from railway.core.dag import Outcome
 
 
 @node
-def {name}(ctx: {class_name}Context) -> tuple[{class_name}Context, Outcome]:
-    """
-    {name} の処理を実行する。
+def {name}(board) -> Outcome:
+    """{name} の処理を実行する。
 
     Args:
-        ctx: ワークフローコンテキスト
+        board: Board（共有状態）
 
     Returns:
-        (context, outcome): 更新されたコンテキストと結果
+        Outcome: 処理結果
     """
-    # イミュータブル更新の例:
-    # updated_ctx = ctx.model_copy(update={{"processed": True}})
-    # return updated_ctx, Outcome.success("done")
-
-    # TODO: 実装を追加
-    return ctx, Outcome.success("done")
+    # TODO: 実装してください
+    return Outcome.success("done")
 '''
 
 
@@ -929,9 +893,11 @@ def _get_dag_node_test_standalone_template(
     *,
     module_path: str | None = None,
 ) -> str:
-    """Get test template for dag-style node.
+    """Get Board mode test template for node.
 
     Pure function: name -> template string
+
+    Board モード: BoardBase を使い、tuple アンパック不要。
 
     Args:
         name: 関数名（最終セグメント）
@@ -940,15 +906,14 @@ def _get_dag_node_test_standalone_template(
     import_path = module_path or name
     class_name = _to_pascal_case(name)
     return f'''"""Tests for {name} node."""
-
-import pytest
+from railway.core.board import BoardBase
+from railway.core.dag import Outcome
 
 from nodes.{import_path} import {name}
-from contracts.{import_path}_context import {class_name}Context
 
 
 class Test{class_name}:
-    """Test suite for {name} node.
+    """{name} のテスト。
 
     TDD Workflow:
     1. Edit this file to define expected behavior
@@ -957,29 +922,11 @@ class Test{class_name}:
     4. Run tests again
     """
 
-    def test_{name}_returns_tuple(self):
-        """Node should return tuple[Context, Outcome]."""
-        ctx = {class_name}Context()
-        result_ctx, outcome = {name}(ctx)
-
-        assert isinstance(result_ctx, {class_name}Context)
-        assert outcome.is_success
-
-    def test_{name}_context_is_immutable(self):
-        """Original context should not be modified."""
-        original = {class_name}Context()
-        result_ctx, _ = {name}(original)
-
-        # Verify original is unchanged (immutability)
-        # Add specific field checks here
-
-    def test_{name}_success_case(self):
-        """Test successful execution."""
-        pytest.skip("TODO: Implement success case test")
-
-    def test_{name}_failure_case(self):
-        """Test failure handling."""
-        pytest.skip("TODO: Implement failure case test")
+    def test_success(self) -> None:
+        """正常ケースのテスト。"""
+        board = BoardBase()
+        outcome = {name}(board)
+        assert outcome == Outcome.success("done")
 '''
 
 
@@ -1111,42 +1058,30 @@ def {name}(data: dict) -> dict:
 
 
 def _get_entry_test_template(name: str) -> str:
-    """Get test template for an entry point.
+    """Get Board mode test template for an entry point.
 
-    Uses CliRunner with main._typer_app to avoid sys.argv pollution
-    and ensure tests work even after user rewrites the entry point.
+    BoardBase を使い、開始ノードを直接テストするテンプレート。
 
     Note:
-        main._typer_app is always available via @entry_point decorator,
-        even if user removes the explicit 'app' export.
+        Board モードでは CliRunner よりも
+        ノード単体テストを推奨する。
     """
     class_name = "".join(word.title() for word in name.split("_"))
-    return f'''"""Tests for {name} entry point."""
-
-import pytest
-from typer.testing import CliRunner
-
-from {name} import main
-
-runner = CliRunner()
+    return f'''"""Tests for {name} workflow."""
+from railway.core.board import BoardBase
+from railway.core.dag import Outcome
 
 
 class Test{class_name}:
-    """Test suite for {name} entry point.
+    """{name} ワークフローのテスト。"""
 
-    Uses CliRunner with main._typer_app to isolate from pytest's sys.argv.
-    _typer_app is always available via @entry_point decorator.
-    """
+    def test_start_node(self) -> None:
+        """開始ノードが Outcome を返す。"""
+        from nodes.{name}.start import start
 
-    def test_{name}_runs_successfully(self):
-        """Entry point should complete without error."""
-        result = runner.invoke(main._typer_app, [])
-        assert result.exit_code == 0, f"Failed with: {{result.stdout}}"
-
-    def test_{name}_with_help(self):
-        """Entry point should show help."""
-        result = runner.invoke(main._typer_app, ["--help"])
-        assert result.exit_code == 0
+        board = BoardBase()
+        outcome = start(board)
+        assert isinstance(outcome, Outcome)
 '''
 
 
@@ -1657,8 +1592,8 @@ def _create_node(
         # 既存の --output オプション対応（後方互換性）
         content = _get_typed_node_template(func_name, output_type, inputs)
     elif mode == NodeMode.dag:
+        # Board モード: Contract ファイルは生成しない
         content = _get_dag_node_standalone_template(func_name, module_path=module_path)
-        _create_node_contract(path_form, mode, force, func_name=func_name)
     else:
         content = _get_linear_node_standalone_template(func_name, module_path=module_path)
         _create_node_contract(path_form, mode, force, func_name=func_name)
@@ -1679,9 +1614,7 @@ def _create_node(
     # Output messages
     typer.echo(f"Created src/nodes/{path_form}.py")
     if not output_type:
-        if mode == NodeMode.dag:
-            typer.echo(f"Created src/contracts/{path_form}_context.py")
-        else:
+        if mode == NodeMode.linear:
             typer.echo(f"Created src/contracts/{path_form}_input.py")
             typer.echo(f"Created src/contracts/{path_form}_output.py")
     typer.echo(f"Created {test_display_path}\n")

@@ -77,8 +77,8 @@ class TestGenerateRegularNodeContent:
         assert "from railway.core.dag import Outcome" in content
         assert "Outcome.success" in content
 
-    def test_has_optional_ctx_parameter(self) -> None:
-        """Optional な ctx パラメータを持つ"""
+    def test_has_board_parameter(self) -> None:
+        """Board モード: board パラメータを持つ"""
         spec = SkeletonSpec(
             node_name="start",
             module_path="nodes.myflow.start",
@@ -88,11 +88,10 @@ class TestGenerateRegularNodeContent:
 
         content = generate_regular_node_content(spec)
 
-        assert "ctx: StartContext | None = None" in content
-        assert "if ctx is None:" in content
+        assert "def start(board) -> Outcome:" in content
 
-    def test_generates_context_class(self) -> None:
-        """Context クラスが生成される"""
+    def test_no_context_class_in_board_mode(self) -> None:
+        """Board モード: Context クラスは生成されない"""
         spec = SkeletonSpec(
             node_name="check_time",
             module_path="nodes.greeting.check_time",
@@ -102,10 +101,11 @@ class TestGenerateRegularNodeContent:
 
         content = generate_regular_node_content(spec)
 
-        assert "class CheckTimeContext(Contract):" in content
+        assert "Contract" not in content
+        assert "def check_time(board) -> Outcome:" in content
 
-    def test_snake_case_to_pascal_case(self) -> None:
-        """snake_case が PascalCase に変換される"""
+    def test_board_mode_function_name(self) -> None:
+        """Board モード: 関数名が正しい"""
         spec = SkeletonSpec(
             node_name="validate_user_input",
             module_path="nodes.myflow.validate_user_input",
@@ -115,7 +115,7 @@ class TestGenerateRegularNodeContent:
 
         content = generate_regular_node_content(spec)
 
-        assert "class ValidateUserInputContext(Contract):" in content
+        assert "def validate_user_input(board) -> Outcome:" in content
 
     def test_is_valid_python(self) -> None:
         """生成されたコードは有効な Python"""

@@ -56,7 +56,8 @@ class TestNodeDecoratorIntegration:
             retry=Retry(max_attempts=3, min_wait=0.01, max_wait=0.02),
             log_input=True,
             log_output=True,
-            name="fetch_api_data"
+            name="fetch_api_data",
+            output=object,
         )
         def fetch_data(url: str) -> dict:
             nonlocal call_count
@@ -81,22 +82,22 @@ class TestPipelineIntegration:
         from railway.core.pipeline import pipeline
         from unittest.mock import patch
 
-        @node
+        @node(output=object)
         def fetch(source: str) -> dict:
             return {"source": source, "data": [1, 2, 3, 4, 5]}
 
-        @node
+        @node(output=object)
         def transform(data: dict) -> dict:
             data["data"] = [x * 2 for x in data["data"]]
             return data
 
-        @node
+        @node(output=object)
         def validate(data: dict) -> dict:
             if not data["data"]:
                 raise ValueError("Empty data")
             return data
 
-        @node
+        @node(output=object)
         def summarize(data: dict) -> str:
             total = sum(data["data"])
             return f"Source: {data['source']}, Total: {total}"
@@ -119,15 +120,15 @@ class TestPipelineIntegration:
         from railway.core.pipeline import pipeline
         from unittest.mock import patch
 
-        @node
+        @node(output=object)
         def step1(x: int) -> int:
             return x + 1
 
-        @node
+        @node(output=object)
         def step2_fails(x: int) -> int:
             raise ValueError(f"Cannot process {x}")
 
-        @node
+        @node(output=object)
         def step3(x: int) -> int:
             return x * 2
 
@@ -253,18 +254,18 @@ class TestAsyncIntegration:
         from unittest.mock import patch
         import asyncio
 
-        @node
+        @node(output=object)
         async def async_fetch(url: str) -> dict:
             await asyncio.sleep(0.01)
             return {"url": url, "data": "fetched"}
 
-        @node
+        @node(output=object)
         async def async_process(data: dict) -> dict:
             await asyncio.sleep(0.01)
             data["processed"] = True
             return data
 
-        @node
+        @node(output=object)
         def sync_validate(data: dict) -> dict:
             if "processed" not in data:
                 raise ValueError("Not processed")

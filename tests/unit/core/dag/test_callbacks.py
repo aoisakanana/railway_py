@@ -20,11 +20,11 @@ class TestOnStepCallback:
             exit_state: str = "success.done"
             step: int
 
-        @node
+        @node(output=object)
         def node_a() -> tuple[StepContext, Outcome]:
             return StepContext(step=1), Outcome.success("done")
 
-        @node
+        @node(output=object)
         def node_b(ctx: StepContext) -> tuple[StepContext, Outcome]:
             return StepContext(step=2), Outcome.success("done")
 
@@ -68,7 +68,7 @@ class TestOnStepCallback:
             exit_state: str = "success.done"
             key: str
 
-        @node
+        @node(output=object)
         def node_a() -> tuple[KeyContext, Outcome]:
             return KeyContext(key="value"), Outcome.success("done")
 
@@ -105,7 +105,7 @@ class TestStepRecorder:
         class DoneResult(ExitContract):
             exit_state: str = "success.done"
 
-        @node
+        @node(output=object)
         def start() -> tuple[EmptyContext, Outcome]:
             return EmptyContext(), Outcome.success("done")
 
@@ -138,7 +138,7 @@ class TestStepRecorder:
         class DoneResult(ExitContract):
             exit_state: str = "success.done"
 
-        @node
+        @node(output=object)
         def start() -> tuple[EmptyContext, Outcome]:
             return EmptyContext(), Outcome.success("done")
 
@@ -171,7 +171,7 @@ class TestStepRecorder:
             exit_state: str = "success.done"
             x: int
 
-        @node
+        @node(output=object)
         def start() -> tuple[DataContext, Outcome]:
             return DataContext(x=1), Outcome.success("done")
 
@@ -204,7 +204,7 @@ class TestStepRecorder:
         class DoneResult(ExitContract):
             exit_state: str = "success.done"
 
-        @node
+        @node(output=object)
         def start() -> tuple[EmptyContext, Outcome]:
             return EmptyContext(), Outcome.success("done")
 
@@ -285,7 +285,7 @@ class TestAuditLogger:
         class DoneResult(ExitContract):
             exit_state: str = "success.done"
 
-        @node
+        @node(output=object)
         def start() -> tuple[EmptyContext, Outcome]:
             return EmptyContext(), Outcome.success("done")
 
@@ -328,7 +328,7 @@ class TestCompositeCallback:
         class DoneResult(ExitContract):
             exit_state: str = "success.done"
 
-        @node
+        @node(output=object)
         def start() -> tuple[EmptyContext, Outcome]:
             return EmptyContext(), Outcome.success("done")
 
@@ -362,7 +362,7 @@ class TestCompositeCallback:
         class DoneResult(ExitContract):
             exit_state: str = "success.done"
 
-        @node
+        @node(output=object)
         def start() -> tuple[EmptyContext, Outcome]:
             return EmptyContext(), Outcome.success("done")
 

@@ -221,8 +221,8 @@ class TestSyncExitNodes:
         # 構文エラーがなければ compile が成功
         compile(content, str(file_path), "exec")
 
-        # 必要な要素が含まれている
-        assert "class SuccessDoneResult(ExitContract):" in content
+        # Board モード: board 引数、None 返却
+        assert "def done(board) -> None:" in content
         assert '@node(name="exit.success.done")' in content
 
 

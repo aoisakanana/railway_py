@@ -77,7 +77,7 @@ class TestNodeWithRetryPolicy:
         """RetryPolicy で指定した例外のみリトライ"""
         attempts: list[int] = []
 
-        @node(retry_policy=RetryPolicy(max_retries=3, retry_on=(ConnectionError,), base_delay=0.01))
+        @node(retry_policy=RetryPolicy(max_retries=3, retry_on=(ConnectionError,), base_delay=0.01), output=object)
         def flaky() -> str:
             attempts.append(1)
             if len(attempts) < 3:
@@ -92,7 +92,7 @@ class TestNodeWithRetryPolicy:
         """指定外の例外はリトライしない"""
         attempts: list[int] = []
 
-        @node(retry_policy=RetryPolicy(max_retries=3, retry_on=(ConnectionError,)))
+        @node(retry_policy=RetryPolicy(max_retries=3, retry_on=(ConnectionError,)), output=object)
         def fail() -> str:
             attempts.append(1)
             raise ValueError("not retryable")
@@ -107,7 +107,7 @@ class TestNodeWithRetryPolicy:
 
         attempts: list[int] = []
 
-        @node(retry=Retry(max_attempts=3, min_wait=0.01, max_wait=0.1))
+        @node(retry=Retry(max_attempts=3, min_wait=0.01, max_wait=0.1), output=object)
         def flaky() -> str:
             attempts.append(1)
             if len(attempts) < 3:
@@ -122,7 +122,7 @@ class TestNodeWithRetryPolicy:
         """ショートハンド: retries + retry_on の組み合わせ"""
         attempts: list[int] = []
 
-        @node(retries=3, retry_on=(ConnectionError,), retry_delay=0.01)
+        @node(retries=3, retry_on=(ConnectionError,), retry_delay=0.01, output=object)
         def flaky() -> str:
             attempts.append(1)
             if len(attempts) < 3:
@@ -137,7 +137,7 @@ class TestNodeWithRetryPolicy:
         """ショートハンド: retry_on に含まれない例外はリトライしない"""
         attempts: list[int] = []
 
-        @node(retries=3, retry_on=(ConnectionError,))
+        @node(retries=3, retry_on=(ConnectionError,), output=object)
         def fail() -> str:
             attempts.append(1)
             raise ValueError("not retryable")
@@ -155,7 +155,8 @@ class TestNodeWithRetryPolicy:
                 max_retries=3,
                 backoff="exponential",
                 base_delay=0.05,
-            )
+            ),
+            output=object,
         )
         def timed_flaky() -> str:
             start_times.append(time.time())

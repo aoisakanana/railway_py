@@ -60,7 +60,11 @@ class TestEntryTestTemplate:
         test_file = tmp_path / "myproject" / "tests" / "test_greeting.py"
         if test_file.exists():
             content = test_file.read_text()
-            # src. プレフィックスなしでインポート（conftest.py で path 追加済みのため）
-            assert "from greeting import" in content or "import greeting" in content
+            # Board モード: nodes.greeting.start からインポート
+            assert (
+                "from nodes.greeting.start import start" in content
+                or "from greeting import" in content
+                or "import greeting" in content
+            )
             # src. プレフィックスは使わない
             assert "from src.greeting" not in content
