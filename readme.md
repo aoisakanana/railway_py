@@ -113,7 +113,7 @@ def main():
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)  
 [![Test Coverage](https://img.shields.io/badge/coverage-90%25+-brightgreen.svg)]()  
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)  
-[![Tests](https://img.shields.io/badge/tests-1901%20passing-success.svg)]()  
+[![Tests](https://img.shields.io/badge/tests-1946%20passing-success.svg)]()  
 
 ---  
 
@@ -259,24 +259,22 @@ node_name::status::detail
 
 `railway new node` コマンドは、**型安全なノードをすぐに開発開始できる状態で生成**します。  
 
-| 手動作成 | `railway new node` |  
-|----------|-------------------|  
-| ノード、Contract、テストを個別に作成 | **3ファイル同時生成** |  
-| import文を自分で書く | **正しいimport済み** |  
-| テスト構造を考える | **TDDテンプレート付き** |  
+| 手動作成 | `railway new node` |
+|----------|-------------------|
+| ノード、テストを個別に作成 | **2ファイル同時生成** |
+| import文を自分で書く | **正しいimport済み** |
+| テスト構造を考える | **TDDテンプレート付き** |
 | Outcomeの使い方を調べる | **動作するサンプル付き** |  
 
 ```bash
-# dag 形式（デフォルト）: 条件分岐ワークフロー向け
+# dag 形式（デフォルト / Board モード）: 条件分岐ワークフロー向け
 railway new node check_status
-# → src/nodes/check_status.py        ← ノード本体（動作するサンプル付き）
-# → src/contracts/check_status_context.py  ← Contract（型安全）
-# → tests/nodes/test_check_status.py       ← TDDテンプレート
+# → src/nodes/check_status.py        ← ノード本体（Board モード）
+# → tests/nodes/test_check_status.py  ← TDDテンプレート
 
 # 階層ノード（v0.13.18+）: ドット区切りでサブディレクトリに生成
 railway new node processing.validate
 # → src/nodes/processing/validate.py        ← 関数名: validate
-# → src/contracts/processing/validate_context.py
 # → tests/nodes/processing/test_validate.py
 
 # linear 形式: 線形パイプライン向け
@@ -294,22 +292,43 @@ railway new node transform --mode linear
 | `import` | エラー（Python予約語） |
 | `greeting/farewell` | エラー（スラッシュ不可、`greeting.farewell` を提案） |  
 
-**dag 形式（デフォルト）** - 条件分岐が可能:  
+**dag 形式（デフォルト / Board モード）** - 条件分岐が可能:
 
-```python  
-from railway import node  
-from railway.core.dag.outcome import Outcome  
-
-from contracts.check_status_context import CheckStatusContext  
+```python
+from railway import node
+from railway.core.dag.outcome import Outcome
 
 
-@node  
-def check_status(ctx: CheckStatusContext) -> tuple[CheckStatusContext, Outcome]:  
-    """ステータスをチェックする。"""  
-    if ctx.is_valid:  
-        return ctx, Outcome.success("valid")   # → valid 遷移  
-    return ctx, Outcome.failure("invalid")     # → invalid 遷移  
-```  
+@node
+def check_status(board) -> Outcome:
+    """ステータスをチェックする。"""
+    if board.is_valid:
+        return Outcome.success("valid")   # → valid 遷移
+    return Outcome.failure("invalid")     # → invalid 遷移
+```
+
+Board モードでは Contract の定義が不要で、board に直接読み書きするだけです。
+依存関係は AST 解析で自動検出されるため、手動宣言も必要ありません。
+
+<details>
+<summary>Contract モード（従来方式）</summary>
+
+```python
+from railway import node
+from railway.core.dag.outcome import Outcome
+
+from contracts.check_status_context import CheckStatusContext
+
+
+@node
+def check_status(ctx: CheckStatusContext) -> tuple[CheckStatusContext, Outcome]:
+    """ステータスをチェックする。"""
+    if ctx.is_valid:
+        return ctx, Outcome.success("valid")   # → valid 遷移
+    return ctx, Outcome.failure("invalid")     # → invalid 遷移
+```
+
+</details>
 
 **linear 形式** - シンプルなデータ変換向け:  
 
@@ -1088,71 +1107,118 @@ tests/
 
 ---
 
-## 実例: アラート処理ワークフロー  
+## 実例: アラート処理ワークフロー
 
-### ステップ1: Contractを定義  
+### ステップ1: ノードを作成
 
-```python  
-# src/contracts/alert.py  
-from railway import Contract  
+Board モードでは Contract の定義は不要です。ノードは board に直接読み書きし、`Outcome` のみを返します：
 
-class AlertContext(Contract):  
-    incident_id: str  
-    severity: str  
-    escalated: bool = False  
-```  
+```python
+# src/nodes/alert/check_severity.py
+from railway import node
+from railway.core.dag import Outcome
 
-### ステップ2: ノードを作成  
+@node
+def check_severity(board) -> Outcome:
+    if board.severity == "critical":
+        board.escalated = True
+        return Outcome.success("critical")
+    return Outcome.success("normal")
+```
 
-```python  
-# src/nodes/alert/check_severity.py  
-from railway import node  
-from railway.core.dag import Outcome  
-from contracts.alert import AlertContext  
+```python
+# src/nodes/alert/escalate.py
+from railway import node
+from railway.core.dag import Outcome
 
-@node  
-def check_severity(ctx: AlertContext) -> tuple[AlertContext, Outcome]:  
-    if ctx.severity == "critical":  
-        return ctx, Outcome.success("critical")  
-    return ctx, Outcome.success("normal")  
-```  
+@node
+def escalate(board) -> Outcome:
+    board.notified = True
+    return Outcome.success("done")
+```
 
-### ステップ3: 遷移グラフを定義  
+### ステップ2: 遷移グラフを定義
 
-```yaml  
-# transition_graphs/alert_workflow.yml  
-version: "1.0"  
-entrypoint: alert_workflow  
+```yaml
+# transition_graphs/alert_workflow.yml
+version: "1.0"
+entrypoint: alert_workflow
 
-nodes:  
-  check_severity:  
-    module: nodes.alert.check_severity  
-    function: check_severity  
-  escalate:  
-    module: nodes.alert.escalate  
-    function: escalate  
-  log_only:  
-    module: nodes.alert.log_only  
-    function: log_only  
+nodes:
+  check_severity:
+    description: "重要度をチェック"
+  escalate:
+    description: "エスカレーション"
+  log_only:
+    description: "ログ出力のみ"
 
-start: check_severity  
+  exit:
+    success:
+      done:
+        description: "正常終了"
+    failure:
+      error:
+        description: "エラー終了"
 
-transitions:  
-  check_severity:  
-    success::critical: escalate  
-    success::normal: log_only  
-  escalate:  
-    success::done: exit::success  
-  log_only:  
-    success::done: exit::success  
-```  
+start: check_severity
 
-### ステップ4: コード生成と実行  
+transitions:
+  check_severity:
+    success::critical: escalate
+    success::normal: log_only
+  escalate:
+    success::done: exit.success.done
+  log_only:
+    success::done: exit.success.done
+```
 
-```bash  
-railway sync transition --entry alert_workflow  
-railway run alert_workflow  
-```  
+### ステップ3: コード生成と実行
+
+```bash
+railway sync transition --entry alert_workflow
+railway run alert_workflow
+```
+
+<details>
+<summary>Contract モード（従来方式）での実装例</summary>
+
+### ステップ1: Contract を定義
+
+```python
+# src/contracts/alert.py
+from railway import Contract
+
+class AlertContext(Contract):
+    incident_id: str
+    severity: str
+    escalated: bool = False
+```
+
+### ステップ2: ノードを作成
+
+```python
+# src/nodes/alert/check_severity.py
+from railway import node
+from railway.core.dag import Outcome
+from contracts.alert import AlertContext
+
+@node
+def check_severity(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
+    if ctx.severity == "critical":
+        return ctx, Outcome.success("critical")
+    return ctx, Outcome.success("normal")
+```
+
+### ステップ3: 遷移グラフを定義（同上）
+
+### ステップ4: コード生成と実行
+
+```bash
+railway sync transition --entry alert_workflow
+railway run alert_workflow
+```
+
+</details>  
 
 ---  
 

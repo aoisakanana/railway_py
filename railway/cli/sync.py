@@ -476,36 +476,11 @@ def _sync_entry(
     for warning in result.warnings:
         typer.echo(f"  警告 [{warning.code}]: {warning.message}")
 
-    if validate_only:
-        typer.echo(f"✓ {entry_name}: 検証成功")
-        return
-
-    if dry_run:
-        # Generate code (pure function) for preview
-        relative_yaml = yaml_path.relative_to(graphs_dir.parent)
-        code = generate_transition_code(graph, str(relative_yaml))
-        typer.echo(f"\n--- プレビュー: {entry_name}_transitions.py ---")
-        # Show first 50 lines
-        lines = code.split("\n")[:50]
-        typer.echo("\n".join(lines))
-        if len(code.split("\n")) > 50:
-            typer.echo("... (省略)")
-        typer.echo("--- プレビュー終了 ---\n")
-        return
-
-    # Issue #62: 終端ノードスケルトン生成（副作用あり）
-    cwd = graphs_dir.parent  # プロジェクトルート
-    exit_result = sync_exit_nodes(graph, cwd)
-    for path in exit_result.generated:
-        typer.echo(f"  終端ノード生成: {path.relative_to(cwd)}")
-
-    # BUG-001: 通常ノードスケルトン生成（副作用あり）
-    regular_result = sync_regular_nodes(graph, cwd)
-    for path in regular_result.generated:
-        typer.echo(f"  通常ノード生成: {path.relative_to(cwd)}")
-
     # === Board Analysis Pipeline (v0.14.0) ===
+    # Board 解析は読み取りのみ（副作用なし）なので dry-run/validate_only の前に実行。
+    # これにより dry-run や validate_only でも Board モード判定とエラー検出の恩恵を受ける。
     src_dir = graphs_dir.parent / "src"
+    board_analyses: dict[str, NodeAnalysis] = {}
     if src_dir.exists():
         board_analyses = _analyze_board_nodes(graph, src_dir)
         if board_analyses:
@@ -521,32 +496,79 @@ def _sync_entry(
                 board_analyses, path_result, entry_fields
             )
 
-            # Generate Board type file (not in dry_run or validate_only)
-            if not dry_run and not validate_only:
-                from railway.core.dag.board_codegen import generate_board_type
-
-                board_code = generate_board_type(
-                    graph.entrypoint,
-                    board_analyses,
-                    entry_fields,
-                    source_file=str(yaml_path.relative_to(graphs_dir.parent)),
+            # Stop on errors (E010 path errors + E012-E015 node violations)
+            if _has_analysis_errors(board_analyses, path_result):
+                error_count = len(path_result.errors) + sum(
+                    len(
+                        [
+                            v
+                            for v in a.violations
+                            if v.code in {"E012", "E013", "E014", "E015"}
+                        ]
+                    )
+                    for a in board_analyses.values()
                 )
-                board_output_path = output_dir / f"{entry_name}_board.py"
-                board_output_path.write_text(board_code, encoding="utf-8")
-                typer.echo(
-                    f"  Board型生成: _railway/generated/{entry_name}_board.py"
-                )
-
-            # Stop on errors
-            if path_result.has_errors:
-                error_count = len(path_result.errors)
                 raise SyncError(
                     f"Board 解析で {error_count} 件のエラーが検出されました"
                 )
 
-    # Generate code (pure function)
+    is_board_mode = bool(board_analyses)
+
+    # === 早期 return ゾーン ===
+    if validate_only:
+        typer.echo(f"✓ {entry_name}: 検証成功")
+        return
+
+    if dry_run:
+        # Generate code (pure function) for preview - Board モード反映済み
+        relative_yaml = yaml_path.relative_to(graphs_dir.parent)
+        code = generate_transition_code(
+            graph, str(relative_yaml), board_mode=is_board_mode
+        )
+        typer.echo(f"\n--- プレビュー: {entry_name}_transitions.py ---")
+        # Show first 50 lines
+        lines = code.split("\n")[:50]
+        typer.echo("\n".join(lines))
+        if len(code.split("\n")) > 50:
+            typer.echo("... (省略)")
+        typer.echo("--- プレビュー終了 ---\n")
+        return
+
+    # === ファイル I/O ゾーン ===
+
+    # Issue #62: 終端ノードスケルトン生成（副作用あり）
+    cwd = graphs_dir.parent  # プロジェクトルート
+    exit_result = sync_exit_nodes(graph, cwd)
+    for path in exit_result.generated:
+        typer.echo(f"  終端ノード生成: {path.relative_to(cwd)}")
+
+    # BUG-001: 通常ノードスケルトン生成（副作用あり）
+    regular_result = sync_regular_nodes(graph, cwd)
+    for path in regular_result.generated:
+        typer.echo(f"  通常ノード生成: {path.relative_to(cwd)}")
+
+    # Board 型ファイル書き込み（Board モード時のみ）
+    if board_analyses:
+        from railway.core.dag.board_codegen import generate_board_type
+
+        entry_fields = _detect_entry_fields(graph, board_analyses)
+        board_code = generate_board_type(
+            graph.entrypoint,
+            board_analyses,
+            entry_fields,
+            source_file=str(yaml_path.relative_to(graphs_dir.parent)),
+        )
+        board_output_path = output_dir / f"{entry_name}_board.py"
+        board_output_path.write_text(board_code, encoding="utf-8")
+        typer.echo(
+            f"  Board型生成: _railway/generated/{entry_name}_board.py"
+        )
+
+    # Generate code (pure function) - Board モード反映済み
     relative_yaml = yaml_path.relative_to(graphs_dir.parent)
-    code = generate_transition_code(graph, str(relative_yaml))
+    code = generate_transition_code(
+        graph, str(relative_yaml), board_mode=is_board_mode
+    )
 
     # Write generated code (IO operation)
     output_path = output_dir / f"{entry_name}_transitions.py"
@@ -570,14 +592,48 @@ def _sync_entry(
 # =============================================================================
 
 
+def _is_linear_mode_node(source_code: str) -> bool:
+    """ソースコードが Linear/Contract モードのノードか判定する（純粋関数）。
+
+    @node(output=...) または @node(inputs=...) が指定されていれば
+    Linear mode として判定し、Board 解析をスキップする。
+
+    Args:
+        source_code: ノードのソースコード
+
+    Returns:
+        Linear mode の場合 True
+    """
+    import ast as _ast
+
+    try:
+        tree = _ast.parse(source_code)
+    except SyntaxError:
+        return False
+
+    for node in _ast.walk(tree):
+        if not isinstance(node, _ast.FunctionDef):
+            continue
+        for decorator in node.decorator_list:
+            if isinstance(decorator, _ast.Call):
+                func = decorator.func
+                if isinstance(func, _ast.Name) and func.id == "node":
+                    kw_names = {kw.arg for kw in decorator.keywords}
+                    if "output" in kw_names or "inputs" in kw_names:
+                        return True
+    return False
+
+
 def _analyze_board_nodes(
     graph: TransitionGraph,
     src_dir: Path,
 ) -> dict[str, NodeAnalysis]:
     """グラフのノードファイルを AST 解析する（副作用: ファイル読み込み）。
 
-    Board mode ノードのみ解析する（is_exit のノードはスキップ）。
-    ファイルが存在しないノードはスキップ。
+    Board mode ノードのみ解析する。以下はスキップ:
+    - is_exit のノード
+    - Linear mode ノード（@node(output=...) / @node(inputs=...)）
+    - ファイルが存在しないノード
 
     Args:
         graph: 遷移グラフ
@@ -598,6 +654,9 @@ def _analyze_board_nodes(
         if not file_path.exists():
             continue
         source_code = file_path.read_text()
+        # Linear mode ノードはスキップ（Board 解析対象外）
+        if _is_linear_mode_node(source_code):
+            continue
         analysis = analyze_node_file(str(file_path), source_code, node_def.name)
         analyses[node_def.name] = analysis
     return analyses
@@ -623,6 +682,32 @@ def _detect_entry_fields(
     if start_analysis is None:
         return frozenset()
     return start_analysis.reads_all
+
+
+def _has_analysis_errors(
+    board_analyses: dict[str, NodeAnalysis],
+    path_result: PathValidationResult,
+) -> bool:
+    """Board 解析結果にエラーレベルの問題があるか判定する（純粋関数）。
+
+    E010（経路依存エラー）と E012〜E015（ノード解析違反）を統合的に判定。
+
+    Args:
+        board_analyses: ノード名 → NodeAnalysis のマッピング
+        path_result: 経路検証結果
+
+    Returns:
+        エラーレベルの問題がある場合 True
+    """
+    # E010: 経路依存エラー
+    if path_result.has_errors:
+        return True
+    # E012-E015: ノード解析の違反
+    error_codes = {"E012", "E013", "E014", "E015"}
+    for analysis in board_analyses.values():
+        if any(v.code in error_codes for v in analysis.violations):
+            return True
+    return False
 
 
 def _display_board_analysis_result(
