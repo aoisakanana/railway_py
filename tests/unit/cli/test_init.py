@@ -517,8 +517,78 @@ class TestTutorialTemplateTrace:
         assert "trace.nodes" not in template
 
     def test_tutorial_trace_mentions_railway_run(self) -> None:
-        """trace セクションが railway run コマンド例を含むこと。"""
+        """trace セクションが railway run greeting --trace を含むこと。"""
         from railway.cli.init import _get_tutorial_content
 
         template = _get_tutorial_content("test_wf")
-        assert "railway run test_wf --trace" in template
+        assert "railway run greeting --trace" in template
+
+
+class TestTutorialExpectedOutput:
+    """TUTORIAL テンプレートの期待出力テスト。"""
+
+    def test_step2_output_matches_codegen(self) -> None:
+        """Step 2 の期待出力が codegen エントリポイントの出力形式と一致すること。"""
+        from railway.cli.init import _get_tutorial_content
+
+        template = _get_tutorial_content("test_project")
+        # 旧形式が含まれないこと
+        assert "完了: success.done" not in template
+        assert "[start] 完了" not in template
+        # 新形式が含まれること
+        assert "✓ 完了 (exit_state=" in template
+
+    def test_step4_output_matches_codegen(self) -> None:
+        """Step 4 の期待出力が codegen エントリポイントの出力形式と一致すること。"""
+        from railway.cli.init import _get_tutorial_content
+
+        template = _get_tutorial_content("test_project")
+        # 旧形式が含まれないこと
+        assert "[check_time] 完了" not in template
+        assert "[greet_morning] 完了" not in template
+
+    def test_step10_uses_greeting_not_project_name(self) -> None:
+        """Step 10 のコマンドがプロジェクト名ではなく greeting を使用すること。"""
+        from railway.cli.init import _get_tutorial_content
+
+        template = _get_tutorial_content("my_project")
+        # エントリポイント名 greeting を使用
+        assert "railway run greeting --trace" in template
+        # プロジェクト名が run コマンドに入っていないこと
+        assert "railway run my_project --trace" not in template
+
+    def test_step10_trace_output_format(self) -> None:
+        """Step 10 の期待出力が trace 行を含むこと。"""
+        from railway.cli.init import _get_tutorial_content
+
+        template = _get_tutorial_content("test_project")
+        assert "[trace] check_time:" in template
+        assert "[trace] greet_morning:" in template
+        # 結果表示もあること
+        assert "✓ 完了 (exit_state=" in template
+
+    def test_no_stale_output_format(self) -> None:
+        """旧形式の出力フォーマットが残っていないこと。"""
+        from railway.cli.init import _get_tutorial_content
+
+        template = _get_tutorial_content("test_project")
+        # 旧形式のパターン
+        assert "ワークフロー完了:" not in template
+
+    def test_expected_output_includes_running_line(self) -> None:
+        """期待出力に 'Running entry point: greeting' が含まれること。"""
+        from railway.cli.init import _get_tutorial_content
+
+        template = _get_tutorial_content("test_project")
+        # CLI が出力する行がドキュメントに含まれること
+        assert "Running entry point: greeting" in template
+
+    def test_step10_node_names_match_greeting_workflow(self) -> None:
+        """Step 10 の trace ノード名が greeting ワークフロー（Step 4）と一致すること。"""
+        from railway.cli.init import _get_tutorial_content
+
+        template = _get_tutorial_content("test_project")
+        # Step 4 で定義する greeting ワークフローの開始ノードは check_time
+        # （Step 2 の start ノードではない）
+        assert "[trace] check_time:" in template
+        assert "[trace] start:" not in template

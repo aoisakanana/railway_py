@@ -245,12 +245,12 @@ railway run greeting
 
 **期待される出力:**
 ```
-[start] 完了 (start::success::done)
-ワークフロー完了: exit.success.done
-完了: success.done
+Running entry point: greeting
+... (ログ出力)
+✓ 完了 (exit_state=success.done)
 ```
 
-> **Note:** 実際の出力にはタイムスタンプとログレベルが含まれます。
+> **Note:** 実際の出力にはタイムスタンプとログレベルが含まれます（loguru による stderr 出力）。
 
 ### 2.3 遷移グラフを確認
 
@@ -548,10 +548,9 @@ railway run greeting
 出力例:
 
 ```
-[check_time] 完了 (check_time::success::morning)
-[greet_morning] 完了 (greet_morning::success::done)
-ワークフロー完了: exit.success.done
-完了: success.done
+Running entry point: greeting
+... (ログ出力)
+✓ 完了 (exit_state=success.done)
 ```
 
 ---
@@ -810,15 +809,18 @@ def process(board) -> Outcome:
 ノードごとの Board 変更を確認できます:
 
 ```bash
-railway run {name} --trace
+railway run greeting --trace
 ```
 
 出力例:
 
 ```
 Trace mode enabled
-[trace] start: mutations: period
+Running entry point: greeting
+... (ログ出力)
+[trace] check_time: mutations: period
 [trace] greet_morning: mutations: greeting
+✓ 完了 (exit_state=success.done)
 ```
 
 各ノードがどのフィールドを変更したかが一目でわかります。

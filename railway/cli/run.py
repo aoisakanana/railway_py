@@ -8,8 +8,6 @@ from pathlib import Path
 
 import typer
 
-from railway.core.dag.trace import WorkflowTrace
-
 
 def _find_project_root() -> Path | None:
     """Find project root by looking for src/ directory."""
@@ -109,25 +107,6 @@ def _execute_entry(project_root: Path, entry_name: str, extra_args: list[str]) -
         runpy.run_path(str(entry_path), run_name="__main__")
     finally:
         sys.argv = original_argv
-
-
-def format_trace_output(trace: WorkflowTrace) -> str:
-    """Trace を表示用文字列に変換する（純粋関数）。
-
-    Args:
-        trace: ワークフロートレース
-
-    Returns:
-        表示用の文字列
-    """
-    lines: list[str] = []
-    for node_trace in trace.traces:
-        lines.append(f"[trace] {node_trace.node_name}:")
-        if node_trace.mutations:
-            lines.append(f"  mutations: {', '.join(node_trace.mutations)}")
-        else:
-            lines.append("  mutations: (none)")
-    return "\n".join(lines)
 
 
 def run(
