@@ -193,3 +193,22 @@ if __name__ == "__main__":
                 assert "entry1" in output or "entry2" in output or "available" in output
             finally:
                 os.chdir(original_cwd)
+
+
+class TestFormatTraceOutputRemoved:
+    """format_trace_output が削除されたことの検証。"""
+
+    def test_format_trace_output_not_in_run(self) -> None:
+        """run.py から format_trace_output が削除されたこと。"""
+        import railway.cli.run as run_module
+
+        assert not hasattr(run_module, "format_trace_output")
+
+    def test_workflow_trace_not_imported_in_run(self) -> None:
+        """run.py から WorkflowTrace の import が削除されたこと。"""
+        import inspect
+
+        import railway.cli.run as run_module
+
+        source = inspect.getsource(run_module)
+        assert "WorkflowTrace" not in source

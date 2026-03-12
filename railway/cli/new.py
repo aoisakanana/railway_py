@@ -369,6 +369,7 @@ def _get_dag_entry_template(name: str) -> str:
     Returns:
         Python コード文字列（run() を使用）
     """
+    # trace 表示は両テンプレート（sync後/sync前）で同一ロジック
     return f'''"""{name} エントリポイント。"""
 from railway import entry_point
 
@@ -378,6 +379,13 @@ def main():
     from _railway.generated.{name}_transitions import run
 
     result = run()
+
+    # Trace 表示（--trace 指定時のみ result.trace が存在）
+    if hasattr(result, "trace") and result.trace:
+        for nt in result.trace.traces:
+            mutations = ", ".join(nt.mutations) if nt.mutations else "(none)"
+            print(f"[trace] {{nt.node_name}}: mutations: {{mutations}}")
+
     if result.is_success:
         print(f"\\u2713 完了 (exit_state={{result.exit_state}})")
     else:
@@ -447,6 +455,12 @@ def main() -> None:
     from _railway.generated.{name}_transitions import run
 
     result = run()
+
+    # Trace 表示（--trace 指定時のみ result.trace が存在）
+    if hasattr(result, "trace") and result.trace:
+        for nt in result.trace.traces:
+            mutations = ", ".join(nt.mutations) if nt.mutations else "(none)"
+            print(f"[trace] {{nt.node_name}}: mutations: {{mutations}}")
 
     if result.is_success:
         print(f"\\u2713 完了 (exit_state={{result.exit_state}})")

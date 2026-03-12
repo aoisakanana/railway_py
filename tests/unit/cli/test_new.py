@@ -241,3 +241,52 @@ class TestRailwayNewErrors:
                 assert result.exit_code != 0
             finally:
                 os.chdir(original_cwd)
+
+
+class TestDagEntryTemplateTrace:
+    """エントリポイントテンプレートの trace 表示テスト。"""
+
+    def test_template_contains_trace_display(self) -> None:
+        """テンプレートに trace 表示ロジックが含まれること。"""
+        from railway.cli.new import _get_dag_entry_template
+
+        code = _get_dag_entry_template("test_wf")
+        assert "result.trace" in code
+        assert "[trace]" in code
+
+    def test_template_uses_hasattr_guard(self) -> None:
+        """Board/Contract 両対応の hasattr ガードがあること。"""
+        from railway.cli.new import _get_dag_entry_template
+
+        code = _get_dag_entry_template("test_wf")
+        assert "hasattr(result" in code
+
+    def test_pending_sync_template_also_has_trace(self) -> None:
+        """pending-sync テンプレートにも trace 表示があること。"""
+        from railway.cli.new import _get_dag_entry_template_pending_sync
+
+        code = _get_dag_entry_template_pending_sync("test_wf")
+        assert "result.trace" in code
+
+    def test_template_generates_valid_python(self) -> None:
+        """生成されるテンプレートが valid Python であること。"""
+        from railway.cli.new import _get_dag_entry_template
+
+        code = _get_dag_entry_template("test_wf")
+        compile(code, "<test>", "exec")
+
+    def test_pending_sync_template_generates_valid_python(self) -> None:
+        """pending-sync テンプレートも valid Python であること。"""
+        from railway.cli.new import _get_dag_entry_template_pending_sync
+
+        code = _get_dag_entry_template_pending_sync("test_wf")
+        compile(code, "<test>", "exec")
+
+    def test_trace_displayed_before_result(self) -> None:
+        """trace 表示が結果表示より前に出力されること。"""
+        from railway.cli.new import _get_dag_entry_template
+
+        code = _get_dag_entry_template("test_wf")
+        trace_pos = code.index("[trace]")
+        result_pos = code.index("完了")
+        assert trace_pos < result_pos
