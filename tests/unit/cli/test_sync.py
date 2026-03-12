@@ -358,3 +358,357 @@ class TestSyncPyTyped:
 
         # 上書きされていないことを確認
         assert py_typed.read_text() == "existing"
+
+
+# =============================================================================
+# Issue 30-02: _has_analysis_errors 純粋関数テスト
+# =============================================================================
+
+
+class TestHasAnalysisErrors:
+    """_has_analysis_errors() の純粋関数テスト。"""
+
+    def test_no_errors_returns_false(self) -> None:
+        """エラーがなければ False を返すこと。"""
+        from railway.cli.sync import _has_analysis_errors
+        from railway.core.dag.path_validator import PathValidationResult
+
+        path_result = PathValidationResult(issues=(), node_analyses={})
+        assert _has_analysis_errors({}, path_result) is False
+
+    def test_path_error_returns_true(self) -> None:
+        """E010 経路エラーがあれば True を返すこと。"""
+        from railway.cli.sync import _has_analysis_errors
+        from railway.core.dag.path_validator import PathIssue, PathValidationResult
+
+        path_result = PathValidationResult(
+            issues=(
+                PathIssue(
+                    code="E010",
+                    severity="error",
+                    message="必須フィールドが不足",
+                    node_name="escalate",
+                    field_name="hostname",
+                    file_path="nodes/escalate.py",
+                    line=10,
+                ),
+            ),
+            node_analyses={},
+        )
+        assert _has_analysis_errors({}, path_result) is True
+
+    def test_e015_violation_returns_true(self) -> None:
+        """E015 違反があれば True を返すこと。"""
+        from railway.cli.sync import _has_analysis_errors
+        from railway.core.dag.board_analyzer import AnalysisViolation, NodeAnalysis
+        from railway.core.dag.path_validator import PathValidationResult
+
+        analysis = NodeAnalysis(
+            node_name="start",
+            file_path="nodes/start.py",
+            reads_required=frozenset(),
+            reads_optional=frozenset(),
+            branch_writes=(),
+            all_writes=frozenset(),
+            outcomes=(),
+            violations=(
+                AnalysisViolation(
+                    code="E015",
+                    message="第一引数が board でない",
+                    line=5,
+                    file_path="nodes/start.py",
+                ),
+            ),
+        )
+        path_result = PathValidationResult(
+            issues=(), node_analyses={"start": analysis}
+        )
+        assert _has_analysis_errors({"start": analysis}, path_result) is True
+
+    def test_warning_only_returns_false(self) -> None:
+        """W001 のみ（warning）の場合は False を返すこと。"""
+        from railway.cli.sync import _has_analysis_errors
+        from railway.core.dag.path_validator import PathIssue, PathValidationResult
+
+        path_result = PathValidationResult(
+            issues=(
+                PathIssue(
+                    code="W001",
+                    severity="warning",
+                    message="未使用の writes",
+                    node_name="check",
+                    field_name="unused_field",
+                    file_path="nodes/check.py",
+                    line=15,
+                ),
+            ),
+            node_analyses={},
+        )
+        assert _has_analysis_errors({}, path_result) is False
+
+    def test_is_pure_function(self) -> None:
+        """同じ入力で同じ出力を返すこと。"""
+        from railway.cli.sync import _has_analysis_errors
+        from railway.core.dag.path_validator import PathValidationResult
+
+        path_result = PathValidationResult(issues=(), node_analyses={})
+        r1 = _has_analysis_errors({}, path_result)
+        r2 = _has_analysis_errors({}, path_result)
+        assert r1 == r2
+
+
+# =============================================================================
+# Issue 30-02: sync Board codegen 統合テスト
+# =============================================================================
+
+BOARD_NODE_CODE = '''\
+from railway import node
+from railway.core.dag import Outcome
+
+
+@node
+def start(board) -> Outcome:
+    board.result = "done"
+    return Outcome.success("done")
+'''
+
+EXIT_NODE_CODE = '''\
+from railway import node
+
+
+@node(name="exit.success.done")
+def done(board) -> None:
+    pass
+'''
+
+SIMPLE_BOARD_YAML = '''\
+version: "1.0"
+entrypoint: test_wf
+description: "テスト"
+nodes:
+  start:
+    module: nodes.test_wf.start
+    function: start
+    description: "開始"
+  exit:
+    success:
+      done:
+        description: "正常終了"
+start: start
+transitions:
+  start:
+    success::done: exit.success.done
+'''
+
+E015_VIOLATION_CODE = '''\
+from railway import node
+from railway.core.dag import Outcome
+
+
+@node
+def start(ctx) -> Outcome:
+    return Outcome.success("done")
+'''
+
+
+def _setup_board_project(
+    tmp_path: Path,
+    *,
+    node_code: str = BOARD_NODE_CODE,
+    exit_node_code: str = EXIT_NODE_CODE,
+) -> tuple[Path, Path]:
+    """Board モードのプロジェクト構造を tmp_path に構築する。"""
+    graphs_dir = tmp_path / "transition_graphs"
+    graphs_dir.mkdir()
+    output_dir = tmp_path / "_railway" / "generated"
+    output_dir.mkdir(parents=True)
+    src_dir = tmp_path / "src"
+
+    node_dir = src_dir / "nodes" / "test_wf"
+    node_dir.mkdir(parents=True)
+    (node_dir / "start.py").write_text(node_code)
+
+    exit_dir = src_dir / "nodes" / "exit" / "success"
+    exit_dir.mkdir(parents=True)
+    (exit_dir / "done.py").write_text(exit_node_code)
+
+    (graphs_dir / "test_wf_20260101000000.yml").write_text(SIMPLE_BOARD_YAML)
+
+    return graphs_dir, output_dir
+
+
+class TestSyncBoardCodegenIntegration:
+    """sync パイプラインの Board codegen 統合テスト。"""
+
+    def test_sync_generates_board_run_for_board_nodes(
+        self, tmp_path: Path
+    ) -> None:
+        """Board ノードの sync で Board 用 run() が生成されること。"""
+        from railway.cli.sync import _sync_entry
+
+        graphs_dir, output_dir = _setup_board_project(tmp_path)
+        _sync_entry(
+            entry_name="test_wf",
+            graphs_dir=graphs_dir,
+            output_dir=output_dir,
+            dry_run=False,
+            validate_only=False,
+        )
+
+        generated = (output_dir / "test_wf_transitions.py").read_text()
+        assert "WorkflowResult" in generated
+        assert "BoardBase" in generated
+        assert "ExitContract" not in generated
+        assert "RAILWAY_TRACE" in generated
+
+    def test_sync_without_src_dir_uses_contract_mode(
+        self, tmp_path: Path
+    ) -> None:
+        """src/ がない場合は Contract モードにフォールバック。"""
+        from railway.cli.sync import _sync_entry
+
+        graphs_dir = tmp_path / "transition_graphs"
+        graphs_dir.mkdir()
+        output_dir = tmp_path / "_railway" / "generated"
+        output_dir.mkdir(parents=True)
+        (graphs_dir / "test_wf_20260101000000.yml").write_text(SIMPLE_BOARD_YAML)
+
+        _sync_entry(
+            entry_name="test_wf",
+            graphs_dir=graphs_dir,
+            output_dir=output_dir,
+            dry_run=False,
+            validate_only=False,
+        )
+
+        generated = (output_dir / "test_wf_transitions.py").read_text()
+        assert "ExitContract" in generated
+        assert "BoardBase" not in generated
+
+    def test_dry_run_shows_board_mode_preview(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        """--dry-run でも Board モードのプレビューが表示されること。"""
+        from railway.cli.sync import _sync_entry
+
+        graphs_dir, output_dir = _setup_board_project(tmp_path)
+        _sync_entry(
+            entry_name="test_wf",
+            graphs_dir=graphs_dir,
+            output_dir=output_dir,
+            dry_run=True,
+            validate_only=False,
+        )
+
+        assert not (output_dir / "test_wf_transitions.py").exists()
+        captured = capsys.readouterr()
+        assert "WorkflowResult" in captured.out
+
+    def test_dry_run_does_not_write_board_type_file(
+        self, tmp_path: Path
+    ) -> None:
+        """dry-run では Board 型ファイルが生成されないこと。"""
+        from railway.cli.sync import _sync_entry
+
+        graphs_dir, output_dir = _setup_board_project(tmp_path)
+        _sync_entry(
+            entry_name="test_wf",
+            graphs_dir=graphs_dir,
+            output_dir=output_dir,
+            dry_run=True,
+            validate_only=False,
+        )
+
+        assert not (output_dir / "test_wf_board.py").exists()
+
+    def test_validate_only_detects_e015_violations(
+        self, tmp_path: Path
+    ) -> None:
+        """validate_only でも Board 解析の E015 エラーが SyncError を発生させること。"""
+        from railway.cli.sync import SyncError, _sync_entry
+
+        graphs_dir, output_dir = _setup_board_project(
+            tmp_path,
+            node_code=E015_VIOLATION_CODE,
+        )
+
+        with pytest.raises(SyncError):
+            _sync_entry(
+                entry_name="test_wf",
+                graphs_dir=graphs_dir,
+                output_dir=output_dir,
+                dry_run=False,
+                validate_only=True,
+            )
+
+    def test_validate_only_displays_e015_to_stderr(
+        self, tmp_path: Path, capsys
+    ) -> None:
+        """validate_only で E015 違反が stderr に表示されること。"""
+        from railway.cli.sync import SyncError, _sync_entry
+
+        graphs_dir, output_dir = _setup_board_project(
+            tmp_path,
+            node_code=E015_VIOLATION_CODE,
+        )
+
+        with pytest.raises(SyncError):
+            _sync_entry(
+                entry_name="test_wf",
+                graphs_dir=graphs_dir,
+                output_dir=output_dir,
+                dry_run=False,
+                validate_only=True,
+            )
+
+        captured = capsys.readouterr()
+        assert "E015" in captured.err
+
+    def test_contract_nodes_in_src_use_contract_mode(
+        self, tmp_path: Path
+    ) -> None:
+        """src/ に Contract ノードのみの場合は Contract モードになること。"""
+        from railway.cli.sync import _sync_entry
+
+        CONTRACT_NODE_CODE = '''\
+from railway import node
+from railway.core.dag import Outcome
+
+
+class MyContext:
+    pass
+
+
+@node(output=MyContext)
+def start(ctx=None) -> tuple[MyContext, Outcome]:
+    return MyContext(), Outcome.success("done")
+'''
+        CONTRACT_EXIT_CODE = '''\
+from railway import ExitContract, node
+
+
+class DoneResult(ExitContract):
+    exit_state: str = "success.done"
+
+
+@node(name="exit.success.done")
+def done(ctx) -> DoneResult:
+    return DoneResult()
+'''
+        graphs_dir, output_dir = _setup_board_project(
+            tmp_path,
+            node_code=CONTRACT_NODE_CODE,
+            exit_node_code=CONTRACT_EXIT_CODE,
+        )
+
+        _sync_entry(
+            entry_name="test_wf",
+            graphs_dir=graphs_dir,
+            output_dir=output_dir,
+            dry_run=False,
+            validate_only=False,
+        )
+
+        generated = (output_dir / "test_wf_transitions.py").read_text()
+        assert "ExitContract" in generated
+        assert "BoardBase" not in generated

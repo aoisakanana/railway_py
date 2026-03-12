@@ -84,7 +84,12 @@ def _get_python_ref(node: NodeDefinition) -> str:
     return node.function
 
 
-def generate_transition_code(graph: TransitionGraph, source_file: str) -> str:
+def generate_transition_code(
+    graph: TransitionGraph,
+    source_file: str,
+    *,
+    board_mode: bool = False,
+) -> str:
     """Generate complete transition code file.
 
     This is the main entry point for code generation.
@@ -93,6 +98,7 @@ def generate_transition_code(graph: TransitionGraph, source_file: str) -> str:
     Args:
         graph: Parsed transition graph
         source_file: Path to source YAML file
+        board_mode: True の場合、Board モード用コードを生成
 
     Returns:
         Generated Python code as string
@@ -108,9 +114,11 @@ def generate_transition_code(graph: TransitionGraph, source_file: str) -> str:
         _get_python_ref(start_node) if start_node else "None  # ERROR: start node not found"
     )
 
+    max_iterations = graph.options.max_iterations if graph.options else 100
+
     parts = [
         _generate_header(source_file),
-        _generate_framework_imports(),
+        _generate_framework_imports(board_mode=board_mode),
         generate_imports(graph),
         "",
         generate_node_name_assignments(graph),
@@ -127,10 +135,16 @@ def generate_transition_code(graph: TransitionGraph, source_file: str) -> str:
         "",
         _generate_helper_functions(class_name, start_function),
         "",
-        generate_run_helper(
-            max_iterations=graph.options.max_iterations if graph.options else 100,
-        ),
     ]
+
+    if board_mode:
+        parts.append(_generate_board_run_functions(
+            max_iterations=max_iterations,
+        ))
+    else:
+        parts.append(generate_run_helper(
+            max_iterations=max_iterations,
+        ))
 
     return "\n".join(parts)
 
@@ -147,8 +161,20 @@ def _generate_header(source_file: str) -> str:
 """
 
 
-def _generate_framework_imports() -> str:
-    """Generate framework imports."""
+def _generate_framework_imports(*, board_mode: bool = False) -> str:
+    """Generate framework imports.
+
+    Args:
+        board_mode: True の場合、Board モード用 imports を生成
+    """
+    if board_mode:
+        return """import os
+from typing import Any, Callable
+
+from railway.core.board import BoardBase, WorkflowResult
+from railway.core.dag.runner import dag_runner, async_dag_runner
+from railway.core.dag.state import NodeOutcome
+"""
     return """from typing import Any, Callable
 
 from railway import ExitContract
@@ -654,8 +680,99 @@ def {function_name}(board) -> None:
 
 
 # =============================================================================
-# Board Mode Run Helper Generation (Issue #23-02)
+# Board Mode Run Helper Generation (Issue #23-02, #30-01)
 # =============================================================================
+
+
+def _generate_board_run_functions(
+    *,
+    start_ref: str = "START_NODE",
+    max_iterations: int = 100,
+) -> str:
+    """Board モード用の _create_board / run / run_async を生成する（純粋関数）。
+
+    generate_transition_code(board_mode=True) 内から呼ばれる内部関数。
+
+    Args:
+        start_ref: 開始ノードの参照名（デフォルト: "START_NODE" 定数を使用）
+        max_iterations: 最大イテレーション数
+
+    Returns:
+        生成された Python コード文字列
+    """
+    return f'''
+def _create_board(initial: dict[str, Any] | BoardBase | None) -> BoardBase:
+    """初期値から Board を生成する。"""
+    if initial is None:
+        return BoardBase()
+    if isinstance(initial, BoardBase):
+        return initial
+    if isinstance(initial, dict):
+        return BoardBase(**initial)
+    raise TypeError(f"Unsupported initial type: {{type(initial)}}")
+
+
+def run(
+    initial_context: dict[str, Any] | BoardBase | None = None,
+    *,
+    on_step: Callable[[str, str, dict[str, Any]], None] | None = None,
+    max_iterations: int = {max_iterations},
+    trace: bool | None = None,
+) -> WorkflowResult:
+    """ワークフローを実行する（Board モード）。
+
+    Args:
+        initial_context: 初期値（dict, BoardBase, または None）
+        on_step: 各ステップ完了後のコールバック
+        max_iterations: 最大イテレーション数（デフォルト: {max_iterations}）
+        trace: トレース有効化（None: RAILWAY_TRACE 環境変数を参照）
+
+    Returns:
+        WorkflowResult: 実行結果
+    """
+    if trace is None:
+        trace = os.environ.get("RAILWAY_TRACE") == "1"
+    board = _create_board(initial_context)
+    return dag_runner(
+        start={start_ref},
+        transitions=TRANSITION_TABLE,
+        board=board,
+        on_step=on_step,
+        max_iterations=max_iterations,
+        trace=trace,
+    )
+
+
+async def run_async(
+    initial_context: dict[str, Any] | BoardBase | None = None,
+    *,
+    on_step: Callable[[str, str, dict[str, Any]], None] | None = None,
+    max_iterations: int = {max_iterations},
+    trace: bool | None = None,
+) -> WorkflowResult:
+    """非同期でワークフローを実行する（Board モード）。
+
+    Args:
+        initial_context: 初期値（dict, BoardBase, または None）
+        on_step: 各ステップ完了後のコールバック
+        max_iterations: 最大イテレーション数（デフォルト: {max_iterations}）
+        trace: トレース有効化（None: RAILWAY_TRACE 環境変数を参照）
+
+    Returns:
+        WorkflowResult: 実行結果
+    """
+    if trace is None:
+        trace = os.environ.get("RAILWAY_TRACE") == "1"
+    board = _create_board(initial_context)
+    return await async_dag_runner(
+        start={start_ref},
+        transitions=TRANSITION_TABLE,
+        board=board,
+        on_step=on_step,
+        max_iterations=max_iterations,
+        trace=trace,
+    )
+'''
 
 
 def generate_board_run_helper(
@@ -664,8 +781,8 @@ def generate_board_run_helper(
 ) -> str:
     """Board モード用の run()/run_async() ヘルパーコードを生成する（純粋関数）。
 
-    既存の generate_run_helper() は Contract モード用に保持し、
-    Board モード用に新規関数を追加する。
+    内部的に _generate_framework_imports(board_mode=True) と
+    _generate_board_run_functions() を合成する。
 
     Args:
         graph: パース済み遷移グラフ
@@ -683,77 +800,11 @@ def generate_board_run_helper(
     else:
         start_function = "None  # ERROR: start node not found"
 
-    return f'''from typing import Any, Callable
-
-from railway.core.board import BoardBase, WorkflowResult
-from railway.core.dag.runner import dag_runner, async_dag_runner
-
-
-def _create_board(initial: dict[str, Any] | BoardBase | None) -> BoardBase:
-    """初期値から Board を生成する。"""
-    if initial is None:
-        return BoardBase()
-    if isinstance(initial, BoardBase):
-        return initial
-    if isinstance(initial, dict):
-        return BoardBase(**initial)
-    raise TypeError(f"Unsupported initial type: {{type(initial)}}")
-
-
-def run(
-    initial_context: dict[str, Any] | BoardBase | None = None,
-    *,
-    on_step: Callable[[str, str, dict[str, Any]], None] | None = None,
-    max_iterations: int = {max_iterations},
-    trace: bool = False,
-) -> WorkflowResult:
-    """ワークフローを実行する。
-
-    Args:
-        initial_context: 初期値（dict, BoardBase, または None）
-        on_step: 各ステップ完了後のコールバック
-        max_iterations: 最大イテレーション数（デフォルト: {max_iterations}）
-        trace: トレース有効化
-
-    Returns:
-        WorkflowResult: 実行結果
-    """
-    board = _create_board(initial_context)
-    return dag_runner(
-        start={start_function},
-        transitions=TRANSITION_TABLE,
-        board=board,
-        on_step=on_step,
-        max_iterations=max_iterations,
-        trace=trace,
-    )
-
-
-async def run_async(
-    initial_context: dict[str, Any] | BoardBase | None = None,
-    *,
-    on_step: Callable[[str, str, dict[str, Any]], None] | None = None,
-    max_iterations: int = {max_iterations},
-    trace: bool = False,
-) -> WorkflowResult:
-    """非同期でワークフローを実行する。
-
-    Args:
-        initial_context: 初期値（dict, BoardBase, または None）
-        on_step: 各ステップ完了後のコールバック
-        max_iterations: 最大イテレーション数（デフォルト: {max_iterations}）
-        trace: トレース有効化
-
-    Returns:
-        WorkflowResult: 実行結果
-    """
-    board = _create_board(initial_context)
-    return await async_dag_runner(
-        start={start_function},
-        transitions=TRANSITION_TABLE,
-        board=board,
-        on_step=on_step,
-        max_iterations=max_iterations,
-        trace=trace,
-    )
-'''
+    parts = [
+        _generate_framework_imports(board_mode=True),
+        _generate_board_run_functions(
+            start_ref=start_function,
+            max_iterations=max_iterations,
+        ),
+    ]
+    return "\n".join(parts)

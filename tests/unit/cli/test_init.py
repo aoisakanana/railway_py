@@ -464,3 +464,61 @@ class TestSampleYamlFormat:
             if "exit" in str(value):
                 assert "exit." in str(value)
                 assert "exit::" not in str(value)
+
+
+# =============================================================================
+# Issue 31-03: TUTORIAL.md テンプレートの --trace 説明追加
+# =============================================================================
+
+
+class TestGetTutorialContent:
+    """_get_tutorial_content() の純粋関数テスト。"""
+
+    def test_returns_string(self) -> None:
+        """文字列を返すこと。"""
+        from railway.cli.init import _get_tutorial_content
+
+        result = _get_tutorial_content("test_wf")
+        assert isinstance(result, str)
+
+    def test_contains_project_name(self) -> None:
+        """プロジェクト名が含まれること。"""
+        from railway.cli.init import _get_tutorial_content
+
+        result = _get_tutorial_content("my_project")
+        assert "my_project" in result
+
+    def test_is_pure_function(self) -> None:
+        """同じ入力で同じ出力を返すこと（純粋関数）。"""
+        from railway.cli.init import _get_tutorial_content
+
+        result1 = _get_tutorial_content("test_wf")
+        result2 = _get_tutorial_content("test_wf")
+        assert result1 == result2
+
+
+class TestTutorialTemplateTrace:
+    """TUTORIAL テンプレートの trace セクションテスト。"""
+
+    def test_tutorial_contains_trace_section(self) -> None:
+        """TUTORIAL テンプレートに trace ステップが含まれること。"""
+        from railway.cli.init import _get_tutorial_content
+
+        template = _get_tutorial_content("test_wf")
+        assert "--trace" in template
+        assert "Trace" in template
+
+    def test_tutorial_uses_correct_trace_api(self) -> None:
+        """TUTORIAL テンプレートが正しい Trace API (.traces) を使用すること。"""
+        from railway.cli.init import _get_tutorial_content
+
+        template = _get_tutorial_content("test_wf")
+        assert "trace.traces" in template
+        assert "trace.nodes" not in template
+
+    def test_tutorial_trace_mentions_railway_run(self) -> None:
+        """trace セクションが railway run コマンド例を含むこと。"""
+        from railway.cli.init import _get_tutorial_content
+
+        template = _get_tutorial_content("test_wf")
+        assert "railway run test_wf --trace" in template

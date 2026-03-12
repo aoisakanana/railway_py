@@ -767,3 +767,275 @@ class TestCodegenHelpers:
 
         assert _to_exit_enum_name("green_resolved") == "GREEN_RESOLVED"
         assert _to_exit_enum_name("red_error") == "RED_ERROR"
+
+
+# =============================================================================
+# Issue 30-01: generate_transition_code(board_mode=True)
+# =============================================================================
+
+
+def _make_board_test_graph(
+    *,
+    entrypoint: str = "alert_workflow",
+    start_node: str = "check_severity",
+    max_iterations: int = 100,
+    nodes: tuple | None = None,
+    transitions: tuple | None = None,
+) -> "TransitionGraph":
+    """Board モードテスト用の TransitionGraph を生成する。"""
+    from railway.core.dag.types import (
+        GraphOptions,
+        NodeDefinition,
+        StateTransition,
+        TransitionGraph,
+    )
+
+    if nodes is None:
+        nodes = (
+            NodeDefinition("check_severity", "nodes.alert_workflow.check_severity", "check_severity", "重要度チェック"),
+            NodeDefinition("escalate", "nodes.alert_workflow.escalate", "escalate", "エスカレーション"),
+            NodeDefinition("exit.success.done", "nodes.exit.success.done", "done", "正常終了", is_exit=True, exit_code=0),
+            NodeDefinition("exit.failure.error", "nodes.exit.failure.error", "error", "エラー終了", is_exit=True, exit_code=1),
+        )
+    if transitions is None:
+        transitions = (
+            StateTransition("check_severity", "success::critical", "escalate"),
+            StateTransition("escalate", "success::done", "exit.success.done"),
+            StateTransition("escalate", "failure::error", "exit.failure.error"),
+        )
+    return TransitionGraph(
+        version="1.0",
+        entrypoint=entrypoint,
+        description="テストワークフロー",
+        nodes=nodes,
+        exits=(),
+        transitions=transitions,
+        start_node=start_node,
+        options=GraphOptions(max_iterations=max_iterations),
+    )
+
+
+class TestGenerateTransitionCodeBoardMode:
+    """generate_transition_code(board_mode=True) のテスト。"""
+
+    # --- imports ---
+
+    def test_board_mode_imports_board_base(self) -> None:
+        """Board 用 import が含まれること。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code = generate_transition_code(graph, "test.yml", board_mode=True)
+        assert "from railway.core.board import BoardBase, WorkflowResult" in code
+
+    def test_board_mode_imports_os(self) -> None:
+        """RAILWAY_TRACE 用に import os が含まれること。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code = generate_transition_code(graph, "test.yml", board_mode=True)
+        assert "import os" in code
+
+    def test_board_mode_no_exit_contract_import(self) -> None:
+        """ExitContract の import が含まれないこと。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code = generate_transition_code(graph, "test.yml", board_mode=True)
+        assert "ExitContract" not in code
+
+    # --- run() シグネチャ ---
+
+    def test_run_returns_workflow_result(self) -> None:
+        """run() が WorkflowResult を返すこと。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code = generate_transition_code(graph, "test.yml", board_mode=True)
+        assert "-> WorkflowResult:" in code
+
+    def test_run_accepts_optional_context(self) -> None:
+        """run() の initial_context がオプショナルであること。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code = generate_transition_code(graph, "test.yml", board_mode=True)
+        assert "initial_context: dict[str, Any] | BoardBase | None = None" in code
+
+    def test_run_trace_default_is_none(self) -> None:
+        """run() の trace デフォルト値が None であること（環境変数フォールバック）。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code = generate_transition_code(graph, "test.yml", board_mode=True)
+        assert "trace: bool | None = None" in code
+
+    # --- run() 内部構造 ---
+
+    def test_has_create_board_helper(self) -> None:
+        """_create_board ヘルパーが含まれること。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code = generate_transition_code(graph, "test.yml", board_mode=True)
+        assert "def _create_board(" in code
+
+    def test_no_start_wrapper(self) -> None:
+        """start_wrapper が含まれないこと（Board では不要）。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code = generate_transition_code(graph, "test.yml", board_mode=True)
+        assert "start_wrapper" not in code
+
+    def test_no_strict_parameter(self) -> None:
+        """strict パラメータが run() に含まれないこと。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code = generate_transition_code(graph, "test.yml", board_mode=True)
+        run_idx = code.index("def run(")
+        run_section = code[run_idx:]
+        assert "strict" not in run_section
+
+    def test_passes_board_to_dag_runner(self) -> None:
+        """dag_runner に board= を渡すこと。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code = generate_transition_code(graph, "test.yml", board_mode=True)
+        assert "board=board" in code
+
+    def test_uses_start_node_directly(self) -> None:
+        """START_NODE を直接使用すること（start_wrapper 経由でない）。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code = generate_transition_code(graph, "test.yml", board_mode=True)
+        assert "start=START_NODE" in code
+
+    # --- RAILWAY_TRACE ---
+
+    def test_reads_railway_trace_env(self) -> None:
+        """RAILWAY_TRACE 環境変数の読み取りが含まれること。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code = generate_transition_code(graph, "test.yml", board_mode=True)
+        assert 'os.environ.get("RAILWAY_TRACE")' in code
+
+    # --- run_async() ---
+
+    def test_has_run_async(self) -> None:
+        """run_async() も生成されること。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code = generate_transition_code(graph, "test.yml", board_mode=True)
+        assert "async def run_async(" in code
+
+    def test_run_async_returns_workflow_result(self) -> None:
+        """run_async() も WorkflowResult を返すこと。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code = generate_transition_code(graph, "test.yml", board_mode=True)
+        async_idx = code.index("async def run_async(")
+        async_section = code[async_idx:]
+        assert "-> WorkflowResult:" in async_section
+
+    def test_run_async_reads_railway_trace_env(self) -> None:
+        """run_async() も RAILWAY_TRACE 環境変数を読むこと。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code = generate_transition_code(graph, "test.yml", board_mode=True)
+        async_idx = code.index("async def run_async(")
+        async_section = code[async_idx:]
+        assert 'os.environ.get("RAILWAY_TRACE")' in async_section
+
+    # --- max_iterations ---
+
+    def test_max_iterations_propagated(self) -> None:
+        """YAML の max_iterations が run() に反映されること。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph(max_iterations=50)
+        code = generate_transition_code(graph, "test.yml", board_mode=True)
+        assert "max_iterations: int = 50" in code
+
+    # --- モード非依存部品 ---
+
+    def test_helper_functions_present(self) -> None:
+        """get_next_step / get_start_node（モード非依存）が含まれること。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code = generate_transition_code(graph, "test.yml", board_mode=True)
+        assert "def get_next_step(" in code
+        assert "def get_start_node(" in code
+
+    def test_transition_table_present(self) -> None:
+        """TRANSITION_TABLE が含まれること。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code = generate_transition_code(graph, "test.yml", board_mode=True)
+        assert "TRANSITION_TABLE" in code
+
+    # --- 構文検証 ---
+
+    def test_generated_code_is_valid_python(self) -> None:
+        """生成されたコードが構文的に正しいこと。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code = generate_transition_code(graph, "test.yml", board_mode=True)
+        compile(code, "<test>", "exec")
+
+    # --- Contract モード不変性 ---
+
+    def test_contract_mode_unchanged(self) -> None:
+        """board_mode=False（デフォルト）時は従来通り Contract 用コードを生成。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code = generate_transition_code(graph, "test.yml")
+        assert "ExitContract" in code
+        assert "initial_context: Any" in code
+        assert "BoardBase" not in code
+        assert "RAILWAY_TRACE" not in code
+
+    def test_contract_mode_no_import_os(self) -> None:
+        """Contract モードでは import os が含まれないこと。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code = generate_transition_code(graph, "test.yml")
+        assert "import os" not in code
+
+    # --- 純粋性 ---
+
+    def test_does_not_mutate_graph(self) -> None:
+        """入力の graph を変更しないこと。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        original_nodes = graph.nodes
+        original_transitions = graph.transitions
+        generate_transition_code(graph, "test.yml", board_mode=True)
+        assert graph.nodes is original_nodes
+        assert graph.transitions is original_transitions
+
+    def test_idempotent_output(self) -> None:
+        """同じ入力で2回呼び出すと同等のコードを生成すること。"""
+        from railway.core.dag.codegen import generate_transition_code
+
+        graph = _make_board_test_graph()
+        code1 = generate_transition_code(graph, "test.yml", board_mode=True)
+        code2 = generate_transition_code(graph, "test.yml", board_mode=True)
+        # タイムスタンプ行を除外して比較
+        timestamp_keys = ("Generated at:", "generated_at")
+        lines1 = [line for line in code1.splitlines() if not any(k in line for k in timestamp_keys)]
+        lines2 = [line for line in code2.splitlines() if not any(k in line for k in timestamp_keys)]
+        assert lines1 == lines2

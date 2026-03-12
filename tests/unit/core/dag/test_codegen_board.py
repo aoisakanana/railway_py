@@ -152,19 +152,31 @@ class TestBoardParameter:
 
 
 class TestTraceParameter:
-    """trace パラメータのテスト。"""
+    """trace パラメータのテスト（RAILWAY_TRACE 対応）。"""
 
     def test_run_has_trace_parameter(self):
-        """run() に trace パラメータがあること。"""
+        """run() に trace パラメータがあること（None デフォルト）。"""
         graph = _make_graph()
         code = generate_board_run_helper(graph, "alert_workflow.yml")
-        assert "trace: bool = False" in code
+        assert "trace: bool | None = None" in code
 
     def test_trace_passed_to_dag_runner(self):
         """trace が dag_runner に渡されること。"""
         graph = _make_graph()
         code = generate_board_run_helper(graph, "alert_workflow.yml")
         assert "trace=trace" in code
+
+    def test_reads_railway_trace_env(self):
+        """RAILWAY_TRACE 環境変数の読み取りが含まれること。"""
+        graph = _make_graph()
+        code = generate_board_run_helper(graph, "alert_workflow.yml")
+        assert 'os.environ.get("RAILWAY_TRACE")' in code
+
+    def test_imports_os(self):
+        """import os が含まれること。"""
+        graph = _make_graph()
+        code = generate_board_run_helper(graph, "alert_workflow.yml")
+        assert "import os" in code
 
 
 # =========== 7. strict パラメータなし ===========
