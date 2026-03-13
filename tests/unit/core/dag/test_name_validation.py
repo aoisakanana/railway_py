@@ -200,6 +200,105 @@ class TestValidateNodeName:
         assert result1 == result2
 
 
+class TestDunderNameValidation:
+    """dunder 名（__xxx__）のバリデーションテスト."""
+
+    @pytest.mark.parametrize(
+        "name", ["__init__", "__main__", "__pycache__", "__test__"]
+    )
+    def test_entry_rejects_dunder_names(self, name: str) -> None:
+        """エントリポイント名として dunder 名は拒否される (E016)."""
+        result = validate_entry_name(name)
+        assert not result.is_valid
+        assert "E016" in result.error_message
+
+    @pytest.mark.parametrize("name", ["__init__", "__main__"])
+    def test_node_rejects_dunder_names(self, name: str) -> None:
+        """ノード名として dunder 名は拒否される (E016)."""
+        result = validate_node_name(name)
+        assert not result.is_valid
+        assert "E016" in result.error_message
+
+    def test_node_rejects_dunder_in_segment(self) -> None:
+        """ドット区切りの一部が dunder 名でも拒否 (E016)."""
+        result = validate_node_name("foo.__init__")
+        assert not result.is_valid
+        assert "E016" in result.error_message
+
+    def test_normal_names_accepted(self) -> None:
+        """通常の名前は影響を受けない."""
+        result = validate_entry_name("my_entry")
+        assert result.is_valid
+
+    def test_single_underscore_prefix_accepted(self) -> None:
+        """単一アンダースコアプレフィックスは有効."""
+        result = validate_entry_name("_private")
+        assert result.is_valid
+
+    def test_double_underscore_prefix_without_suffix_accepted(self) -> None:
+        """__xxx (末尾にアンダースコアなし) は dunder ではないので有効."""
+        result = validate_entry_name("__private")
+        assert result.is_valid
+
+
+class TestReservedNameValidation:
+    """予約名（exit 等）のバリデーションテスト."""
+
+    def test_entry_rejects_exit(self) -> None:
+        """エントリポイント名として 'exit' は拒否される (E017)."""
+        result = validate_entry_name("exit")
+        assert not result.is_valid
+        assert "E017" in result.error_message
+
+    def test_node_rejects_bare_exit(self) -> None:
+        """ノード名として裸の 'exit' は拒否される (E017)."""
+        result = validate_node_name("exit")
+        assert not result.is_valid
+        assert "E017" in result.error_message
+
+    def test_node_warns_exit_namespace(self) -> None:
+        """exit.success.custom のようなノード名は有効だが警告あり."""
+        result = validate_node_name("exit.success.custom")
+        assert result.is_valid
+        assert result.warning
+
+    def test_node_no_warning_for_normal_names(self) -> None:
+        """通常のノード名には警告なし."""
+        result = validate_node_name("check_status")
+        assert result.is_valid
+        assert not result.warning
+
+    def test_entry_exit_suggestion(self) -> None:
+        """exit をエントリポイント名にした場合、修正提案がある."""
+        result = validate_entry_name("exit")
+        assert result.suggestion
+
+    def test_node_exit_suggestion(self) -> None:
+        """exit をノード名にした場合、修正提案がある."""
+        result = validate_node_name("exit")
+        assert result.suggestion
+
+
+class TestNameValidationWarningField:
+    """NameValidation の warning フィールドのテスト."""
+
+    def test_warning_default_empty(self) -> None:
+        """warning のデフォルト値は空文字列."""
+        result = validate_entry_name("my_workflow")
+        assert result.warning == ""
+
+    def test_valid_node_no_warning(self) -> None:
+        """正常なノード名は警告なし."""
+        result = validate_node_name("check_status")
+        assert result.warning == ""
+
+    def test_warning_field_frozen(self) -> None:
+        """warning フィールドも frozen."""
+        result = validate_entry_name("my_workflow")
+        with pytest.raises(AttributeError):
+            result.warning = "test"  # type: ignore[misc]
+
+
 class TestNameValidationImmutable:
     """NameValidation は frozen dataclass."""
 

@@ -5,7 +5,6 @@ Board モードがデフォルトで生成されることを保証する:
 2. Board テンプレートでは Contract ファイルが生成されない
 3. テストテンプレートが BoardBase を使う
 4. 階層ノードでも Board テンプレートが生成される
-5. --mode linear は従来通り Contract テンプレートを生成する
 """
 
 import pytest
@@ -170,49 +169,3 @@ class TestNewNodeBoardCliOutput:
 
         result = runner.invoke(app, ["new", "node", "check_data"])
         assert "tests/nodes/test_check_data.py" in result.output
-
-
-class TestNewNodeLinearModePreserved:
-    """--mode linear が従来通り Contract テンプレートを生成すること。"""
-
-    def test_linear_still_generates_contract(self, project_dir: Path) -> None:
-        """--mode linear では Contract ファイルが生成されること。"""
-        from railway.cli.main import app
-
-        result = runner.invoke(
-            app, ["new", "node", "transform", "--mode", "linear"]
-        )
-        assert result.exit_code == 0
-
-        # Contract ファイルが生成される
-        input_path = project_dir / "src" / "contracts" / "transform_input.py"
-        output_path = project_dir / "src" / "contracts" / "transform_output.py"
-        assert input_path.exists()
-        assert output_path.exists()
-
-    def test_linear_node_has_no_outcome(self, project_dir: Path) -> None:
-        """--mode linear では Outcome を使わないこと。"""
-        from railway.cli.main import app
-
-        runner.invoke(app, ["new", "node", "transform", "--mode", "linear"])
-        node_content = (project_dir / "src" / "nodes" / "transform.py").read_text()
-
-        assert "Outcome" not in node_content
-        assert "-> TransformOutput:" in node_content
-
-
-class TestNewNodeExplicitDagMode:
-    """--mode dag を明示的に指定しても Board テンプレートが生成されること。"""
-
-    def test_explicit_dag_generates_board(self, project_dir: Path) -> None:
-        """--mode dag で Board テンプレートが生成されること。"""
-        from railway.cli.main import app
-
-        result = runner.invoke(
-            app, ["new", "node", "explicit_dag", "--mode", "dag"]
-        )
-        assert result.exit_code == 0
-
-        node_content = (project_dir / "src" / "nodes" / "explicit_dag.py").read_text()
-        assert "def explicit_dag(board)" in node_content
-        assert "Outcome" in node_content

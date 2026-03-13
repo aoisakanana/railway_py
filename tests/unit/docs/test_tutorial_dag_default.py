@@ -36,35 +36,15 @@ class TestTutorialDagDefault:
         """Should have conditional branching example."""
         assert "条件分岐" in tutorial_content or "branching" in tutorial_content.lower()
 
-    def test_references_linear_tutorial(self, tutorial_content):
-        """Should reference TUTORIAL_linear.md."""
-        assert "TUTORIAL_linear" in tutorial_content
+    def test_no_linear_tutorial_reference(self, tutorial_content):
+        """Should NOT reference TUTORIAL_linear.md (removed)."""
+        assert "TUTORIAL_linear" not in tutorial_content
 
-
-class TestTutorialLinearExists:
-    """Test TUTORIAL_linear.md exists in generated project."""
-
-    @pytest.fixture
-    def project_path(self):
+    def test_tutorial_linear_not_generated(self):
+        """TUTORIAL_linear.md should NOT be generated."""
         from railway.cli.init import _create_project_structure
 
         with tempfile.TemporaryDirectory() as tmpdir:
             project_path = Path(tmpdir) / "test_project"
             _create_project_structure(project_path, "test_project", "3.10", False)
-            yield project_path
-
-    def test_file_exists(self, project_path):
-        tutorial_linear = project_path / "TUTORIAL_linear.md"
-        assert tutorial_linear.exists()
-
-    def test_mentions_typed_pipeline(self, project_path):
-        content = (project_path / "TUTORIAL_linear.md").read_text()
-        assert "typed_pipeline" in content
-
-    def test_mentions_linear_mode(self, project_path):
-        content = (project_path / "TUTORIAL_linear.md").read_text()
-        assert "--mode linear" in content
-
-    def test_mentions_etl(self, project_path):
-        content = (project_path / "TUTORIAL_linear.md").read_text()
-        assert "ETL" in content
+            assert not (project_path / "TUTORIAL_linear.md").exists()

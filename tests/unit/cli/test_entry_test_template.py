@@ -59,8 +59,8 @@ class TestGeneratedEntryTestRunnable:
                 runner.invoke(app, ["init", "test_project"])
                 os.chdir(Path(tmpdir) / "test_project")
 
-                # Create entry point (use linear mode to avoid dag dependencies)
-                runner.invoke(app, ["new", "entry", "process_data", "--mode", "linear"])
+                # Create entry point (dag mode is the only mode now)
+                runner.invoke(app, ["new", "entry", "process_data"])
 
                 # Run the generated test with verbose flag (the problematic case)
                 result = subprocess.run(

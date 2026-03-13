@@ -2,9 +2,8 @@
 
 このテストスイートは以下を保証する：
 1. 生成されるコードがdag_runner形式に準拠している
-2. Contractが自動生成される
-3. TDDワークフローを促進するテストテンプレートが生成される
-4. 既存オプションとの後方互換性
+2. TDDワークフローを促進するテストテンプレートが生成される
+3. 既存オプションとの後方互換性
 """
 
 import pytest
@@ -95,83 +94,19 @@ class TestNewNodeDagMode:
 
         assert "def update_status(board)" in node_content
 
-    def test_dag_mode_explicit(self, project_dir):
-        """Should accept --mode dag explicitly.
+    def test_dag_mode_is_only_mode(self, project_dir):
+        """Board mode is always used (no --mode option).
 
-        重要性: 明示的に指定できることで、
-        スクリプトやCIでの利用時に意図を明確化できる。
+        重要性: linear モードが削除されたため、dag のみ。
         """
         from railway.cli.main import app
 
-        result = runner.invoke(app, ["new", "node", "explicit_dag", "--mode", "dag"])
+        result = runner.invoke(app, ["new", "node", "explicit_dag"])
 
         assert result.exit_code == 0
         node_content = (project_dir / "src" / "nodes" / "explicit_dag.py").read_text()
         assert "Outcome" in node_content
         assert "def explicit_dag(board)" in node_content
-
-
-class TestNewNodeLinearMode:
-    """Test railway new node --mode linear generates typed_pipeline style.
-
-    linear形式が存在する理由：
-    - ETL、データ変換パイプラインに最適
-    - Outcome不要でシンプル
-    - typed_pipeline との親和性
-    """
-
-    def test_linear_node_returns_contract(self, project_dir):
-        """Linear node should return Contract (not tuple).
-
-        重要性: linear形式ではOutcomeを使用しないため、
-        シンプルなContract返却のみで良い。
-        """
-        from railway.cli.main import app
-
-        result = runner.invoke(app, ["new", "node", "transform", "--mode", "linear"])
-
-        assert result.exit_code == 0
-
-        node_content = (project_dir / "src" / "nodes" / "transform.py").read_text()
-
-        # Should NOT use Outcome
-        assert "Outcome" not in node_content
-        # Should return Contract directly
-        assert "-> TransformOutput:" in node_content
-
-    def test_linear_node_has_optional_input_parameter(self, project_dir):
-        """Linear node should have optional input Contract parameter.
-
-        重要性: Optional にすることで、パイプラインの最初のノードとしても
-        途中のノードとしても使用可能になる。
-        """
-        from railway.cli.main import app
-
-        runner.invoke(app, ["new", "node", "process", "--mode", "linear"])
-
-        node_content = (project_dir / "src" / "nodes" / "process.py").read_text()
-
-        # Should have optional input parameter (first node may not have input)
-        assert "Optional[ProcessInput]" in node_content
-        assert "input_data" in node_content
-
-    def test_linear_node_creates_both_contracts(self, project_dir):
-        """Linear node should create both Input and Output Contracts.
-
-        重要性: Input/Outputの両方を生成することで、
-        型安全なパイプラインをすぐに構築できる。
-        """
-        from railway.cli.main import app
-
-        runner.invoke(app, ["new", "node", "aggregate", "--mode", "linear"])
-
-        # Should create input contract
-        input_path = project_dir / "src" / "contracts" / "aggregate_input.py"
-        assert input_path.exists(), "Should create input contract"
-
-        # Should create output contract
-        output_path = project_dir / "src" / "contracts" / "aggregate_output.py"
-        assert output_path.exists(), "Should create output contract"
 
 
 class TestNewNodeTestTemplate:
@@ -202,20 +137,6 @@ class TestNewNodeTestTemplate:
         assert "Outcome" in test_content
         # Board mode: no Contract import
         assert "CheckHealthContext" not in test_content
-
-    def test_linear_node_test_imports_contracts(self, project_dir):
-        """Test template for linear node should import both contracts.
-
-        重要性: Input/Outputの両方をテストで使用する例を示す。
-        """
-        from railway.cli.main import app
-
-        runner.invoke(app, ["new", "node", "format_output", "--mode", "linear"])
-
-        test_content = (project_dir / "tests" / "nodes" / "test_format_output.py").read_text()
-
-        # Test should reference input and output Contracts
-        assert "FormatOutputInput" in test_content or "FormatOutputOutput" in test_content
 
     def test_test_has_tdd_workflow_comment(self, project_dir):
         """Test template should have TDD workflow comment.
@@ -319,19 +240,6 @@ class TestNewNodeCliOutput:
         assert "TDD" in result.output or "tdd" in result.output.lower()
         assert "pytest" in result.output
 
-    def test_linear_mode_shows_both_contracts(self, project_dir):
-        """Linear mode should show both input and output contracts.
-
-        重要性: linear モードでは2つのContractが生成されることを
-        明示的に伝える。
-        """
-        from railway.cli.main import app
-
-        result = runner.invoke(app, ["new", "node", "both_contracts", "--mode", "linear"])
-
-        assert "both_contracts_input.py" in result.output
-        assert "both_contracts_output.py" in result.output
-
 
 class TestNewNodeBackwardsCompatibility:
     """Test that existing typed node options still work.
@@ -380,8 +288,8 @@ class TestNewNodeBackwardsCompatibility:
 
         assert result.exit_code == 0
 
-    def test_mode_ignored_when_output_specified(self, project_dir):
-        """--mode should be ignored when --output is specified.
+    def test_output_uses_typed_template(self, project_dir):
+        """--output should use typed template (not dag template).
 
         重要性: --output 指定時は既存のテンプレートを使用し、
         予期せぬ動作変更を防止する。
@@ -392,7 +300,7 @@ class TestNewNodeBackwardsCompatibility:
 
         result = runner.invoke(
             app,
-            ["new", "node", "custom", "--output", "CustomOutput", "--mode", "dag"],
+            ["new", "node", "custom", "--output", "CustomOutput"],
         )
 
         assert result.exit_code == 0

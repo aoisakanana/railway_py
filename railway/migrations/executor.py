@@ -71,8 +71,12 @@ def apply_file_change(
                 file_path.write_text(change.content or "", encoding="utf-8")
 
         case ChangeType.FILE_DELETE:
-            if file_path.exists():
-                file_path.unlink()
+            if "*" in change.path or "?" in change.path:
+                for matched_path in project_path.glob(change.path):
+                    matched_path.unlink()
+            else:
+                if file_path.exists():
+                    file_path.unlink()
 
         case ChangeType.FILE_UPDATE:
             # テンプレートから再生成（簡略化版）

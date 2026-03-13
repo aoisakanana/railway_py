@@ -113,7 +113,7 @@ def main():
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)  
 [![Test Coverage](https://img.shields.io/badge/coverage-90%25+-brightgreen.svg)]()  
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)  
-[![Tests](https://img.shields.io/badge/tests-1956%20passing-success.svg)]()  
+[![Tests](https://img.shields.io/badge/tests-2025%20passing-success.svg)]()  
 
 ---  
 
@@ -277,9 +277,6 @@ railway new node processing.validate
 # → src/nodes/processing/validate.py        ← 関数名: validate
 # → tests/nodes/processing/test_validate.py
 
-# linear 形式: 線形パイプライン向け
-railway new node transform --mode linear
-# → Input/Output の2つのContractが生成される
 ```
 
 **命名規則（v0.13.18+）:**
@@ -330,36 +327,13 @@ def check_status(ctx: CheckStatusContext) -> tuple[CheckStatusContext, Outcome]:
 
 </details>
 
-**linear 形式** - シンプルなデータ変換向け:  
+### 使い分け
 
-```python  
-from typing import Optional  
-
-from railway import node  
-
-from contracts.transform_input import TransformInput  
-from contracts.transform_output import TransformOutput  
-
-
-@node  
-def transform(input_data: Optional[TransformInput] = None) -> TransformOutput:  
-    """データを変換する。"""  
-    return TransformOutput(result="transformed")  
-```  
-
-### 使い分け  
-
-| 用途 | 形式 | 理由 |  
-|------|------|------|  
-| 運用自動化、条件分岐あり | **dag（デフォルト）** | Outcomeで遷移を制御 |  
-| ETL、データ変換 | linear | シンプルな入出力 |  
-| 迷ったら | **dag** | より汎用的 |  
-
-| 場面 | 推奨方法 |  
-|------|----------|  
-| 既存ワークフローにノード追加 | `railway new node` |  
-| 単体の処理を作成 | `railway new node` |  
-| 新規ワークフロー作成 | `railway new entry`（ノードも同時生成） |  
+| 場面 | 推奨方法 |
+|------|----------|
+| 既存ワークフローにノード追加 | `railway new node` |
+| 単体の処理を作成 | `railway new node` |
+| 新規ワークフロー作成 | `railway new entry`（ノードも同時生成） |
 
 ---  
 
@@ -370,7 +344,7 @@ Railway Framework は2つの実行モデルを提供します：
 | モデル | 用途 | コマンド |
 |--------|------|----------|
 | **dag_runner** | 条件分岐ワークフロー（推奨） | `railway new entry <name>` |
-| typed_pipeline | 線形パイプライン | `railway new entry <name> --mode linear` |
+| typed_pipeline | 線形パイプライン | Python コードから直接使用 |
 
 dag_runner は **Board モード**（v0.14.0+）と **Contract モード** の2つのスタイルをサポートします。
 
@@ -518,8 +492,7 @@ result = typed_pipeline(
 ### プロジェクト管理  
 ```bash  
 railway init <name>              # プロジェクト作成  
-railway new entry <name>         # エントリポイント作成（dag_runnerモード）  
-railway new entry <name> --mode linear  # 線形パイプラインモード  
+railway new entry <name>         # エントリポイント作成（dag_runnerモード）
 railway docs                     # README をターミナルに表示  
 railway docs --browser           # ブラウザでドキュメントを開く  
 ```  

@@ -7,10 +7,14 @@ and return a ValidationResult without side effects.
 from __future__ import annotations
 
 import keyword
+import re
 from dataclasses import dataclass
 from typing import NamedTuple
 
 from railway.core.dag.types import TransitionGraph
+
+RESERVED_ENTRY_NAMES: tuple[str, ...] = ("exit",)
+DUNDER_PATTERN = re.compile(r"^__.*__$")
 
 
 @dataclass(frozen=True)
@@ -453,12 +457,14 @@ class NameValidation:
         normalized: 正規化後の名前（is_valid=True の場合のみ意味がある）
         error_message: エラーメッセージ（is_valid=True なら空文字列）
         suggestion: 修正提案（あれば）
+        warning: 警告メッセージ（is_valid=True でも設定されうる）
     """
 
     is_valid: bool
     normalized: str
     error_message: str
     suggestion: str
+    warning: str = ""
 
 
 def validate_entry_name(name: str) -> NameValidation:
@@ -509,6 +515,29 @@ def validate_entry_name(name: str) -> NameValidation:
                 f"エントリーポイント名 '{name}' はPythonの予約語のため使用できません。"
             ),
             suggestion=f"{name}_",
+        )
+
+    if DUNDER_PATTERN.match(name):
+        stripped = name.strip("_")
+        return NameValidation(
+            is_valid=False,
+            normalized=name,
+            error_message=(
+                f"[E016] エントリーポイント名 '{name}' はdunder名"
+                f"（二重アンダースコア）のため使用できません。"
+            ),
+            suggestion=stripped,
+        )
+
+    if name in RESERVED_ENTRY_NAMES:
+        return NameValidation(
+            is_valid=False,
+            normalized=name,
+            error_message=(
+                f"[E017] エントリーポイント名 '{name}' は予約名のため使用できません。"
+                f" '{name}' はシステムが使用する名前です。"
+            ),
+            suggestion=f"{name}_handler",
         )
 
     if not name.isidentifier():
@@ -597,6 +626,18 @@ def validate_node_name(name: str) -> NameValidation:
                 suggestion=f"{segment}_",
             )
 
+        if DUNDER_PATTERN.match(segment):
+            stripped = segment.strip("_")
+            return NameValidation(
+                is_valid=False,
+                normalized=name,
+                error_message=(
+                    f"[E016] ノード名のセグメント '{segment}' はdunder名"
+                    f"（二重アンダースコア）のため使用できません。"
+                ),
+                suggestion=stripped,
+            )
+
         if not segment.isidentifier():
             suggestion = _suggest_valid_name(segment)
             if "-" in segment:
@@ -617,6 +658,31 @@ def validate_node_name(name: str) -> NameValidation:
                 ),
                 suggestion=suggestion,
             )
+
+    # 予約名チェック: 裸の "exit" は拒否、"exit.xxx.yyy" は警告
+    if segments[0] in RESERVED_ENTRY_NAMES:
+        if len(segments) == 1:
+            # 裸の "exit" → エラー
+            return NameValidation(
+                is_valid=False,
+                normalized=name,
+                error_message=(
+                    f"[E017] ノード名 '{name}' は予約名のため使用できません。"
+                    f" '{name}' はシステムが使用する名前です。"
+                ),
+                suggestion=f"{name}_handler",
+            )
+        # exit.xxx.yyy → 警告のみ
+        return NameValidation(
+            is_valid=True,
+            normalized=name,
+            error_message="",
+            suggestion="",
+            warning=(
+                f"ノード名 '{name}' は 'exit' 名前空間を使用しています。"
+                " この名前空間はシステムの終端ノードと競合する可能性があります。"
+            ),
+        )
 
     return NameValidation(
         is_valid=True,

@@ -67,12 +67,12 @@ class TestTutorialNewNodeSection:
         assert "pytest" in tutorial_content.lower()
         assert "uv run" in tutorial_content
 
-    def test_tutorial_shows_mode_option(self, tutorial_content):
-        """TUTORIAL should mention --mode option.
+    def test_tutorial_no_linear_mode_reference(self, tutorial_content):
+        """TUTORIAL should NOT mention --mode linear (removed).
 
-        重要性: linear モードの存在を知らせる。
+        重要性: linear モードは削除されたため参照しない。
         """
-        assert "--mode" in tutorial_content or "linear" in tutorial_content
+        assert "--mode linear" not in tutorial_content
 
     def test_tutorial_shows_yaml_integration(self, tutorial_content):
         """TUTORIAL should show how to add node to YAML.

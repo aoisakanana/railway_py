@@ -167,6 +167,9 @@ def run(
 
     try:
         _execute_entry(project_root, resolved_name, extra_args or [])
+    except SystemExit as e:
+        code = e.code if isinstance(e.code, int) else 1
+        raise typer.Exit(code)
     except Exception as e:
         typer.echo(f"Error: Failed to run entry: {e}", err=True)
         raise typer.Exit(1)

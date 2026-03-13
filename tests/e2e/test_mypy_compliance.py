@@ -125,22 +125,6 @@ class TestEntryPointMypyCompliance:
         assert "type: ignore[union-attr]" in content, "Should have type: ignore comment"
         self._assert_no_direct_main_call(content)
 
-    def test_new_entry_linear_uses_typer_app(self, project_dir: Path) -> None:
-        """railway new entry --mode linear で生成されるエントリポイントも _typer_app() を使用する。"""
-        result = run_railway_command(
-            ["new", "entry", "pipeline", "--mode", "linear"],
-            project_dir,
-        )
-        assert result.returncode == 0, f"new entry --mode linear failed: {result.stderr}"
-
-        entrypoint_path = project_dir / "src" / "pipeline.py"
-        content = entrypoint_path.read_text()
-
-        assert 'if __name__ == "__main__":' in content
-        assert "_typer_app()" in content, "Should use _typer_app()"
-        assert "type: ignore[union-attr]" in content, "Should have type: ignore comment"
-        self._assert_no_direct_main_call(content)
-
     def _assert_no_direct_main_call(self, content: str) -> None:
         """__main__ ブロック内で main() や hello() の直接呼び出しがないことを確認。"""
         lines = content.split("\n")

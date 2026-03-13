@@ -46,10 +46,6 @@ class TestReadmeNewNodeSection:
         assert "railway new node" in readme_content
         assert "dag" in readme_content.lower()
 
-    def test_readme_shows_railway_new_node_linear(self, readme_content):
-        """README should show --mode linear option."""
-        assert "--mode linear" in readme_content
-
     def test_readme_shows_generated_files(self, readme_content):
         """README should explain what files are generated.
 
@@ -72,11 +68,3 @@ class TestReadmeNewNodeSection:
         )
         assert has_guidance, "Should have mode selection guidance"
 
-    def test_readme_shows_linear_code_example(self, readme_content):
-        """README should show linear node code example."""
-        assert "Optional[" in readme_content
-        assert "Output:" in readme_content or "Output]" in readme_content
-
-    def test_readme_shows_typing_import(self, readme_content):
-        """README should show typing import for Optional."""
-        assert "from typing import Optional" in readme_content
