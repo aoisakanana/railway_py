@@ -31,10 +31,11 @@ __all__ = [
     "node",
     "Retry",
     "RetryPolicy",
-    # Pipeline (legacy linear)
+    # Pipeline (legacy linear) — v0.14.3: CLI scaffolding は削除済み。
+    # コアライブラリ関数として残存。削除判断は resolver.py のコメント参照。
     "pipeline",
     "async_pipeline",
-    # Pipeline (typed with dependency resolution)
+    # Pipeline (typed with dependency resolution) — 同上
     "typed_pipeline",
     "typed_async_pipeline",
     "DependencyResolver",

@@ -5,10 +5,8 @@ Board モードのエントリーポイント生成を保証する:
 2. 開始ノードが board 引数を使う
 3. 終端ノードが board 引数を使い None を返す
 4. テストテンプレートが BoardBase を使う
-5. --mode linear は従来通り
 """
 
-import os
 import pytest
 from pathlib import Path
 from typer.testing import CliRunner
@@ -228,26 +226,3 @@ class TestNewEntryBoardTestTemplate:
         test_file = tmp_path / "tests" / "test_my_workflow.py"
         content = test_file.read_text()
         assert "result_ctx, outcome" not in content
-
-
-class TestNewEntryLinearModePreserved:
-    """--mode linear が従来通り動作すること。"""
-
-    def test_linear_mode_unchanged(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """--mode linear では従来の typed_pipeline テンプレートが生成されること。"""
-        from railway.cli.main import app
-
-        monkeypatch.chdir(tmp_path)
-        _init_project(tmp_path)
-
-        result = runner.invoke(
-            app, ["new", "entry", "my_workflow", "--mode", "linear"]
-        )
-        assert result.exit_code == 0
-
-        entry_file = tmp_path / "src" / "my_workflow.py"
-        content = entry_file.read_text()
-        assert "typed_pipeline" in content
-        assert "dag_runner" not in content

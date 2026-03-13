@@ -56,8 +56,8 @@ class TestRailwayNewEntry:
             finally:
                 os.chdir(original_cwd)
 
-    def test_new_entry_with_example(self):
-        """Should create example code with --example (uses linear mode for backwards compat)."""
+    def test_new_entry_creates_dag_by_default(self):
+        """Should create dag_runner style entry by default."""
         from railway.cli.main import app
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -65,10 +65,8 @@ class TestRailwayNewEntry:
             original_cwd = os.getcwd()
             try:
                 os.chdir(tmpdir)
-                # Using linear mode since --example is not supported in dag mode
-                runner.invoke(
-                    app, ["new", "entry", "example_entry", "--mode", "linear"]
-                )
+                result = runner.invoke(app, ["new", "entry", "example_entry"])
+                assert result.exit_code == 0
                 content = (Path(tmpdir) / "src" / "example_entry.py").read_text()
                 # Should have actual implementation, not just placeholder
                 assert "return" in content

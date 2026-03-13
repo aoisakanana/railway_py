@@ -150,6 +150,22 @@ def typed_pipeline(
 ) -> Contract:
     """型安全なパイプライン実行（推奨）
 
+    # ── v0.14.3 残存理由 ──────────────────────────────────────────
+    # v0.14.3 で --mode linear CLI スカフォールドは削除されたが、
+    # typed_pipeline() はコアライブラリ関数として残している。
+    #
+    # 理由: dag_runner (Board mode) とは異なるユースケースに対応する。
+    #   - dag_runner: 分岐・合流のある DAG ワークフロー向け
+    #   - typed_pipeline: 直線的な変換パイプライン向け（ETL 等）
+    #
+    # 削除判断の基準:
+    #   - 外部ユーザーが Python コードから直接 typed_pipeline() を使っている場合は残す
+    #   - dag_runner で typed_pipeline の全ユースケースが代替可能と判断した場合は削除可
+    #   - 削除する場合: resolver.py, pipeline.py, __init__.py の export,
+    #     @node(inputs=..., output=...) の Contract mode サポート (decorators.py),
+    #     _is_linear_mode_node() (sync.py), readme_linear.md も合わせて削除
+    # ──────────────────────────────────────────────────────────────
+
     Contract 型による依存性注入を使用した型安全なパイプラインです。
     各ノードは入出力を宣言し、パイプラインが自動的に依存関係を解決します。
 

@@ -22,19 +22,6 @@ class ComponentType(str, Enum):
     contract = "contract"
 
 
-class EntryMode(str, Enum):
-    """Entry point execution mode."""
-
-    dag = "dag"
-    linear = "linear"
-
-
-class NodeMode(str, Enum):
-    """Node template mode."""
-
-    dag = "dag"
-    linear = "linear"
-
 
 def _is_railway_project() -> bool:
     """Check if current directory is a Railway project."""
@@ -371,6 +358,8 @@ def _get_dag_entry_template(name: str) -> str:
     """
     # trace 表示は両テンプレート（sync後/sync前）で同一ロジック
     return f'''"""{name} エントリポイント。"""
+import sys
+
 from railway import entry_point
 
 
@@ -390,6 +379,7 @@ def main():
         print(f"\\u2713 完了 (exit_state={{result.exit_state}})")
     else:
         print(f"\\u2717 失敗 (exit_state={{result.exit_state}})")
+        sys.exit(result.exit_code)
     return result
 
 
@@ -541,64 +531,6 @@ options:
   max_iterations: 100
 '''
 
-
-def _get_linear_entry_template(name: str) -> str:
-    """Get typed_pipeline style entry point template."""
-    return f'''"""
-{name} エントリーポイント
-
-実行モード: typed_pipeline（線形パイプライン）
-"""
-from railway import entry_point, typed_pipeline
-
-from nodes.{name}.step1 import step1
-from nodes.{name}.step2 import step2
-
-
-@entry_point
-def main():
-    """
-    {name} パイプラインを実行する。
-
-    処理順序: step1 → step2
-    """
-    result = typed_pipeline(
-        step1,
-        step2,
-    )
-
-    print(f"完了: {{result}}")
-    return result
-
-
-if __name__ == "__main__":
-    main._typer_app()  # type: ignore[union-attr]
-'''
-
-
-def _get_linear_node_template(name: str, step_num: int) -> str:
-    """Get typed_pipeline style node template (returns Contract)."""
-    return f'''"""
-{name} ステップ{step_num}
-"""
-from railway import Contract, node
-
-
-class Step{step_num}Output(Contract):
-    """ステップ{step_num}の出力"""
-    value: str
-
-
-@node
-def step{step_num}() -> Step{step_num}Output:
-    """
-    ステップ{step_num}の処理。
-
-    Returns:
-        Step{step_num}Output: 処理結果
-    """
-    return Step{step_num}Output(value="processed")
-'''
 
 
 def _to_pascal_case(name: str) -> str:
@@ -791,114 +723,9 @@ class {class_name}Context(Contract):
 '''
 
 
-# =============================================================================
-# Node Templates (linear mode - standalone)
-# =============================================================================
-
-
-def _get_linear_node_standalone_template(
-    name: str,
-    *,
-    module_path: str | None = None,
-) -> str:
-    """Get linear-style node template that returns Contract.
-
-    Pure function: name -> template string
-
-    Args:
-        name: 関数名（最終セグメント）
-        module_path: import パス（ドット区切り）。省略時は name を使用。
-    """
-    import_path = module_path or name
-    class_name = _to_pascal_case(name)
-    return f'''"""{name} ノード"""
-
-from typing import Optional
-
-from railway import node
-
-from contracts.{import_path}_input import {class_name}Input
-from contracts.{import_path}_output import {class_name}Output
-
-
-@node
-def {name}(input_data: Optional[{class_name}Input] = None) -> {class_name}Output:
-    """
-    {name} の処理を実行する。
-
-    Args:
-        input_data: 入力データ（前段ノードからの出力、最初のノードでは None）
-
-    Returns:
-        {class_name}Output: 処理結果
-    """
-    # TODO: 実装を追加
-    # input_data が None の場合は最初のノードとして動作
-    return {class_name}Output()
-'''
-
-
-def _get_linear_node_input_template(name: str, *, func_name: str | None = None) -> str:
-    """Get Input Contract template for linear node.
-
-    Pure function: name -> template string
-
-    Args:
-        name: 表示用の名前
-        func_name: クラス名生成用。省略時は name を使用。
-    """
-    effective_name = func_name or name
-    class_name = _to_pascal_case(effective_name)
-    return f'''"""{class_name}Input - {effective_name} ノードの入力"""
-
-from railway import Contract
-
-
-class {class_name}Input(Contract):
-    """
-    {effective_name} ノードの入力。
-
-    前段のノードから渡されるデータを定義します。
-    """
-    # TODO: 必要なフィールドを定義してください
-    # items: list[dict]
-    pass
-'''
-
-
-def _get_linear_node_output_template(
-    name: str, *, func_name: str | None = None
-) -> str:
-    """Get Output Contract template for linear node.
-
-    Pure function: name -> template string
-
-    Args:
-        name: 表示用の名前
-        func_name: クラス名生成用。省略時は name を使用。
-    """
-    effective_name = func_name or name
-    class_name = _to_pascal_case(effective_name)
-    return f'''"""{class_name}Output - {effective_name} ノードの出力"""
-
-from railway import Contract
-
-
-class {class_name}Output(Contract):
-    """
-    {effective_name} ノードの出力。
-
-    次段のノードまたは最終結果として使用されます。
-    """
-    # TODO: 必要なフィールドを定義してください
-    # result: str
-    # total: int = 0
-    pass
-'''
-
 
 # =============================================================================
-# Node Test Templates (dag/linear mode)
+# Node Test Templates
 # =============================================================================
 
 
@@ -943,58 +770,6 @@ class Test{class_name}:
         assert outcome == Outcome.success("done")
 '''
 
-
-def _get_linear_node_test_standalone_template(
-    name: str,
-    *,
-    module_path: str | None = None,
-) -> str:
-    """Get test template for linear-style node.
-
-    Pure function: name -> template string
-
-    Args:
-        name: 関数名（最終セグメント）
-        module_path: import パス（ドット区切り）。省略時は name を使用。
-    """
-    import_path = module_path or name
-    class_name = _to_pascal_case(name)
-    return f'''"""Tests for {name} node."""
-
-import pytest
-
-from nodes.{import_path} import {name}
-from contracts.{import_path}_input import {class_name}Input
-from contracts.{import_path}_output import {class_name}Output
-
-
-class Test{class_name}:
-    """Test suite for {name} node.
-
-    TDD Workflow:
-    1. Edit this file to define expected behavior
-    2. Run: uv run pytest tests/nodes/test_{name}.py -v
-    3. Implement src/nodes/{name}.py
-    4. Run tests again
-    """
-
-    def test_{name}_returns_output_without_input(self):
-        """Node should return {class_name}Output even without input (first node)."""
-        result = {name}()
-
-        assert isinstance(result, {class_name}Output)
-
-    def test_{name}_returns_output_with_input(self):
-        """Node should return {class_name}Output when given input."""
-        input_data = {class_name}Input()
-        result = {name}(input_data)
-
-        assert isinstance(result, {class_name}Output)
-
-    def test_{name}_basic(self):
-        """Test basic functionality."""
-        pytest.skip("TODO: Implement basic test")
-'''
 
 
 # =============================================================================
@@ -1196,35 +971,21 @@ def _create_entry(
     name: str,
     example: bool,
     force: bool,
-    mode: EntryMode = EntryMode.dag,
     sync: bool = True,
 ) -> None:
-    """Create a new entry point.
+    """Create a new entry point (dag mode).
 
     Args:
         name: エントリポイント名
         example: サンプルコードを含めるか
         force: 既存ファイルを上書きするか
-        mode: 実行モード（dag or linear）
-        sync: sync を実行するか（dag モードのみ）
+        sync: sync を実行するか
 
     Note:
-        dag モードでは既存ファイルがあっても処理を続行する
+        既存ファイルがあっても処理を続行する
         （YAML 変換、transitions 再生成のため）
     """
-    file_path = Path.cwd() / "src" / f"{name}.py"
-
-    # dag モードでは既存ファイルがあっても処理を続行（既存スキップは内部で行う）
-    if file_path.exists() and not force and mode != EntryMode.dag:
-        typer.echo(
-            f"Error: {file_path} already exists. Use --force to overwrite.", err=True
-        )
-        raise typer.Exit(1)
-
-    if mode == EntryMode.dag:
-        _create_dag_entry(name, sync=sync)
-    else:
-        _create_linear_entry(name)
+    _create_dag_entry(name, sync=sync)
 
     # Create test file (only if not exists)
     test_path = Path.cwd() / "tests" / f"test_{name}.py"
@@ -1414,49 +1175,19 @@ def _print_dag_entry_created(
         typer.echo(f"  3. railway run {name}")
 
 
-def _create_linear_entry(name: str) -> None:
-    """Create typed_pipeline style entry point with nodes."""
-    cwd = Path.cwd()
-    src_dir = cwd / "src"
-    nodes_dir = src_dir / "nodes" / name
-
-    # Create directories
-    nodes_dir.mkdir(parents=True, exist_ok=True)
-
-    # Create entry point file
-    entry_content = _get_linear_entry_template(name)
-    _write_file(src_dir / f"{name}.py", entry_content)
-
-    # Create step nodes
-    (nodes_dir / "__init__.py").touch()
-    for i in [1, 2]:
-        node_content = _get_linear_node_template(name, i)
-        _write_file(nodes_dir / f"step{i}.py", node_content)
-
-    typer.echo(f"✓ エントリーポイント '{name}' を作成しました（モード: linear）\n")
-    typer.echo(f"  作成: src/{name}.py")
-    typer.echo(f"  作成: src/nodes/{name}/step1.py")
-    typer.echo(f"  作成: src/nodes/{name}/step2.py")
-    typer.echo("")
-    typer.echo("次のステップ:")
-    typer.echo(f"  1. src/nodes/{name}/ のノードを実装")
-    typer.echo(f"  2. railway run {name}")
-
 
 def _create_node_contract(
     name: str,
-    mode: NodeMode,
     force: bool = False,
     *,
     func_name: str | None = None,
 ) -> None:
-    """Create Contract(s) for node based on mode.
+    """Create Contract for node (dag mode only).
 
     副作用あり: src/contracts/ にファイルを作成
 
     Args:
         name: パス形式の名前（"processing/validate"）
-        mode: ノードモード
         force: 上書きフラグ
         func_name: 関数名（"validate"）。省略時は name から導出。
     """
@@ -1465,26 +1196,12 @@ def _create_node_contract(
         contracts_dir.mkdir(parents=True)
         (contracts_dir / "__init__.py").write_text('"""Contract modules."""\n')
 
-    if mode == NodeMode.dag:
-        _create_single_contract(
-            contracts_dir,
-            f"{name}_context",
-            _get_dag_node_context_template(name, func_name=func_name),
-            force,
-        )
-    else:
-        _create_single_contract(
-            contracts_dir,
-            f"{name}_input",
-            _get_linear_node_input_template(name, func_name=func_name),
-            force,
-        )
-        _create_single_contract(
-            contracts_dir,
-            f"{name}_output",
-            _get_linear_node_output_template(name, func_name=func_name),
-            force,
-        )
+    _create_single_contract(
+        contracts_dir,
+        f"{name}_context",
+        _get_dag_node_context_template(name, func_name=func_name),
+        force,
+    )
 
 
 def _create_single_contract(
@@ -1507,7 +1224,6 @@ def _create_node_test(
     name: str,
     output_type: str | None = None,
     inputs: list[tuple[str, str]] | None = None,
-    mode: NodeMode = NodeMode.dag,
     *,
     module_path: str | None = None,
 ) -> None:
@@ -1536,12 +1252,8 @@ def _create_node_test(
 
     if output_type:
         content = _get_typed_node_test_template(func_name, output_type, inputs or [])
-    elif mode == NodeMode.dag:
-        content = _get_dag_node_test_standalone_template(
-            func_name, module_path=module_path
-        )
     else:
-        content = _get_linear_node_test_standalone_template(
+        content = _get_dag_node_test_standalone_template(
             func_name, module_path=module_path
         )
 
@@ -1579,7 +1291,6 @@ def _create_node(
     force: bool,
     output_type: str | None = None,
     input_specs: list[str] | None = None,
-    mode: NodeMode = NodeMode.dag,
 ) -> None:
     """Create a new node with associated contracts and tests."""
     # ドット区切り名を分解（"processing.validate" → パス/関数名/モジュールパス）
@@ -1601,22 +1312,19 @@ def _create_node(
     if input_specs:
         inputs = [_parse_input_spec(spec) for spec in input_specs]
 
-    # Generate content based on mode and options
+    # Generate content based on options
     if output_type:
         # 既存の --output オプション対応（後方互換性）
         content = _get_typed_node_template(func_name, output_type, inputs)
-    elif mode == NodeMode.dag:
+    else:
         # Board モード: Contract ファイルは生成しない
         content = _get_dag_node_standalone_template(func_name, module_path=module_path)
-    else:
-        content = _get_linear_node_standalone_template(func_name, module_path=module_path)
-        _create_node_contract(path_form, mode, force, func_name=func_name)
 
     file_path.parent.mkdir(parents=True, exist_ok=True)
     _write_file(file_path, content)
 
     # Create test file
-    _create_node_test(path_form, output_type, inputs, mode, module_path=module_path)
+    _create_node_test(path_form, output_type, inputs, module_path=module_path)
 
     # Build test file display path (mirrors _create_node_test logic)
     if "/" in path_form:
@@ -1627,10 +1335,6 @@ def _create_node(
 
     # Output messages
     typer.echo(f"Created src/nodes/{path_form}.py")
-    if not output_type:
-        if mode == NodeMode.linear:
-            typer.echo(f"Created src/contracts/{path_form}_input.py")
-            typer.echo(f"Created src/contracts/{path_form}_output.py")
     typer.echo(f"Created {test_display_path}\n")
 
     if output_type:
@@ -1663,12 +1367,6 @@ def new(
     input_specs: list[str] | None = typer.Option(
         None, "--input", help="Input spec 'param_name:TypeName' (repeatable)"
     ),
-    mode: str = typer.Option(
-        "dag",
-        "--mode",
-        "-m",
-        help="Mode: dag (default, 条件分岐) or linear (線形パイプライン)",
-    ),
     no_sync: bool = typer.Option(
         False,
         "--no-sync",
@@ -1685,9 +1383,7 @@ def new(
     Examples:
         railway new entry my_workflow              # dag_runner 型、sync 実行（デフォルト）
         railway new entry my_workflow --no-sync    # sync をスキップ
-        railway new entry my_workflow --mode linear  # typed_pipeline 型
-        railway new node fetch_data                # dag 形式（デフォルト）
-        railway new node transform --mode linear   # linear 形式
+        railway new node fetch_data                # Board モード（デフォルト）
         railway new contract UsersFetchResult
         railway new contract User --entity
         railway new contract ReportParams --params
@@ -1711,11 +1407,6 @@ def new(
         typer.echo("Error: --input requires --output to be specified.", err=True)
         raise typer.Exit(1)
 
-    # Validate mode
-    if mode not in ("dag", "linear"):
-        typer.echo(f"Error: Invalid mode '{mode}'. Must be 'dag' or 'linear'.", err=True)
-        raise typer.Exit(1)
-
     # Validate component name
     if component_type == ComponentType.entry:
         validation = validate_entry_name(name)
@@ -1731,13 +1422,13 @@ def new(
             if validation.suggestion:
                 typer.echo(f"  候補: {validation.suggestion}", err=True)
             raise typer.Exit(1)
+        if validation.warning:
+            typer.echo(f"Warning: {validation.warning}", err=True)
         name = validation.normalized
 
     if component_type == ComponentType.contract:
         _create_contract(name, entity, params, force)
     elif component_type == ComponentType.entry:
-        entry_mode = EntryMode.dag if mode == "dag" else EntryMode.linear
-        _create_entry(name, example, force, entry_mode, sync=not no_sync)
+        _create_entry(name, example, force, sync=not no_sync)
     else:  # node
-        node_mode = NodeMode.dag if mode == "dag" else NodeMode.linear
-        _create_node(name, example, force, output, input_specs, node_mode)
+        _create_node(name, example, force, output, input_specs)

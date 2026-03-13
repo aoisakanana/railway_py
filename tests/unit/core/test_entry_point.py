@@ -79,28 +79,6 @@ class TestEntryPointDecorator:
 
         assert isinstance(cli_entry._typer_app, typer.Typer)
 
-    def test_entry_point_handle_result_default(self):
-        """Should have handle_result=True by default."""
-        from railway.core.decorators import entry_point
-
-        @entry_point
-        def result_entry() -> str:
-            return "success"
-
-        # handle_result should be True by default
-        assert result_entry._handle_result is True
-
-    def test_entry_point_handle_result_false(self):
-        """Should allow handle_result=False for explicit Result handling."""
-        from railway.core.decorators import entry_point
-
-        @entry_point(handle_result=False)
-        def explicit_result_entry() -> str:
-            return "explicit"
-
-        assert hasattr(explicit_result_entry, "_handle_result")
-        assert explicit_result_entry._handle_result is False
-
 
 class TestEntryPointExecution:
     """Test @entry_point execution behavior."""

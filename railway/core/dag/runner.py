@@ -104,6 +104,20 @@ def _derive_exit_code(exit_state: str) -> int:
     return 0 if exit_state.startswith("success") else 1
 
 
+def _format_exit_outcome(exit_state: str) -> str:
+    """exit_state を NodeTrace/on_step 用の outcome 文字列に変換する。
+
+    ノード種類間で outcome の区切り文字を :: に統一する。
+
+    Args:
+        exit_state: "success.done", "failure.timeout" など
+
+    Returns:
+        "exit::success::done", "exit::failure::timeout" など
+    """
+    return f"exit::{exit_state.replace('.', '::')}"
+
+
 def _get_node_name(func: Callable[..., Any]) -> str:
     """Get node name from function.
 
@@ -524,7 +538,7 @@ def _dag_runner_board(
                         node_name=next_node_name,
                         before=exit_before,
                         after=exit_after,
-                        outcome=f"exit::{result.exit_state}",
+                        outcome=_format_exit_outcome(result.exit_state),
                         mutations=exit_mutations,
                     )
                 )
@@ -545,7 +559,7 @@ def _dag_runner_board(
             if on_step:
                 on_step(
                     next_node_name,
-                    f"exit::{result.exit_state}",
+                    _format_exit_outcome(result.exit_state),
                     board._snapshot(),
                 )
 
@@ -702,7 +716,7 @@ async def _async_dag_runner_board(
                         node_name=next_node_name,
                         before=exit_before,
                         after=exit_after,
-                        outcome=f"exit::{result.exit_state}",
+                        outcome=_format_exit_outcome(result.exit_state),
                         mutations=exit_mutations,
                     )
                 )
@@ -723,7 +737,7 @@ async def _async_dag_runner_board(
             if on_step:
                 on_step(
                     next_node_name,
-                    f"exit::{result.exit_state}",
+                    _format_exit_outcome(result.exit_state),
                     board._snapshot(),
                 )
 
@@ -924,7 +938,7 @@ def dag_runner(
             if on_step:
                 on_step(
                     next_node_name,
-                    f"exit::{contract_result.exit_state}",
+                    _format_exit_outcome(contract_result.exit_state),
                     contract_result,
                 )
 
@@ -1065,7 +1079,7 @@ async def async_dag_runner(
             if on_step:
                 on_step(
                     next_node_name,
-                    f"exit::{contract_result.exit_state}",
+                    _format_exit_outcome(contract_result.exit_state),
                     contract_result,
                 )
 

@@ -34,17 +34,6 @@ class TestEntryTemplateMypy:
         assert "type: ignore[union-attr]" in content, "Should have type: ignore comment"
         self._assert_no_direct_call(content, "main")
 
-    def test_linear_entry_template_uses_typer_app(self) -> None:
-        """linear テンプレートも _typer_app() を使用する"""
-        from railway.cli.new import _get_linear_entry_template
-
-        content = _get_linear_entry_template("greeting")
-
-        assert 'if __name__ == "__main__":' in content
-        assert "_typer_app()" in content, "Should use _typer_app()"
-        assert "type: ignore[union-attr]" in content, "Should have type: ignore comment"
-        self._assert_no_direct_call(content, "main")
-
     def test_entry_template_uses_typer_app(self) -> None:
         """_get_entry_template も _typer_app() を使用する"""
         from railway.cli.new import _get_entry_template

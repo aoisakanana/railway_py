@@ -42,6 +42,20 @@ P = ParamSpec("P")
 T = TypeVar("T")
 
 
+def _is_failure_outcome(result: Any) -> bool:
+    """結果が failure Outcome を含むかどうかを判定する。
+
+    Board mode: result は Outcome オブジェクト
+    Contract mode: result は tuple[Contract, Outcome]
+    """
+    outcome = result
+    if isinstance(result, tuple) and len(result) == 2:
+        outcome = result[1]
+    if hasattr(outcome, "is_failure") and hasattr(outcome, "outcome_type"):
+        return outcome.is_failure  # type: ignore[no-any-return]
+    return False
+
+
 class Retry:
     """Retry configuration for nodes."""
 
@@ -357,7 +371,10 @@ def _create_sync_wrapper(
             if log_output:
                 logger.debug(f"[{node_name}] 出力: {result}")
 
-            logger.info(f"[{node_name}] ✓ 完了")
+            if _is_failure_outcome(result):
+                logger.warning(f"[{node_name}] ⚠ 完了(failure)")
+            else:
+                logger.info(f"[{node_name}] ✓ 完了")
             return result
 
         except Exception as e:
@@ -424,7 +441,10 @@ def _create_async_wrapper(
             if log_output:
                 logger.debug(f"[{node_name}] 出力: {result}")
 
-            logger.info(f"[{node_name}] ✓ 完了")
+            if _is_failure_outcome(result):
+                logger.warning(f"[{node_name}] ⚠ 完了(failure)")
+            else:
+                logger.info(f"[{node_name}] ✓ 完了")
             return result
 
         except Exception as e:
@@ -688,8 +708,6 @@ async def _execute_async_with_retry_policy(
 
 def entry_point(
     func: Callable[P, T] | None = None,
-    *,
-    handle_result: bool = True,
 ) -> Callable[P, Any] | Callable[[Callable[P, T]], Callable[P, Any]]:
     """
     Entry point decorator that provides:
@@ -699,7 +717,6 @@ def entry_point(
 
     Args:
         func: Function to decorate
-        handle_result: Automatically handle Result types (default: True)
 
     Returns:
         Decorated function with CLI integration
@@ -767,7 +784,6 @@ def entry_point(
         entry_wrapper._original_func = f  # type: ignore[attr-defined]
         entry_wrapper._impl = f  # type: ignore[attr-defined]  # Alias for direct testing
         entry_wrapper._is_railway_entry_point = True  # type: ignore[attr-defined]
-        entry_wrapper._handle_result = handle_result  # type: ignore[attr-defined]
         entry_wrapper.__doc__ = f.__doc__
 
         return entry_wrapper

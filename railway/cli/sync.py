@@ -21,6 +21,7 @@ from railway.core.dag.parser import ParseError, load_transition_graph, parse_tra
 from railway.core.dag.path_validator import PathIssue, PathValidationResult
 from railway.core.dag.schema import validate_yaml_schema
 from railway.core.dag.skeleton import (
+    SkeletonSpec,
     compute_file_path,
     compute_skeleton_specs,
     filter_regular_nodes,
@@ -200,6 +201,23 @@ def sync_exit_nodes(graph: TransitionGraph, project_root: Path) -> SyncResult:
 # =============================================================================
 
 
+def _has_explicit_module(node_def: NodeDefinition, entrypoint: str) -> bool:
+    """ノードが明示的な module 指定を持つかどうかを判定する（純粋関数）。
+
+    デフォルトの module パス（nodes.{entrypoint}.{node_name}）と異なる場合、
+    明示的に module が指定されていると判定する。
+
+    Args:
+        node_def: ノード定義
+        entrypoint: エントリーポイント名
+
+    Returns:
+        明示的な module 指定がある場合 True
+    """
+    default_module = f"nodes.{entrypoint}.{node_def.name}"
+    return node_def.module != default_module
+
+
 def sync_regular_nodes(graph: TransitionGraph, project_root: Path) -> SyncResult:
     """未実装の通常ノードにスケルトンを生成（副作用あり）。
 
@@ -219,27 +237,48 @@ def sync_regular_nodes(graph: TransitionGraph, project_root: Path) -> SyncResult
     """
     src_dir = project_root / "src"
 
-    # Step 1-2: 純粋関数でスケルトン仕様を計算
-    yaml_nodes = tuple(n.name for n in graph.nodes)
-    regular_nodes = filter_regular_nodes(yaml_nodes)
-    specs = compute_skeleton_specs(regular_nodes, graph.entrypoint)
-
     generated: list[Path] = []
     skipped: list[Path] = []
 
+    # Step 1: 明示 module ノードとデフォルトノードを分離
+    explicit_module_nodes: list[NodeDefinition] = []
+    default_node_names: list[str] = []
+    for node_def in graph.nodes:
+        if node_def.is_exit:
+            continue
+        if _has_explicit_module(node_def, graph.entrypoint):
+            explicit_module_nodes.append(node_def)
+        else:
+            default_node_names.append(node_def.name)
+
+    # Step 2: 明示 module ノード - module パスからファイルパスを直接計算
+    for node_def in explicit_module_nodes:
+        module_file_path = src_dir / (node_def.module.replace(".", "/") + ".py")
+        if module_file_path.exists():
+            skipped.append(module_file_path)
+            continue
+        explicit_spec = SkeletonSpec(
+            node_name=node_def.name,
+            module_path=node_def.module,
+            entrypoint=graph.entrypoint,
+            is_exit_node=False,
+        )
+        content = generate_regular_node_content(explicit_spec)
+        _write_skeleton_file(module_file_path, content)
+        generated.append(module_file_path)
+
+    # Step 3: デフォルトノード - 既存ロジック
+    regular_nodes = filter_regular_nodes(tuple(default_node_names))
+    specs = compute_skeleton_specs(regular_nodes, graph.entrypoint)
+
     for spec in specs:
-        # Step 3: 純粋関数でパス計算
         file_path = compute_file_path(spec, src_dir)
 
-        # Step 5: 副作用 - ファイル存在確認
         if file_path.exists():
             skipped.append(file_path)
             continue
 
-        # Step 4: 純粋関数でコード生成
         content = generate_regular_node_content(spec)
-
-        # Step 5: 副作用 - ファイル書き込み
         _write_skeleton_file(file_path, content)
         generated.append(file_path)
 
@@ -546,23 +585,6 @@ def _sync_entry(
     regular_result = sync_regular_nodes(graph, cwd)
     for path in regular_result.generated:
         typer.echo(f"  通常ノード生成: {path.relative_to(cwd)}")
-
-    # Board 型ファイル書き込み（Board モード時のみ）
-    if board_analyses:
-        from railway.core.dag.board_codegen import generate_board_type
-
-        entry_fields = _detect_entry_fields(graph, board_analyses)
-        board_code = generate_board_type(
-            graph.entrypoint,
-            board_analyses,
-            entry_fields,
-            source_file=str(yaml_path.relative_to(graphs_dir.parent)),
-        )
-        board_output_path = output_dir / f"{entry_name}_board.py"
-        board_output_path.write_text(board_code, encoding="utf-8")
-        typer.echo(
-            f"  Board型生成: _railway/generated/{entry_name}_board.py"
-        )
 
     # Generate code (pure function) - Board モード反映済み
     relative_yaml = yaml_path.relative_to(graphs_dir.parent)
