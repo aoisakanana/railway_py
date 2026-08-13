@@ -47,19 +47,17 @@ def _extract_node_info(file_path: Path) -> dict[str, Any] | None:
                         # Get docstring
                         docstring = ast.get_docstring(node)
 
-                        # Get return annotation
+                        # Get return annotation (Subscript 等の複合型も含めて文字列化)
                         return_type = None
                         if node.returns:
-                            if isinstance(node.returns, ast.Name):
-                                return_type = node.returns.id
+                            return_type = ast.unparse(node.returns)
 
                         # Get function arguments
                         args = []
                         for arg in node.args.args:
                             arg_info = {"name": arg.arg}
                             if arg.annotation:
-                                if isinstance(arg.annotation, ast.Name):
-                                    arg_info["type"] = arg.annotation.id
+                                arg_info["type"] = ast.unparse(arg.annotation)
                             args.append(arg_info)
 
                         return {
@@ -77,18 +75,52 @@ def _extract_node_info(file_path: Path) -> dict[str, Any] | None:
         return None
 
 
-def _find_node(name: str) -> dict[str, Any] | None:
-    """Find a node by name in src/nodes/."""
+def _resolve_node_file(nodes_dir: Path, name: str) -> Path | list[Path] | None:
+    """名前からノードファイルを解決する。
+
+    解決規則（v0.13.25 Issue 04 で決定）:
+    - 正式記法はドット区切り（`new node` と統一）。スラッシュ記法は
+      後方互換としてドット記法に正規化して受理する
+    - 完全ドット名の exact match を最優先（常に一意解決）
+    - 短縮名（leaf 名）は一意なら解決。複数一致は候補リストを返す
+      （暗黙にどれかを選ぶことはしない）
+
+    Returns:
+        一意解決: Path / 複数一致: list[Path] / 不一致: None
+    """
+    normalized = name.replace("/", ".")
+    files = [f for f in nodes_dir.rglob("*.py") if not f.name.startswith("_")]
+    dotted = {
+        ".".join(f.relative_to(nodes_dir).with_suffix("").parts): f
+        for f in files
+    }
+    if normalized in dotted:
+        return dotted[normalized]
+    leaf_matches = [
+        f for d, f in sorted(dotted.items()) if d.rsplit(".", 1)[-1] == normalized
+    ]
+    if len(leaf_matches) == 1:
+        return leaf_matches[0]
+    if len(leaf_matches) > 1:
+        return leaf_matches
+    return None
+
+
+def _find_node(name: str) -> dict[str, Any] | list[Path] | None:
+    """Find a node by name in src/nodes/.
+
+    Returns:
+        一意解決: ノード情報 dict / 短縮名の複数一致: 候補 Path リスト / 不一致: None
+    """
     nodes_dir = Path.cwd() / "src" / "nodes"
 
     if not nodes_dir.exists():
         return None
 
-    node_file = nodes_dir / f"{name}.py"
-    if node_file.exists():
-        return _extract_node_info(node_file)
-
-    return None
+    resolved = _resolve_node_file(nodes_dir, name)
+    if resolved is None or isinstance(resolved, list):
+        return resolved
+    return _extract_node_info(resolved)
 
 
 def _display_node_info(info: dict[str, Any]) -> None:
@@ -138,6 +170,15 @@ def show(
 
     if component_type == "node":
         info = _find_node(name)
+        if isinstance(info, list):
+            nodes_dir = Path.cwd() / "src" / "nodes"
+            typer.echo(f"Error: Node '{name}' is ambiguous. Candidates:", err=True)
+            for candidate in info:
+                dotted = ".".join(
+                    candidate.relative_to(nodes_dir).with_suffix("").parts
+                )
+                typer.echo(f"  {dotted}", err=True)
+            raise typer.Exit(1)
         if info:
             _display_node_info(info)
         else:

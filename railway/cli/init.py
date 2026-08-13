@@ -95,6 +95,16 @@ packages = ["src"]
 mypy_path = "src"
 explicit_package_bases = true
 ignore_missing_imports = true
+
+# 品質ゲートの基準を実行場所に依存させないため設定を同梱（v0.13.25）。
+# _railway/ は機械生成コードのため品質ゲート対象外。
+[tool.ruff]
+line-length = 100
+extend-exclude = ["_railway"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+ignore = ["E501"]
 '''
     _write_file(project_path / "pyproject.toml", content)
 
@@ -205,6 +215,8 @@ uv run railway run hello
 Hello, World!
 ```
 
+> 実際には `Running entry point: hello` と INFO ログ数行が先行して表示されます（Step 2 も同様）。
+
 🎉 **2分で動きました！** 次のStepでは、DAGワークフローの核心を学びます。
 
 ---
@@ -294,7 +306,7 @@ DAGワークフローのノードは `Contract` と `Outcome` を返す純粋関
 
 ```python
 from railway import Contract, node
-from railway.core.dag import Outcome
+from railway.core.dag.outcome import Outcome
 
 
 class GreetingContext(Contract):
@@ -304,13 +316,16 @@ class GreetingContext(Contract):
 
 @node
 def start(ctx: GreetingContext | None = None) -> tuple[GreetingContext, Outcome]:
-    \"\"\"開始ノード
+    \"\"\"ワークフロー開始ノード。
 
     Args:
         ctx: 初期コンテキスト（省略時はデフォルト値を使用）
+
+    Returns:
+        (context, outcome): コンテキストと状態
     \"\"\"
     if ctx is None:
-        ctx = GreetingContext(message="Hello, Railway!")
+        ctx = GreetingContext(message="Hello")
     return ctx, Outcome.success("done")
 ```
 
@@ -396,7 +411,7 @@ transitions:
 ```python
 from datetime import datetime
 from railway import Contract, node
-from railway.core.dag import Outcome
+from railway.core.dag.outcome import Outcome
 
 
 class TimeContext(Contract):
@@ -435,7 +450,7 @@ def check_time(ctx: TimeContext | None = None) -> tuple[TimeContext, Outcome]:
 
 ```python
 from railway import node
-from railway.core.dag import Outcome
+from railway.core.dag.outcome import Outcome
 from nodes.greeting.check_time import TimeContext
 
 
@@ -450,7 +465,7 @@ def greet_morning(ctx: TimeContext) -> tuple[TimeContext, Outcome]:
 
 ```python
 from railway import node
-from railway.core.dag import Outcome
+from railway.core.dag.outcome import Outcome
 from nodes.greeting.check_time import TimeContext
 
 
@@ -465,7 +480,7 @@ def greet_afternoon(ctx: TimeContext) -> tuple[TimeContext, Outcome]:
 
 ```python
 from railway import node
-from railway.core.dag import Outcome
+from railway.core.dag.outcome import Outcome
 from nodes.greeting.check_time import TimeContext
 
 
@@ -789,7 +804,6 @@ def process(ctx: ProcessContext) -> tuple[ProcessContext, Outcome]:
 ### さらに学ぶ
 
 - [TUTORIAL_linear.md](TUTORIAL_linear.md) - 線形パイプライン詳細チュートリアル
-- [docs/adr/002_execution_models.md](docs/adr/002_execution_models.md) - 実行モデルの詳細
 - `railway docs` - README をターミナルに表示
 - `railway docs --browser` - ブラウザでドキュメントを開く
 
@@ -800,6 +814,17 @@ def process(ctx: ProcessContext) -> tuple[ProcessContext, Outcome]:
 1. 週末と平日で挨拶を変える分岐を追加
 2. 複数の終端ノード（exit.success.done, exit.failure.error）を使い分け
 3. CompositeCallback を使って複数のコールバックを組み合わせ
+
+---
+
+## コード品質チェック
+
+プロジェクトには ruff / mypy の設定が同梱されています:
+
+```bash
+uv run ruff check .   # リント（_railway/ の生成コードは対象外）
+uv run mypy src/      # 型チェック
+```
 
 ---
 
@@ -1036,7 +1061,6 @@ A → │
 ## 次のステップ
 
 - [TUTORIAL.md](TUTORIAL.md) - DAGワークフローチュートリアル
-- [docs/adr/002_execution_models.md](docs/adr/002_execution_models.md) - 実行モデルの詳細
 '''
     _write_file(project_path / "TUTORIAL_linear.md", content)
 
@@ -1088,7 +1112,7 @@ description: "サンプルワークフロー"
 
 nodes:
   greet:
-    module: nodes.greet
+    module: nodes.hello.greet
     function: greet
     description: "挨拶を出力"
 
@@ -1196,11 +1220,11 @@ def _create_conftest_py(project_path: Path) -> None:
 import sys
 from pathlib import Path
 
+import pytest
+
 # src/ を sys.path に追加（テストからのインポートを可能に）
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root / "src"))
-
-import pytest
 
 
 @pytest.fixture
@@ -1368,7 +1392,13 @@ def _show_success_output(project_name: str) -> None:
 def init(
     project_name: str = typer.Argument(..., help="Name of the project to create"),
     python_version: str = typer.Option("3.10", help="Minimum Python version"),
-    with_examples: bool = typer.Option(False, help="Include example entry points"),
+    with_examples: bool = typer.Option(
+        False,
+        help=(
+            "Generate hello.py with a pipeline example "
+            "(default: minimal hello.py; file set is identical in both modes)"
+        ),
+    ),
 ) -> None:
     """
     Create a new Railway Framework project.

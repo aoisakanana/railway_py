@@ -112,19 +112,40 @@ def _find_entries() -> list[dict[str, Any]]:
     return [e for e in entries if e is not None]
 
 
+def node_path_to_dot_notation(py_file: Path, nodes_dir: Path) -> str:
+    """src/nodes/ からの相対パスをドット記法に正規化する（純粋関数）。
+
+    例: processing/validate.py -> "processing.validate"
+    """
+    rel = py_file.relative_to(nodes_dir)
+    return ".".join(rel.with_suffix("").parts)
+
+
 def _find_nodes() -> list[dict[str, Any]]:
-    """Find all nodes in src/nodes/."""
+    """Find all nodes in src/nodes/ (再帰探索、ドット記法で表示)。
+
+    exit/ 配下は終端ノードのため一覧から除外する（従来挙動の明示化）。
+    """
     nodes_dir = Path.cwd() / "src" / "nodes"
 
     if not nodes_dir.exists():
         return []
 
     def should_analyze(py_file: Path) -> bool:
-        return not py_file.name.startswith("_")
+        if py_file.name.startswith("_"):
+            return False
+        rel_parts = py_file.relative_to(nodes_dir).parts
+        return rel_parts[0] != "exit"
 
-    files = [f for f in nodes_dir.glob("*.py") if should_analyze(f)]
+    files = sorted(f for f in nodes_dir.rglob("*.py") if should_analyze(f))
     nodes = [_analyze_node_file(f) for f in files]
-    return [n for n in nodes if n is not None]
+    result = []
+    for f, n in zip(files, nodes):
+        if n is None:
+            continue
+        n["name"] = node_path_to_dot_notation(f, nodes_dir)
+        result.append(n)
+    return result
 
 
 def _find_contracts() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -141,7 +162,7 @@ def _find_contracts() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     contracts = []
     params = []
 
-    for py_file in contracts_dir.glob("*.py"):
+    for py_file in sorted(contracts_dir.rglob("*.py")):
         if py_file.name.startswith("_"):
             continue
 
@@ -208,7 +229,7 @@ def _display_all(entries: list[dict[str, Any]], nodes: list[dict[str, Any]], tes
     _display_nodes(nodes)
 
     typer.echo("\nStatistics:")
-    typer.echo(f"  {len(entries)} entry points, {len(nodes)} nodes, {tests} tests")
+    typer.echo(f"  {len(entries)} entry points, {len(nodes)} nodes, {tests} test files")
 
 
 def list_components(

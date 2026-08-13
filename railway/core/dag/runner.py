@@ -16,7 +16,8 @@ v0.12.3: 型安全性強制
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+import inspect
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from loguru import logger
@@ -443,7 +444,7 @@ def dag_runner(
 
 
 async def async_dag_runner(
-    start: Callable[[], tuple[Any, Outcome]],
+    start: Callable[[], tuple[Any, Outcome]] | Callable[[], Awaitable[tuple[Any, Outcome]]],
     transitions: dict[str, Callable[..., Any] | str],
     max_iterations: int = 100,
     strict: bool = True,
@@ -474,11 +475,11 @@ async def async_dag_runner(
     execution_path: list[str] = []
     iteration = 0
 
-    # Execute start node
-    if asyncio.iscoroutinefunction(start):
-        context, outcome = await start()
-    else:
-        context, outcome = start()
+    # Execute start node (sync / async の両対応)
+    start_result = start()
+    if inspect.isawaitable(start_result):
+        start_result = await start_result
+    context, outcome = start_result
 
     node_name = _get_node_name(start)
     state_string = outcome.to_state_string(node_name)

@@ -149,7 +149,8 @@ def _generate_header(source_file: str) -> str:
 
 def _generate_framework_imports() -> str:
     """Generate framework imports."""
-    return """from typing import Any, Callable
+    return """import inspect
+from typing import Any, Callable
 
 from railway import ExitContract
 from railway.core.dag.runner import dag_runner, async_dag_runner
@@ -266,7 +267,10 @@ async def run_async(
         ExitContract: Execution result with exit_code, exit_state, context
     """
     async def start_wrapper():
-        return await START_NODE(initial_context)
+        result = START_NODE(initial_context)
+        if inspect.isawaitable(result):
+            result = await result
+        return result
     start_wrapper._node_name = START_NODE._node_name  # type: ignore[attr-defined]
     return await async_dag_runner(
         start=start_wrapper,

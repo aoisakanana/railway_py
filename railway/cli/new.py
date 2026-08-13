@@ -943,8 +943,8 @@ def _get_dag_node_test_standalone_template(
 
 import pytest
 
-from nodes.{import_path} import {name}
 from contracts.{import_path}_context import {class_name}Context
+from nodes.{import_path} import {name}
 
 
 class Test{class_name}:
@@ -1123,7 +1123,6 @@ def _get_entry_test_template(name: str) -> str:
     class_name = "".join(word.title() for word in name.split("_"))
     return f'''"""Tests for {name} entry point."""
 
-import pytest
 from typer.testing import CliRunner
 
 from {name} import main
@@ -1284,14 +1283,15 @@ def _create_entry(
 
 
 def _find_existing_yaml(graphs_dir: Path, name: str) -> Path | None:
-    """既存の YAML ファイルを検索（純粋関数）。"""
-    pattern = f"{name}_*.yml"
-    matches = list(graphs_dir.glob(pattern))
-    if not matches:
-        return None
-    # 最新のタイムスタンプを持つファイルを返す
-    matches.sort(key=lambda p: p.name, reverse=True)
-    return matches[0]
+    """既存の YAML ファイルを検索（純粋関数）。
+
+    sync.py の find_latest_yaml と同一の厳密マッチを共有する。
+    緩い glob（{name}_*.yml）はプレフィックス関係の別エントリ YAML
+    （例: alert に対する alert_hoge_*.yml）を誤認するため使用しない。
+    """
+    from railway.cli.sync import find_latest_yaml
+
+    return find_latest_yaml(graphs_dir, name)
 
 
 def _is_old_format_yaml(yaml_content: str) -> bool:
@@ -1377,14 +1377,15 @@ def _create_dag_entry(name: str, sync: bool = True) -> None:
     exit_result = _generate_exit_nodes_from_yaml(yaml_content, cwd)
 
     # 4. Sync transition (if enabled) - always regenerate
+    sync_ok = True
     if sync:
         output_dir.mkdir(parents=True, exist_ok=True)
-        _run_sync_for_entry(name, graphs_dir, output_dir)
+        sync_ok = _run_sync_for_entry(name, graphs_dir, output_dir)
 
     # 5. Create entrypoint (only if not exists)
     entry_path = src_dir / f"{name}.py"
     if not entry_path.exists():
-        if sync:
+        if sync and sync_ok:
             entry_content = _get_dag_entry_template(name)
         else:
             entry_content = _get_dag_entry_template_pending_sync(name)
@@ -1395,15 +1396,25 @@ def _create_dag_entry(name: str, sync: bool = True) -> None:
         name, timestamp, exit_result, sync,
         yaml_created=yaml_created,
         existing_yaml=existing_yaml,
+        sync_ok=sync_ok,
     )
+
+    # sync を試みて失敗した場合は失敗として終了する
+    # （--no-sync 明示時は sync=False のためこの経路に入らない）
+    if sync and not sync_ok:
+        raise typer.Exit(1)
 
 
 def _run_sync_for_entry(
     name: str,
     graphs_dir: Path,
     output_dir: Path,
-) -> None:
+) -> bool:
     """sync transition を実行する（副作用あり）。
+
+    Returns:
+        sync が成功し生成物が作られた場合 True。
+        スキップ・失敗した場合は stderr に警告を出して False。
 
     Note:
         subprocess ではなく、直接 Python 関数を呼び出す。
@@ -1412,7 +1423,13 @@ def _run_sync_for_entry(
 
     yaml_path = find_latest_yaml(graphs_dir, name)
     if yaml_path is None:
-        return
+        typer.echo(
+            f"警告: {name} 用の遷移グラフ（{name}_<timestamp>.yml）が見つからないため "
+            f"sync をスキップしました。_railway/generated/{name}_transitions.py "
+            "は生成されていません。",
+            err=True,
+        )
+        return False
 
     try:
         _sync_entry(
@@ -1425,6 +1442,14 @@ def _run_sync_for_entry(
         )
     except SyncError as e:
         typer.echo(f"警告: sync 中にエラーが発生しました: {e}", err=True)
+        typer.echo(
+            f"警告: _railway/generated/{name}_transitions.py は生成されていません。"
+            f"transition_graphs/ の YAML を修正後、"
+            f"`railway sync transition --entry {name}` を実行してください。",
+            err=True,
+        )
+        return False
+    return True
 
 
 def _print_dag_entry_created(
@@ -1434,8 +1459,12 @@ def _print_dag_entry_created(
     sync: bool,
     yaml_created: bool = True,
     existing_yaml: Path | None = None,
+    sync_ok: bool = True,
 ) -> None:
-    """生成結果を表示する（副作用あり: 標準出力）。"""
+    """生成結果を表示する（副作用あり: 標準出力）。
+
+    表示するのは実際に作成・生成・使用したものだけ（出力の真実性）。
+    """
     if yaml_created:
         typer.echo(f"✓ エントリーポイント '{name}' を作成しました（モード: dag）\n")
         typer.echo(f"  作成: src/{name}.py")
@@ -1451,11 +1480,11 @@ def _print_dag_entry_created(
         relative = path.relative_to(cwd)
         typer.echo(f"  作成: {relative}")
 
-    if sync:
+    if sync and sync_ok:
         typer.echo(f"  生成: _railway/generated/{name}_transitions.py")
 
     typer.echo("")
-    if sync:
+    if sync and sync_ok:
         typer.echo("次のステップ:")
         typer.echo(f"  railway run {name}")
     else:
