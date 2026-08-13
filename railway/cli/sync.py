@@ -23,6 +23,7 @@ from railway.core.dag.skeleton import (
     compute_file_path,
     compute_skeleton_specs,
     filter_regular_nodes,
+    generate_module_content,
     generate_regular_node_content,
 )
 from railway.core.dag.types import NodeDefinition, TransitionGraph
@@ -199,6 +200,91 @@ def sync_exit_nodes(graph: TransitionGraph, project_root: Path) -> SyncResult:
 # =============================================================================
 
 
+def _extract_bound_names(source: str) -> tuple[frozenset[str], bool]:
+    """モジュールソースのトップレベルで束縛される名前を抽出する（純粋関数）。
+
+    v0.13.26 Issue 02 の偽陽性ポリシー:
+    束縛ありと判定するのは def / async def / class / トップレベル代入 /
+    import / from-import（as 別名含む）。`import *` は判定不能フラグで返す。
+
+    Returns:
+        (束縛名の集合, `import *` の有無)
+    """
+    import ast
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return frozenset(), False
+
+    names: set[str] = set()
+    has_star = False
+    for stmt in tree.body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(stmt.name)
+        elif isinstance(stmt, ast.Assign):
+            for target in stmt.targets:
+                if isinstance(target, ast.Name):
+                    names.add(target.id)
+        elif isinstance(stmt, ast.AnnAssign):
+            if isinstance(stmt.target, ast.Name):
+                names.add(stmt.target.id)
+        elif isinstance(stmt, ast.ImportFrom):
+            for alias in stmt.names:
+                if alias.name == "*":
+                    has_star = True
+                else:
+                    names.add(alias.asname or alias.name)
+        elif isinstance(stmt, ast.Import):
+            for alias in stmt.names:
+                names.add((alias.asname or alias.name).split(".")[0])
+    return frozenset(names), has_star
+
+
+def _verify_node_bindings(
+    graph: TransitionGraph, src_dir: Path
+) -> tuple[list[str], list[str]]:
+    """生成 transitions の import 対象（module:function）が解決可能か検証する。
+
+    v0.13.26 Issue 02: sync 成功（exit 0）は「生成物の全 import が解決可能」を意味する
+    という性質を保証する。静的に判定不能な束縛（`import *` 等）は失敗ではなく
+    警告に落とす（既存プロジェクトの後方互換優先）。
+
+    Returns:
+        (warnings, errors)
+    """
+    warnings: list[str] = []
+    errors: list[str] = []
+    for node in graph.nodes:
+        if not node.has_handler:
+            continue
+        module_rel = node.module.replace(".", "/")
+        module_file = src_dir / f"{module_rel}.py"
+        if not module_file.exists():
+            package_init = src_dir / module_rel / "__init__.py"
+            if package_init.exists():
+                module_file = package_init
+            else:
+                errors.append(
+                    f"module '{node.module}' が見つかりません（ノード '{node.name}'）"
+                )
+                continue
+        bound, has_star = _extract_bound_names(module_file.read_text())
+        if node.function in bound:
+            continue
+        if has_star:
+            warnings.append(
+                f"{node.module} の '{node.function}' を静的に確認できません"
+                f"（`import *` があるため実行時解決に委ねます）"
+            )
+        else:
+            errors.append(
+                f"{node.module} に関数 '{node.function}' が定義されていません"
+                f"（ノード '{node.name}'）"
+            )
+    return warnings, errors
+
+
 def _has_explicit_module(node_def: NodeDefinition, entrypoint: str) -> bool:
     """ノードが明示的な module 指定を持つかどうかを判定する（純粋関数）。
 
@@ -249,19 +335,40 @@ def sync_regular_nodes(graph: TransitionGraph, project_root: Path) -> SyncResult
         else:
             default_node_names.append(node_def.name)
 
-    # Step 2: 明示 module ノード - module パスからファイルパスを直接計算
+    # Step 2: 明示 module ノード - module 単位にグループ化して生成
+    # v0.13.26 Issue 02: 同一 module を共有する複数ノードの全関数を 1 ファイルに生成し、
+    # 明示 function: をスタブの関数名に反映する
+    grouped: dict[str, list[NodeDefinition]] = {}
     for node_def in explicit_module_nodes:
-        module_file_path = src_dir / (node_def.module.replace(".", "/") + ".py")
+        grouped.setdefault(node_def.module, []).append(node_def)
+
+    for module, defs in grouped.items():
+        module_file_path = src_dir / (module.replace(".", "/") + ".py")
         if module_file_path.exists():
+            # 既存ユーザー実装は上書きしない。不足関数は具体的に警告する
+            # （実際の束縛検証と失敗判定は _verify_node_bindings が行う）
+            bound, has_star = _extract_bound_names(module_file_path.read_text())
+            if not has_star:
+                missing = [d.function for d in defs if d.function not in bound]
+                if missing:
+                    typer.echo(
+                        f"  警告: {module} に不足している関数があります: "
+                        f"{', '.join(missing)}（既存ファイルは上書きしません）",
+                        err=True,
+                    )
             skipped.append(module_file_path)
             continue
-        explicit_spec = SkeletonSpec(
-            node_name=node_def.name,
-            module_path=node_def.module,
-            entrypoint=graph.entrypoint,
-            is_exit_node=False,
+        module_specs = tuple(
+            SkeletonSpec(
+                node_name=d.name,
+                module_path=module,
+                entrypoint=graph.entrypoint,
+                is_exit_node=False,
+                function_name=d.function,
+            )
+            for d in defs
         )
-        content = generate_regular_node_content(explicit_spec)
+        content = generate_module_content(module_specs)
         _write_skeleton_file(module_file_path, content)
         generated.append(module_file_path)
 
@@ -540,6 +647,14 @@ def _sync_entry(
     regular_result = sync_regular_nodes(graph, cwd)
     for path in regular_result.generated:
         typer.echo(f"  通常ノード生成: {path.relative_to(cwd)}")
+
+    # v0.13.26 Issue 02: 生成後検証 — 全ノードの module:function が解決可能であること
+    binding_warnings, binding_errors = _verify_node_bindings(graph, cwd / "src")
+    for msg in binding_warnings:
+        typer.echo(f"  警告: {msg}", err=True)
+    if binding_errors:
+        error_msgs = "\n  ".join(binding_errors)
+        raise SyncError(f"生成物の import が解決できません:\n  {error_msgs}")
 
     # Generate code (pure function)
     relative_yaml = yaml_path.relative_to(graphs_dir.parent)

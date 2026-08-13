@@ -117,7 +117,6 @@ class {name}(Contract):
     # items: list[dict]
     # total: int
     # fetched_at: datetime
-    pass
 '''
 
 
@@ -155,7 +154,6 @@ class {name}(Params):
     """
     # user_id: int
     # include_details: bool = False
-    pass
 '''
 
 
@@ -809,7 +807,6 @@ class {class_name}Context(Contract):
     # TODO: 必要なフィールドを定義してください
     # value: str
     # processed: bool = False
-    pass
 '''
 
 
@@ -835,8 +832,6 @@ def _get_linear_node_standalone_template(
     class_name = _to_pascal_case(name)
     return f'''"""{name} ノード"""
 
-from typing import Optional
-
 from railway import node
 
 from contracts.{import_path}_input import {class_name}Input
@@ -844,7 +839,7 @@ from contracts.{import_path}_output import {class_name}Output
 
 
 @node
-def {name}(input_data: Optional[{class_name}Input] = None) -> {class_name}Output:
+def {name}(input_data: {class_name}Input | None = None) -> {class_name}Output:
     """
     {name} の処理を実行する。
 
@@ -884,7 +879,6 @@ class {class_name}Input(Contract):
     """
     # TODO: 必要なフィールドを定義してください
     # items: list[dict]
-    pass
 '''
 
 
@@ -915,7 +909,6 @@ class {class_name}Output(Contract):
     # TODO: 必要なフィールドを定義してください
     # result: str
     # total: int = 0
-    pass
 '''
 
 
@@ -1002,9 +995,9 @@ def _get_linear_node_test_standalone_template(
 
 import pytest
 
-from nodes.{import_path} import {name}
 from contracts.{import_path}_input import {class_name}Input
 from contracts.{import_path}_output import {class_name}Output
+from nodes.{import_path} import {name}
 
 
 class Test{class_name}:
@@ -1368,10 +1361,12 @@ def _create_dag_entry(name: str, sync: bool = True) -> None:
 
     # 2. Create start node (only if not exists)
     start_node_path = nodes_dir / "start.py"
+    created_start = False
     if not start_node_path.exists():
         node_content = _get_dag_node_template(name)
         (nodes_dir / "__init__.py").touch()
         _write_file(start_node_path, node_content)
+        created_start = True
 
     # 3. Generate exit nodes from YAML (skips existing)
     exit_result = _generate_exit_nodes_from_yaml(yaml_content, cwd)
@@ -1384,12 +1379,14 @@ def _create_dag_entry(name: str, sync: bool = True) -> None:
 
     # 5. Create entrypoint (only if not exists)
     entry_path = src_dir / f"{name}.py"
+    created_entry = False
     if not entry_path.exists():
         if sync and sync_ok:
             entry_content = _get_dag_entry_template(name)
         else:
             entry_content = _get_dag_entry_template_pending_sync(name)
         _write_file(entry_path, entry_content)
+        created_entry = True
 
     # Output messages
     _print_dag_entry_created(
@@ -1397,6 +1394,8 @@ def _create_dag_entry(name: str, sync: bool = True) -> None:
         yaml_created=yaml_created,
         existing_yaml=existing_yaml,
         sync_ok=sync_ok,
+        created_entry=created_entry,
+        created_start=created_start,
     )
 
     # sync を試みて失敗した場合は失敗として終了する
@@ -1460,20 +1459,27 @@ def _print_dag_entry_created(
     yaml_created: bool = True,
     existing_yaml: Path | None = None,
     sync_ok: bool = True,
+    created_entry: bool = True,
+    created_start: bool = True,
 ) -> None:
     """生成結果を表示する（副作用あり: 標準出力）。
 
     表示するのは実際に作成・生成・使用したものだけ（出力の真実性）。
+    v0.13.26 NEW-4: 既存 YAML 使用時も、実際に作成したファイルを列挙する。
     """
     if yaml_created:
         typer.echo(f"✓ エントリーポイント '{name}' を作成しました（モード: dag）\n")
-        typer.echo(f"  作成: src/{name}.py")
-        typer.echo(f"  作成: src/nodes/{name}/start.py")
-        typer.echo(f"  作成: transition_graphs/{name}_{timestamp}.yml")
     else:
         typer.echo(f"✓ エントリーポイント '{name}' を更新しました（モード: dag）\n")
         if existing_yaml:
             typer.echo(f"  使用: {existing_yaml.name}")
+
+    if created_entry:
+        typer.echo(f"  作成: src/{name}.py")
+    if created_start:
+        typer.echo(f"  作成: src/nodes/{name}/start.py")
+    if yaml_created:
+        typer.echo(f"  作成: transition_graphs/{name}_{timestamp}.yml")
 
     cwd = Path.cwd()
     for path in exit_result.generated:
@@ -1583,6 +1589,26 @@ def _create_single_contract(
         _write_file(file_path, content)
 
 
+def _ensure_init_files(base_dir: Path, relative_path: str) -> None:
+    """base_dir から relative_path の親までの各中間ディレクトリに __init__.py を作成する。
+
+    階層ノードで同名リーフが共存した際に pytest の import 解決が衝突しないよう、
+    パッケージ化を保証する（sync 経路の _ensure_package_directory と同じ役割）。
+    既存の __init__.py は上書きしない。
+
+    Args:
+        base_dir: 起点ディレクトリ（src/nodes, tests/nodes 等）
+        relative_path: 起点からの相対ファイルパス（"processing/validate.py" 等）
+    """
+    current = base_dir
+    for part in Path(relative_path).parent.parts:
+        current = current / part
+        current.mkdir(parents=True, exist_ok=True)
+        init_path = current / "__init__.py"
+        if not init_path.exists():
+            init_path.touch()
+
+
 def _create_node_test(
     name: str,
     output_type: str | None = None,
@@ -1607,6 +1633,7 @@ def _create_node_test(
         parts = name.rsplit("/", 1)
         func_name = parts[1]
         test_file = tests_dir / parts[0] / f"test_{func_name}.py"
+        _ensure_init_files(tests_dir, f"{parts[0]}/test_{func_name}.py")
     else:
         func_name = name
         test_file = tests_dir / f"test_{name}.py"
@@ -1675,6 +1702,10 @@ def _create_node(
     if file_path.exists() and not force:
         typer.echo(f"Error: {file_path} already exists. Use --force to overwrite.", err=True)
         raise typer.Exit(1)
+
+    # 階層ノード: 中間ディレクトリをパッケージ化（同名リーフの import 衝突防止）
+    if "/" in path_form:
+        _ensure_init_files(nodes_dir, f"{path_form}.py")
 
     # Parse inputs (for --input option)
     inputs: list[tuple[str, str]] = []

@@ -165,3 +165,33 @@ class TestExitCodeRules:
             f"sync 失敗時は exit 1 であるべき: stdout={result.stdout}"
         )
         assert "警告" in result.stderr or "エラー" in result.stderr
+
+
+class TestExistingYamlCreatedFilesListed:
+    """既存 YAML 使用時も、実際に作成したファイルを出力に列挙する (v0.13.26 NEW-4)。"""
+
+    def test_created_files_listed(self, runner: CliRunner, project: Path) -> None:
+        from railway.cli.main import app
+        (project / "transition_graphs/alert_20260101000000.yml").write_text(
+            'version: "1.0"\n'
+            "entrypoint: alert\n"
+            'description: "a"\n'
+            "nodes:\n"
+            "  start:\n"
+            "    module: nodes.alert.start\n"
+            "    function: start\n"
+            '    description: "start"\n'
+            "  exit:\n"
+            "    success:\n"
+            "      done:\n"
+            '        description: "done"\n'
+            "start: start\n"
+            "transitions:\n"
+            "  start:\n"
+            "    success::done: exit.success.done\n"
+        )
+        result = runner.invoke(app, ["new", "entry", "alert"])
+        assert result.exit_code == 0, result.output
+        assert "使用: alert_20260101000000.yml" in result.stdout
+        assert "作成: src/alert.py" in result.stdout
+        assert "作成: src/nodes/alert/start.py" in result.stdout

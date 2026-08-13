@@ -89,3 +89,18 @@ class TestRuffGuidance:
 
     def test_ruff_check_dot_present(self, generated: dict) -> None:
         assert "ruff check ." in generated["tutorial"]
+
+
+class TestStep23YamlMatchesGenerated:
+    """Step 2.3 の掲載 YAML が生成物と一致する (v0.13.26 NEW-6)。"""
+
+    def test_step23_yaml_equals_generated_template(self, generated: dict) -> None:
+        from railway.cli.new import _get_dag_yaml_template
+        expected = _get_dag_yaml_template("greeting").strip()
+        tutorial = generated["tutorial"]
+        step2 = tutorial.split("## Step 2")[1].split("## Step 3")[0]
+        blocks = re.findall(r"```yaml\s*\n(.*?)```", step2, re.DOTALL)
+        assert blocks, "Step 2.3 に yaml ブロックがない"
+        assert any(b.strip() == expected for b in blocks), (
+            "Step 2.3 の YAML が生成テンプレートと一致しない"
+        )

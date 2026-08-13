@@ -258,7 +258,8 @@ railway run greeting
 
 ### 2.3 遷移グラフを確認
 
-`transition_graphs/greeting_*.yml` を開いて確認してください:
+`transition_graphs/greeting_*.yml` を開いて確認してください
+（終端ノードは `nodes.exit` 配下に定義します。v0.13.0+）:
 
 ```yaml
 version: "1.0"
@@ -271,7 +272,6 @@ nodes:
     function: start
     description: "開始ノード"
 
-  # 終端ノードは nodes.exit 配下に定義（v0.13.0+）
   exit:
     success:
       done:
@@ -286,6 +286,9 @@ transitions:
   start:
     success::done: exit.success.done
     failure::error: exit.failure.error
+
+options:
+  max_iterations: 100
 ```
 
 編集後は再同期：
@@ -410,6 +413,7 @@ transitions:
 
 ```python
 from datetime import datetime
+
 from railway import Contract, node
 from railway.core.dag.outcome import Outcome
 
@@ -451,6 +455,7 @@ def check_time(ctx: TimeContext | None = None) -> tuple[TimeContext, Outcome]:
 ```python
 from railway import node
 from railway.core.dag.outcome import Outcome
+
 from nodes.greeting.check_time import TimeContext
 
 
@@ -466,6 +471,7 @@ def greet_morning(ctx: TimeContext) -> tuple[TimeContext, Outcome]:
 ```python
 from railway import node
 from railway.core.dag.outcome import Outcome
+
 from nodes.greeting.check_time import TimeContext
 
 
@@ -481,6 +487,7 @@ def greet_afternoon(ctx: TimeContext) -> tuple[TimeContext, Outcome]:
 ```python
 from railway import node
 from railway.core.dag.outcome import Outcome
+
 from nodes.greeting.check_time import TimeContext
 
 
@@ -825,6 +832,10 @@ def process(ctx: ProcessContext) -> tuple[ProcessContext, Outcome]:
 uv run ruff check .   # リント（_railway/ の生成コードは対象外）
 uv run mypy src/      # 型チェック
 ```
+
+> **Note:** 親 Git リポジトリの配下にプロジェクトを作成した場合、親の `.gitignore`
+> （例: `test_*` パターン）が ruff の検査対象を黙って絞り込むことがあります。
+> CI では `uv run ruff check . --no-respect-gitignore` の利用を検討してください。
 
 ---
 

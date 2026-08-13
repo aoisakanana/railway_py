@@ -171,3 +171,23 @@ class TestContractsRecursiveDiscovery:
         )
         result = runner.invoke(app, ["list", "contracts"])
         assert "ValidateContext" in result.stdout
+
+
+class TestListDescriptionFallback:
+    """モジュール docstring がないノードは関数 docstring を表示 (v0.13.26 NEW-6)。"""
+
+    def test_function_docstring_fallback(self, runner: CliRunner, project: Path) -> None:
+        from railway.cli.main import app
+        p = project / "src/nodes/nodoc.py"
+        p.write_text(
+            "from railway import node\n"
+            "from railway.core.dag.outcome import Outcome\n\n\n"
+            "@node\n"
+            "def nodoc(ctx: dict) -> tuple[dict, Outcome]:\n"
+            '    """関数側の説明テキスト"""\n'
+            '    return ctx, Outcome.success("done")\n'
+        )
+        result = runner.invoke(app, ["list"])
+        assert "関数側の説明テキスト" in result.stdout
+        line = next(l for l in result.stdout.splitlines() if "nodoc" in l)
+        assert "No description" not in line

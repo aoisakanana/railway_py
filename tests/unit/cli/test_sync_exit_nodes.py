@@ -316,10 +316,16 @@ transitions:
 '''
         (graphs_dir / "test_20260201000000.yml").write_text(yaml_content)
 
-        # 既存ファイルを作成
+        # 既存ファイルを作成（v0.13.26: 生成後検証があるため、実際に done を定義する
+        # 現実的なカスタム実装とする。関数未定義の placeholder は検証エラーになる仕様）
         exit_path = tmp_path / "src/nodes/exit/success/done.py"
         exit_path.parent.mkdir(parents=True)
-        exit_path.write_text("# custom implementation")
+        custom_content = (
+            "# custom implementation\n"
+            "def done(ctx):\n"
+            "    return ctx\n"
+        )
+        exit_path.write_text(custom_content)
 
         output_dir = tmp_path / "_railway" / "generated"
         output_dir.mkdir(parents=True)
@@ -334,7 +340,7 @@ transitions:
         )
 
         # 上書きされていない
-        assert exit_path.read_text() == "# custom implementation"
+        assert exit_path.read_text() == custom_content
 
     def test_sync_entry_dry_run_skips_exit_nodes(self, tmp_path: Path) -> None:
         """dry-run 時は終端ノードを生成しない。"""

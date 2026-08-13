@@ -46,6 +46,36 @@ def _analyze_entry_file(file_path: Path) -> dict[str, Any] | None:
         return None
 
 
+def _extract_node_function_docstring(content: str, leaf_name: str) -> str | None:
+    """@node 関数の docstring 1行目を抽出する（純粋関数）。
+
+    v0.13.26 NEW-6: 選択規則 — ファイル leaf 名と一致する @node 関数を優先し、
+    なければ最初の @node 関数を採用する（module 明示の複数関数ファイル対応）。
+    """
+    import ast
+
+    try:
+        tree = ast.parse(content)
+    except SyntaxError:
+        return None
+
+    node_funcs = []
+    for stmt in tree.body:
+        if not isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for decorator in stmt.decorator_list:
+            dec = decorator.func if isinstance(decorator, ast.Call) else decorator
+            if isinstance(dec, ast.Name) and dec.id == "node":
+                node_funcs.append(stmt)
+                break
+
+    if not node_funcs:
+        return None
+    target = next((f for f in node_funcs if f.name == leaf_name), node_funcs[0])
+    doc = ast.get_docstring(target)
+    return doc.split("\n")[0].strip() if doc else None
+
+
 def _analyze_node_file(file_path: Path) -> dict[str, Any] | None:
     """Analyze a Python file for @node decorator."""
     try:
@@ -55,8 +85,10 @@ def _analyze_node_file(file_path: Path) -> dict[str, Any] | None:
         if "@node" not in content:
             return None
 
-        # Get module docstring
+        # Get module docstring (v0.13.26 NEW-6: 関数 docstring へフォールバック)
         docstring = _extract_module_docstring(content)
+        if not docstring:
+            docstring = _extract_node_function_docstring(content, file_path.stem)
 
         return {
             "name": file_path.stem,

@@ -21,7 +21,11 @@ def runner() -> CliRunner:
 
 
 def _scaffold(runner: CliRunner, tmp_path: Path, mode: str = "dag") -> Path:
-    """隔離環境にプロジェクトを scaffold する。"""
+    """隔離環境にプロジェクトを scaffold する。
+
+    node は {dag, linear} × {フラット, 階層} の有効な 4 変種すべてを生成する
+    （v0.13.26 Issue 03: 階層×linear は contracts のパス合成が他と異なる唯一の変種）。
+    """
     from railway.cli.main import app
 
     old = os.getcwd()
@@ -32,8 +36,14 @@ def _scaffold(runner: CliRunner, tmp_path: Path, mode: str = "dag") -> Path:
         os.chdir(tmp_path / "qa_proj")
         r = runner.invoke(app, ["new", "entry", "greeting", "--mode", mode])
         assert r.exit_code == 0, r.output
-        r = runner.invoke(app, ["new", "node", "processing.validate"])
-        assert r.exit_code == 0, r.output
+        for args in (
+            ["new", "node", "flat_check"],                                # dag フラット
+            ["new", "node", "processing.validate"],                       # dag 階層
+            ["new", "node", "flat_linear", "--mode", "linear"],           # linear フラット
+            ["new", "node", "deep_pkg.transform", "--mode", "linear"],    # linear 階層
+        ):
+            r = runner.invoke(app, args)
+            assert r.exit_code == 0, r.output
         return tmp_path / "qa_proj"
     finally:
         os.chdir(old)
@@ -73,8 +83,11 @@ class TestScaffoldMypyGate:
     """`mypy src/` がエラー 0（既定設定の回帰防止。
     生成 transitions の型検証は Issue 01 の回帰テストが担当）。"""
 
-    def test_mypy_src_clean(self, runner: CliRunner, tmp_path: Path) -> None:
-        project = _scaffold(runner, tmp_path)
+    @pytest.mark.parametrize("mode", ["dag", "linear"])
+    def test_mypy_src_clean(
+        self, runner: CliRunner, tmp_path: Path, mode: str
+    ) -> None:
+        project = _scaffold(runner, tmp_path, mode=mode)
         proc = subprocess.run(
             [sys.executable, "-m", "mypy", "src/"],
             capture_output=True, text=True, cwd=str(project), timeout=180,

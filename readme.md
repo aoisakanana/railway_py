@@ -70,7 +70,7 @@ def main():
 [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)  
 [![Test Coverage](https://img.shields.io/badge/coverage-90%25+-brightgreen.svg)]()  
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)  
-[![Tests](https://img.shields.io/badge/tests-1663%20passing-success.svg)]()  
+[![Tests](https://img.shields.io/badge/tests-1686%20passing-success.svg)]()  
 
 ---  
 
@@ -710,6 +710,12 @@ for step in recorder.get_history():
     print(f"[{step.node_name}] -> {step.state}")  
 ```  
 
+> **state フォーマットの仕様（v0.13.x）:** 通常ノードの state は
+> `node_name::status::detail`（例: `check_severity::success::critical`）、
+> **終端ノードは `exit::` プレフィックス + ドット区切り**
+> （例: `exit::success.done`）です。state をパースする場合はこの差異に注意してください。
+> v0.14 系では `exit::success::done` 形式（`::` 統一）に変更されています。  
+
 ### AuditLogger  
 
 監査ログを出力：  
@@ -927,7 +933,8 @@ def check_severity(ctx: AlertContext) -> tuple[AlertContext, Outcome]:
 ### ステップ3: 遷移グラフを定義  
 
 ```yaml  
-# transition_graphs/alert_workflow.yml  
+# transition_graphs/alert_workflow_20260101000000.yml  
+# （ファイル名は {entrypoint}_{タイムスタンプ14桁}.yml 形式）  
 version: "1.0"  
 entrypoint: alert_workflow  
 
@@ -942,6 +949,12 @@ nodes:
     module: nodes.alert.log_only  
     function: log_only  
 
+  # 終端ノードは nodes.exit 配下に定義（v0.13.0+）  
+  exit:  
+    success:  
+      done:  
+        description: "正常終了"  
+
 start: check_severity  
 
 transitions:  
@@ -949,9 +962,9 @@ transitions:
     success::critical: escalate  
     success::normal: log_only  
   escalate:  
-    success::done: exit::success  
+    success::done: exit.success.done  
   log_only:  
-    success::done: exit::success  
+    success::done: exit.success.done  
 ```  
 
 ### ステップ4: コード生成と実行  

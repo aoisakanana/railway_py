@@ -163,7 +163,8 @@ class TestNewNodeLinearMode:
         node_content = (project_dir / "src" / "nodes" / "process.py").read_text()
 
         # Should have optional input parameter (first node may not have input)
-        assert "Optional[ProcessInput]" in node_content
+        # v0.13.26: Optional[T] → T | None（Python 3.10+ 準拠、同梱 ruff UP045 対応）
+        assert "ProcessInput | None" in node_content
         assert "input_data" in node_content
 
     def test_linear_node_creates_both_contracts(self, project_dir):
