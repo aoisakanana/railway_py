@@ -528,7 +528,7 @@ def find_latest_yaml(graphs_dir: Path, entry_name: str) -> Path | None:
     Find the latest YAML file for an entrypoint.
 
     Files are expected to be named: {entry_name}_{timestamp}.yml
-    Returns the one with the latest timestamp.
+    Returns the one with the latest timestamp (numeric sort).
 
     Args:
         graphs_dir: Directory containing YAML files
@@ -537,15 +537,20 @@ def find_latest_yaml(graphs_dir: Path, entry_name: str) -> Path | None:
     Returns:
         Path to latest YAML, or None if not found
     """
-    pattern = f"{entry_name}_*.yml"
-    matches = list(graphs_dir.glob(pattern))
+    pattern = re.compile(rf"^{re.escape(entry_name)}_(\d+)\.yml$")
+    matches: list[tuple[int, Path]] = []
+
+    for p in graphs_dir.glob("*.yml"):
+        m = pattern.match(p.name)
+        if m:
+            matches.append((int(m.group(1)), p))
 
     if not matches:
         return None
 
-    # Sort by filename (timestamp) descending
-    matches.sort(key=lambda p: p.name, reverse=True)
-    return matches[0]
+    # Sort by numeric suffix descending
+    matches.sort(key=lambda x: x[0], reverse=True)
+    return matches[0][1]
 
 
 def find_all_entrypoints(graphs_dir: Path) -> list[str]:
