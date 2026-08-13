@@ -251,8 +251,6 @@ def check_status(ctx: CheckStatusContext) -> tuple[CheckStatusContext, Outcome]:
 **linear 形式** - シンプルなデータ変換向け:  
 
 ```python  
-from typing import Optional  
-
 from railway import node  
 
 from contracts.transform_input import TransformInput  
@@ -260,7 +258,7 @@ from contracts.transform_output import TransformOutput
 
 
 @node  
-def transform(input_data: Optional[TransformInput] = None) -> TransformOutput:  
+def transform(input_data: TransformInput | None = None) -> TransformOutput:  
     """データを変換する。"""  
     return TransformOutput(result="transformed")  
 ```  
